@@ -2,7 +2,7 @@
 // riel de cuero café, una sola pata central con base de cruz. También las sillas de madera.
 
 import * as THREE from 'three';
-import { mesh, toon, wobble, flatShadow } from '../scene/toon.js';
+import { mesh, toon, wobble, flatShadow, roundBox } from '../scene/toon.js';
 
 export const TABLE_R = 0.74, FELT_Y = 0.76;
 const decal = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
@@ -32,7 +32,7 @@ export function makeTable() {
   // pata central y base de cruz
   put(g, mesh(wobble(new THREE.CylinderGeometry(0.075, 0.095, FELT_Y - 0.16, 10, 3), 0.004, 2), woodDark), 0, (FELT_Y - 0.16) / 2 + 0.06, 0);
   put(g, mesh(wobble(new THREE.CylinderGeometry(0.13, 0.15, 0.08, 10), 0.004, 3), wood), 0, 0.1, 0);
-  for (const a of [Math.PI / 4, -Math.PI / 4]) put(g, mesh(wobble(new THREE.BoxGeometry(0.98, 0.06, 0.1, 4, 1, 1), 0.006, 4 + a), woodDark), 0, 0.03, 0, 0, a, 0);
+  for (const a of [Math.PI / 4, -Math.PI / 4]) put(g, mesh(wobble(roundBox(0.98, 0.06, 0.1, 0.45), 0.006, 4 + a), woodDark), 0, 0.03, 0, 0, a, 0);
 
   // cubierta: faldón, tabla, fieltro y riel
   put(g, mesh(wobble(new THREE.CylinderGeometry(0.82, 0.8, 0.09, 40, 1, true), 0.005, 5), toon(woodDark, { side: THREE.DoubleSide })), 0, FELT_Y - 0.075, 0);
@@ -72,13 +72,13 @@ export function makeTableProps() {
 export function makeChair() {
   const g = new THREE.Group();
   const wood = '#6a4530', dark = '#523525';
-  put(g, mesh(wobble(new THREE.BoxGeometry(0.46, 0.05, 0.42, 2, 1, 2), 0.006, 12), wood), 0, 0.46, -0.04);
+  put(g, mesh(wobble(roundBox(0.46, 0.05, 0.42, 0.45), 0.006, 12), wood), 0, 0.46, -0.04);
   for (const [x, z] of [[-0.19, 0.13], [0.19, 0.13], [-0.19, -0.2], [0.19, -0.2]]) {
     put(g, mesh(new THREE.CylinderGeometry(0.02, 0.017, 0.44, 6), dark), x, 0.22, z, 0, 0, x * 0.08);
   }
   for (const x of [-0.19, 0.19]) put(g, mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6), dark), x, 0.72, -0.22, -0.08);
   g.add(flatShadow(0.3, 0.27, 0.01));
-  for (const y of [0.78, 0.92]) put(g, mesh(wobble(new THREE.BoxGeometry(0.42, 0.07, 0.025, 3, 1, 1), 0.005, y * 10), wood), 0, y, -0.23, -0.08);
+  for (const y of [0.78, 0.92]) put(g, mesh(wobble(roundBox(0.42, 0.07, 0.03, 0.45), 0.005, y * 10), wood), 0, y, -0.23, -0.08);
   return g;
 }
 

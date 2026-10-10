@@ -5,7 +5,7 @@
 // La lámpara de domo mostaza cuelga sobre la mesa; fuera de su luz el cuarto es más oscuro (toon.js).
 
 import * as THREE from 'three';
-import { mesh, toon, wobble, glow, flatShadow, INK, LAMP } from './toon.js';
+import { mesh, toon, wobble, glow, flatShadow, roundBox, INK, LAMP } from './toon.js';
 
 const ROOM = { x: 2.25, back: -2.4, front: 2.7, h: 2.6 };
 const WAINSCOT = 0.95;
@@ -150,7 +150,7 @@ function sign(text, w, h, bg, size) {
 
 /* ---------- piezas ---------- */
 function box(parent, w, h, d, color, x, y, z, ry = 0, wob = 0.006) {
-  const geo = new THREE.BoxGeometry(w, h, d, Math.max(1, Math.round(w * 3)), Math.max(1, Math.round(h * 3)), 1);
+  const geo = roundBox(w, h, d);
   const m = mesh(wob ? wobble(geo, wob, x * 3 + z) : geo, color);
   m.position.set(x, y, z); m.rotation.y = ry;
   parent.add(m);

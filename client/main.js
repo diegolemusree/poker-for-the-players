@@ -4,6 +4,7 @@
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel } from './ui/hand.js';
+import { SUIT_PATH } from './ui/suits.js';
 
 const MAXP = 6;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -68,8 +69,10 @@ let scene3d = null, shell = null, hudEl = null;
 const use3D = () => can3D && !sceneFailed && store.get('ppt-view') !== '2d';
 function loadScene() {
   if (sceneMod || sceneLoading || !use3D()) return;
-  sceneLoading = import('./scene/index.js')
-    .then(m => { sceneMod = m; if (screen === 'table') draw(); })
+  // las cartas se pintan con la letra de caricatura: se espera a que cargue antes de crear la escena
+  const font = document.fonts ? Promise.race([document.fonts.load('64px "Chewy"'), new Promise(r => setTimeout(r, 2500))]).catch(() => {}) : Promise.resolve();
+  sceneLoading = Promise.all([import('./scene/index.js'), font])
+    .then(([m]) => { sceneMod = m; if (screen === 'table') draw(); })
     .catch(e => { console.error(e); sceneFailed = true; draw(); });
 }
 
@@ -129,7 +132,18 @@ function drawAccess() {
       inp, h('button', { class: 'btn go', onclick: go }, 'Entrar')));
 }
 
-const logo = () => h('h1', { class: 'logo' }, 'Poker for the Players', h('small', {}, '♠ ♥ torneo entre amigos ♦ ♣'));
+// Logo rotulado a mano: letras chuecas y la "o" de Poker es un ojo de párpado caído que parpadea.
+const EYE = '<svg class="eye" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="21" r="16" fill="#fbf6e6" stroke="#1d1611" stroke-width="3.5"/><circle cx="23" cy="25" r="4.5" fill="#1d1611"/><path class="lid" d="M4 19 A16 16 0 0 1 36 19 Z" fill="#e0b552" stroke="#1d1611" stroke-width="3.5" stroke-linejoin="round"/></svg>';
+const letters = (t) => [...t].map(c => h('span', { class: 'l' }, c));
+function logo() {
+  const eye = h('span', { class: 'l' });
+  eye.innerHTML = EYE; // SVG fijo del código, sin texto de usuarios
+  return h('h1', { class: 'logo', 'aria-label': 'Poker for the Players' },
+    h('span', { class: 'w', 'aria-hidden': 'true' }, letters('P'), eye, letters('ker')),
+    h('span', { class: 'w mid', 'aria-hidden': 'true' }, 'for the'),
+    h('span', { class: 'w', 'aria-hidden': 'true' }, letters('Players')),
+    h('small', {}, '♠ ♥ torneo entre amigos ♦ ♣'));
+}
 
 function drawHome() {
   const nickIn = h('input', { type: 'text', maxLength: 16, id: 'nick', value: nick, placeholder: 'Tu apodo', autocomplete: 'off' });
@@ -478,10 +492,20 @@ function draw3D() {
 }
 
 const QUALITY_NAME = { auto: 'Auto', alta: 'Alta', media: 'Media', baja: 'Baja' };
+// palo dibujado (el mismo trazo que en las cartas 3D)
+function suitSvg(s) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '-8 -8 116 116'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('class', 'suit');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', SUIT_PATH[s]);
+  svg.append(path);
+  return svg;
+}
 function miniCard(c) {
   if (!c) return h('span', { class: 'mc empty', 'aria-hidden': 'true' });
   const rank = c[0] === 'T' ? '10' : c[0];
-  return h('span', { class: 'mc' + ('hd'.includes(c[1]) ? ' red' : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` }, rank, h('i', {}, GLYPH[c[1]]));
+  return h('span', { class: 'mc' + ('hd'.includes(c[1]) ? ' red' : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` }, h('b', {}, rank), suitSvg(c[1]));
 }
 function drawHud() {
   const v = snap.view, mine = me();

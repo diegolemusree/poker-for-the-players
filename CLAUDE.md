@@ -11,7 +11,7 @@ Responde y comenta en español. El nombre de la marca va en inglés ("Poker for 
 ## Identidad de la marca
 
 - Nombre completo: **Poker for the Players**. Usarlo en el `<title>`, en la pantalla de inicio y en la vista previa al compartir el link.
-- Logotipo en SVG con el mismo estilo de animación 2D de la escena (ver "Estilo visual"): letras rotuladas a mano con línea delgada color tinta, colores de la paleta apagada y algún detalle alienígena o de palo de baraja. Original, sin parecerse a logos de series existentes.
+- Logotipo con el mismo estilo de caricatura de la escena: letras Chewy mostaza con contorno de tinta y sombra ladrillo, un poco chuecas, y la "o" de Poker es un ojo de párpado caído que parpadea. Original, sin parecerse a logos de series existentes.
 - Favicon e ícono para celular (`apple-touch-icon` y `manifest.json`) para que se pueda agregar a la pantalla de inicio como si fuera app.
 - Etiquetas Open Graph (`og:title`, `og:description`, `og:image`) con una imagen de vista previa de 1200 x 630, para que el link se vea bien al mandarlo por WhatsApp.
 - Pantalla de inicio con el cuarto de juego de fondo, el logo, y tres acciones claras: "Jugar contra la compu", "Crear mesa" y "Unirme con código".
@@ -167,7 +167,7 @@ Lo que NO queremos (así se veía la versión anterior y se descartó): colores 
 - **Mesa**: redonda, pequeña, de madera, para máximo 6 jugadores, con una sola pata central. Fieltro verde gastado y riel de cuero café.
 - **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
 - **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
-- **Cartas**: papel crema, índices grandes y claros en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
+- **Cartas**: tarjetas de esquinas redondas de verdad (geometría, no solo dibujo), papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en 3D y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
 - **Rivales**: personajes originales dibujados en el mismo estilo, de la cintura para arriba: formas simples, extremidades delgadas, ojos grandes con pupilas pequeñas, párpados caídos y expresiones secas, aburridas o sospechosas. Mezcla de criaturas alienígenas y seres con equipo tecnológico improvisado (cables, tubos, cascos). Cada uno con una silueta distinta y reconocible. Animaciones en reposo sutiles y secas: parpadeo, mirar de reojo, fumar, rascarse. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo flotando encima.
 - **Manos del jugador**: manos de caricatura en el mismo estilo de línea delgada. El jugador puede elegir el color de piel o un tipo de mano alienígena.
 
@@ -214,7 +214,8 @@ Los rivales también tienen animaciones en reposo propias de su personaje, secas
 ### Interfaz encima de la escena
 
 - Paneles color papel crema desteñido (`#efe4c8`), línea delgada color tinta como trazo a mano y sombras planas mínimas. Nada de botones neón: los colores de acento salen de la paleta (mostaza, ladrillo, oliva, marino).
-- Tipografía de rotulado a mano de caricatura de Google Fonts, legible y con acentos, ñ, ¿ y ¡.
+- Tipografía: **Chewy** (Google Fonts, redonda y gordita de caricatura) para títulos, números, nombres y botones; **Patrick Hand** para textos descriptivos. No usar la letra de ninguna serie existente: su rotulado es parte de su logo.
+- Formas redondas, nada geométrico: botones de píldora, paneles con esquinas grandes y desiguales, contornos de tinta de 2.5–3 px, sombras planas, letras del logo un poco chuecas. La pantalla de inicio va sobre el tapiz del cuarto con el charco de luz de la lámpara.
 - Barra de acciones abajo con botones grandes de al menos 44px: Retirarse, Pasar o Igualar, Apostar o Subir con slider y atajos (½ bote, bote, todo).
 - Una sola franja discreta arriba con bote, cuánto te toca igualar, tus fichas, ciegas (y cuándo suben) y la ronda (Antes del flop, Flop, Turn, River). En la misma franja, las cartas de la mesa en chico y **"Tu mano"** con el nombre de tu mejor jugada (`client/ui/hand.js`).
 - **Que siempre se entienda qué pasa:**

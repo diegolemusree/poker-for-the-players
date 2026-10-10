@@ -5,6 +5,7 @@
 // La luz de la lámpara también es pintada: charcos con bordes duros según la distancia al foco.
 
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export const INK = '#1d1611';
 export const LAMP = new THREE.Vector3(0, 1.4, 0);
@@ -111,6 +112,11 @@ const shadowMat = new THREE.MeshBasicMaterial({
   polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
 });
 export function shadowMaterial() { return shadowMat; }
+
+// Caja de esquinas redondas: nada de bloques de arista viva.
+export function roundBox(w, h, d, round = 0.35) {
+  return new RoundedBoxGeometry(w, h, d, 2, Math.min(w, h, d) * round);
+}
 
 // Capa de lo translúcido (cono de luz, humo): se dibuja después de los contornos para no llevar línea.
 export const GLOW_LAYER = 1;
