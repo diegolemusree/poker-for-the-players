@@ -1,5 +1,5 @@
-// Mesa redonda chica de madera para 6: fieltro verde gastado (más claro bajo la lámpara),
-// riel de cuero café, una sola pata central con base de cruz. También las sillas de madera.
+// Mesa octagonal chica de madera para 6: fieltro verde gastado con el centro más oscuro y una línea
+// crema, riel de cuero café, una sola pata central con base de cruz. También las sillas de madera.
 
 import * as THREE from 'three';
 import { mesh, toon, wobble, flatShadow, roundBox } from '../scene/toon.js';
@@ -35,14 +35,17 @@ export function makeTable() {
   for (const a of [Math.PI / 4, -Math.PI / 4]) put(g, mesh(wobble(roundBox(0.98, 0.06, 0.1, 0.45), 0.006, 4 + a), woodDark), 0, 0.03, 0, 0, a, 0);
 
   // cubierta: faldón, tabla, fieltro y riel
-  put(g, mesh(wobble(new THREE.CylinderGeometry(0.82, 0.8, 0.09, 40, 1, true), 0.005, 5), toon(woodDark, { side: THREE.DoubleSide })), 0, FELT_Y - 0.075, 0);
-  put(g, mesh(wobble(new THREE.CylinderGeometry(0.87, 0.86, 0.045, 40), 0.003, 6), wood), 0, FELT_Y - 0.04, 0);
-  put(g, mesh(new THREE.CylinderGeometry(TABLE_R + 0.03, TABLE_R + 0.03, 0.02, 48), toon('#5f9a3a', { edge: 'felt' })), 0, FELT_Y - 0.01, 0);
-  const rail = put(g, mesh(wobble(new THREE.TorusGeometry(TABLE_R + 0.06, 0.055, 10, 64), 0.003, 7), '#4b2e22'), 0, FELT_Y + 0.018, 0, Math.PI / 2);
+  // ocho lados: el canto plano queda de frente a cada asiento
+  const OCT = Math.PI / 8;
+  put(g, mesh(wobble(new THREE.CylinderGeometry(0.86, 0.84, 0.09, 8, 1, true), 0.005, 5), toon(woodDark, { side: THREE.DoubleSide })), 0, FELT_Y - 0.075, 0, 0, OCT);
+  put(g, mesh(wobble(new THREE.CylinderGeometry(0.92, 0.9, 0.045, 8), 0.003, 6), wood), 0, FELT_Y - 0.04, 0, 0, OCT);
+  put(g, mesh(new THREE.CylinderGeometry(TABLE_R + 0.05, TABLE_R + 0.05, 0.02, 8), toon('#5f9a3a', { edge: 'felt' })), 0, FELT_Y - 0.01, 0, 0, OCT);
+  const rail = put(g, mesh(wobble(new THREE.TorusGeometry(TABLE_R + 0.08, 0.055, 10, 8), 0.003, 7), '#4b2e22'), 0, FELT_Y + 0.018, 0, Math.PI / 2, 0, OCT);
   rail.scale.z = 0.75;
 
-  // parche claro bajo la lámpara y desgaste del fieltro (mismo trazo que el fieltro: sin línea)
-  put(g, mesh(blob(0.46, 1.3, 40), toon('#86b84e', { edge: 'felt', ...decal })), 0, FELT_Y + 0.0006, -0.02);
+  // centro más oscuro con su línea crema; el desgaste comparte trazo con el fieltro (sin línea)
+  put(g, mesh(new THREE.CircleGeometry(0.44, 8).rotateX(-Math.PI / 2), toon('#3f6e2a', { edge: 'felt', ...decal })), 0, FELT_Y + 0.0006, 0, 0, OCT);
+  put(g, mesh(new THREE.TorusGeometry(0.44, 0.005, 4, 8), toon('#e3d6b8', decal)), 0, FELT_Y + 0.001, 0, Math.PI / 2, 0, OCT);
   [[-0.5, 0.25, 0.07, 2], [0.42, -0.44, 0.05, 5], [0.55, 0.3, 0.04, 8], [-0.2, -0.6, 0.05, 11]].forEach(([x, z, r, s]) => {
     put(g, mesh(blob(r, s), toon('#53873a', { edge: 'felt', ...decal })), x, FELT_Y + 0.0009, z);
   });

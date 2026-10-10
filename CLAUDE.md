@@ -150,11 +150,10 @@ Lo que NO queremos (así se veía la versión anterior y se descartó): colores 
 | Elemento | Color |
 |---|---|
 | Tinta (contornos y texto dibujado) | `#1d1611` |
-| Paredes | café rojizo oscuro `#6b3a2a` |
-| Lambrín (mitad inferior) | madera `#5a4030`, moldura `#4a3324` |
-| Piso | caqui desteñido `#7d7350`, manchas `#6b6243` |
-| Tapete bajo la mesa | óxido gastado `#8c5b3b` |
-| Fieltro | verde apagado `#5f9a3a`, más claro bajo la lámpara `#86b84e` |
+| Paredes | tablas de madera `#75614c` / `#6d5946` |
+| Tablero de herramientas | `#b39a6e`; repisa metálica `#7d8a86` |
+| Piso | concreto `#77705f` con manchas de aceite |
+| Fieltro | verde apagado `#5f9a3a`, centro `#3f6e2a` |
 | Madera de mesa y sillas | `#7a4a2c`, `#6a4530` |
 | Lámpara | domo mostaza `#c9a03a` |
 | Papel (cartas, paneles) | crema `#efe4c8` |
@@ -163,10 +162,10 @@ Lo que NO queremos (así se veía la versión anterior y se descartó): colores 
 
 ### Dirección de arte
 
-- **Escenario**: un cuarto de juego chico, sucio y acogedor, no un casino. Paredes café rojizo con lambrín de madera, piso caqui con manchas, tapete redondo gastado bajo la mesa, cuadros enmarcados con paisajes de planetas raros, una puerta con un letrero chueco, manchas de humedad. Una botella y un cenicero sobre la mesa. Humo que sube en espiral de algún rival y se disuelve. Un mesero alienígena original que de vez en cuando pasa al fondo con una charola.
-- **Mesa**: redonda, pequeña, de madera, para máximo 6 jugadores, con una sola pata central. Fieltro verde gastado y riel de cuero café.
+- **Escenario**: un garaje-taller chico, sucio y acogedor, no un casino (referencia del dueño: rivales grandes alrededor de la mesa, tu mano con tus cartas abajo a la izquierda). Paredes de tablas de madera con mugre y grietas, tablero perforado con herramientas, repisa metálica con frascos raros (algunos brillan apenas), un póster original ("Mes del cerebro en frasco"), rejilla de ventilación, lavadora vieja, banco de trabajo con un aparato, bote de basura y piso de concreto con manchas de aceite. Nada de elementos de series existentes (ni sus pósters, marcas o fichas). Una botella y un cenicero sobre la mesa. Humo que sube en espiral de algún rival y se disuelve. Un mesero alienígena original que de vez en cuando pasa al fondo con una charola.
+- **Mesa**: octagonal, pequeña, de madera, para máximo 6 jugadores, con una sola pata central. Fieltro verde gastado con el centro más oscuro y una línea crema, riel de cuero café.
 - **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
-- **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
+- **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto y el valor impreso en la ficha de arriba de cada columna (10, 25, 50, 100, 500, 1K), de cara al jugador. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
 - **Cartas**: tarjetas de esquinas redondas de verdad (geometría, no solo dibujo), papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en 3D y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
 - **Rivales**: recortes 2D dibujados a mano en canvas (`client/models/cutouts.js`), como los muñecos articulados de las series animadas: un cartón que siempre mira a la cámara, recargado en la mesa, con tres cuadros (ojos abiertos, parpadeo, mirada de reojo), respiración y humo del cigarro de quien fuma. Seis personajes originales: un blob gelatinoso con gorra, una señora cansada que fuma, un alien de cuatro ojos, un robot de visor, un flaco nervioso de lentes y un pulpo gruñón. Mismo estilo, formas simples, extremidades delgadas, ojos grandes con pupilas pequeñas, párpados caídos y expresiones secas, aburridas o sospechosas. Mezcla de criaturas alienígenas y seres con equipo tecnológico improvisado (cables, tubos, cascos). Cada uno con una silueta distinta y reconocible. Animaciones en reposo sutiles y secas: parpadeo, mirar de reojo, fumar, rascarse. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo flotando encima.
 - **Manos del jugador**: en primera persona tu mano sostiene tus dos cartas abiertas en abanico, abajo a la izquierda, frente a la cámara (recorte 2D con el pulgar encima). El jugador puede elegir el color de piel o un tipo de mano alienígena.

@@ -41,6 +41,25 @@ function chipGeometry(info) {
   return mergeGeometries([body, inlay]);
 }
 
+// La ficha de arriba de cada columna lleva su valor impreso, rotulado y de cara al jugador.
+const FACE_FROM = new THREE.Vector3(0, 0, 1.3);
+function valueTexture(info) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = INLAY[info.value]; g.beginPath(); g.arc(64, 64, 62, 0, Math.PI * 2); g.fill();
+  const text = info.value >= 1000 ? '1K' : String(info.value);
+  g.font = `${text.length > 2 ? 54 : 68}px "Chewy", "Marker Felt", cursive`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const dark = info.value === 10 || info.value === 1000;
+  g.lineJoin = 'round'; g.lineWidth = 10; g.strokeStyle = dark ? '#efe4c8' : '#1d1611'; g.strokeText(text, 64, 70);
+  g.fillStyle = dark ? '#1d1611' : '#efe4c8'; g.fillText(text, 64, 70);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
 export class ChipField {
   constructor(parent, capacity = 700) {
     this.meshes = new Map();
@@ -51,6 +70,12 @@ export class ChipField {
       m.frustumCulled = false;
       parent.add(m);
       this.meshes.set(info.value, m);
+      const top = new THREE.InstancedMesh(new THREE.CircleGeometry(CHIP_R * 0.6, 20).rotateX(-Math.PI / 2), toon('#ffffff', { map: valueTexture(info) }), 160);
+      top.count = 0;
+      top.frustumCulled = false;
+      parent.add(top);
+      this.tops = this.tops || new Map();
+      this.tops.set(info.value, top);
     }
     // una sombra plana bajo cada pila
     this.shadows = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), shadowMaterial(), 80);
@@ -60,7 +85,7 @@ export class ChipField {
     parent.add(this.shadows);
     this.tmp = new THREE.Object3D();
   }
-  begin() { for (const m of this.meshes.values()) m.count = 0; this.shadows.count = 0; }
+  begin() { for (const m of this.meshes.values()) m.count = 0; for (const m of this.tops.values()) m.count = 0; this.shadows.count = 0; }
 
   // Pone `amount` como pilas sobre `origin` (en la mesa), con las columnas a lo largo de `across`
   // y las filas hacia `back`. `seed` hace que el desorden de cada pila sea estable entre redibujos.
@@ -95,11 +120,19 @@ export class ChipField {
         this.tmp.updateMatrix();
         mesh.setMatrixAt(mesh.count++, this.tmp.matrix);
       }
+      const top = this.tops.get(col.value);
+      if (top.count < top.instanceMatrix.count) {
+        this.tmp.position.y += CHIP_H / 2 + 0.0019;
+        this.tmp.rotation.set(0, Math.atan2(FACE_FROM.x - this.tmp.position.x, FACE_FROM.z - this.tmp.position.z), 0);
+        this.tmp.updateMatrix();
+        top.setMatrixAt(top.count++, this.tmp.matrix);
+      }
     });
   }
   end() {
     for (const m of this.meshes.values()) m.instanceMatrix.needsUpdate = true;
     this.shadows.instanceMatrix.needsUpdate = true;
+    for (const m of this.tops.values()) m.instanceMatrix.needsUpdate = true;
   }
 }
 
