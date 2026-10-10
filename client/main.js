@@ -2,13 +2,15 @@
 // y la vista 2D de respaldo si no hay WebGL. Todo texto de usuarios se pone con textContent / nodos de texto, nunca con innerHTML.
 
 import { io } from 'socket.io-client';
-import { breakdown, chipInfo, STARTING_CHIPS } from './chips.js';
+import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
+import { handLabel } from './ui/hand.js';
 
 const MAXP = 6;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const SUIT_NAME = { s: 'picas', h: 'corazones', d: 'diamantes', c: 'tréboles' };
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const DIF = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
+const PHASE = { preflop: 'Antes del flop', flop: 'Flop', turn: 'Turn', river: 'River', showdown: 'Se enseñan cartas' };
 const $app = document.getElementById('app');
 
 /* ---------- utilidades ---------- */
@@ -252,7 +254,10 @@ function centerMessage() {
   }
   if (v.toAct) {
     const p = v.players.find(x => x.id === v.toAct);
-    return p ? (p.id === snap.you ? 'Te toca' : `Turno de ${p.nick}`) : '';
+    if (!p) return '';
+    if (p.id !== snap.you) return ['Turno de ', h('strong', {}, p.nick), '…'];
+    const toCall = Math.min(Math.max(0, v.currentBet - p.bet), p.stack);
+    return toCall > 0 ? ['¡Te toca! Para seguir tienes que igualar ', h('strong', {}, fmt(toCall)), '.'] : ['¡Te toca! Nadie ha apostado: puedes ', h('strong', {}, 'pasar'), ' o apostar.'];
   }
   return '';
 }
@@ -327,13 +332,12 @@ function actionBar() {
     return h('div', { class: 'bar' }, inner);
   }
 
-  if (betting() && v.toAct === snap.you) { turnControls(inner, mine); return h('div', { class: 'bar' }, inner); }
+  if (betting() && v.toAct === snap.you) { turnControls(inner, mine); return h('div', { class: 'bar myturn' }, inner); }
 
-  if (betting()) {
-    const cur = v.players.find(p => p.id === v.toAct);
-    hint(cur ? `Esperando a ${cur.nick}…` : 'Esperando…');
-  } else hint(v.phase === 'showdown' ? 'La siguiente mano se reparte sola.' : 'Esperando…');
-  inner.append(h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => confirm('Te retirarás de cada mano (pagando ciegas) hasta que vuelvas. ¿Ausentarte?') && run('resign') }, 'Ausentarme')));
+  // mientras otro piensa: lo de arriba ya dice de quién es el turno; aquí solo queda ausentarse
+  const wait = betting() ? (mine.inHand && !mine.folded ? 'Cuando te toque, aquí aparecen tus botones.' : 'Te retiraste de esta mano. Espera la siguiente.')
+    : v.phase === 'showdown' ? 'La siguiente mano se reparte sola.' : 'Esperando…';
+  inner.append(h('div', { class: 'row waitrow' }, h('p', { class: 'hint' }, wait), h('button', { class: 'btn small quiet', onclick: () => confirm('Te retirarás de cada mano (pagando ciegas) hasta que vuelvas. ¿Ausentarte?') && run('resign') }, 'Ausentarme')));
   return h('div', { class: 'bar' }, inner);
 }
 
@@ -363,11 +367,11 @@ function turnControls(inner, mine) {
   const minT = Math.min(maxT, Math.ceil((v.currentBet === 0 ? v.bb : v.currentBet + v.minRaise) / 5) * 5);
   const pot = potOf(v);
   const r1 = h('div', { class: 'row' },
-    h('button', { class: 'btn', onclick: () => run('act', { type: 'fold' }) }, 'Retirarse'),
+    h('button', { class: 'btn fold', onclick: () => run('act', { type: 'fold' }) }, 'Retirarse'),
     toCall <= 0
       ? h('button', { class: 'btn go', onclick: () => run('act', { type: 'check' }) }, 'Pasar')
       : h('button', { class: 'btn go', onclick: () => run('act', { type: 'call' }) }, toCall >= mine.stack ? `All-in ${fmt(mine.stack)}` : `Igualar ${fmt(toCall)}`),
-    snap.turnLeftMs != null && h('span', { class: 'hint' }, 'Te quedan ', deadline(snap.turnLeftMs, 'low')));
+    snap.turnLeftMs != null && h('span', { class: 'hint clock' }, '⏱ ', deadline(snap.turnLeftMs, 'low')));
   inner.append(r1);
   if (!(maxT > v.currentBet && mine.stack > toCall)) return;
 
@@ -474,31 +478,45 @@ function draw3D() {
 }
 
 const QUALITY_NAME = { auto: 'Auto', alta: 'Alta', media: 'Media', baja: 'Baja' };
+function miniCard(c) {
+  if (!c) return h('span', { class: 'mc empty', 'aria-hidden': 'true' });
+  const rank = c[0] === 'T' ? '10' : c[0];
+  return h('span', { class: 'mc' + ('hd'.includes(c[1]) ? ' red' : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` }, rank, h('i', {}, GLYPH[c[1]]));
+}
 function drawHud() {
   const v = snap.view, mine = me();
   document.title = (mine && v.toAct === snap.you ? '¡Te toca! ' : '') + 'Poker for the Players';
   const pot = potOf(v);
   const inPlay = mine && betting() && mine.inHand && !mine.folded;
   const toCall = inPlay ? Math.min(Math.max(0, v.currentBet - mine.bet), mine.stack) : 0;
-  const stat = (label, value, cls) => h('div', { class: 'hstat ' + (cls || '') }, h('span', {}, label), h('b', {}, value));
-  const turnOf = v.toAct && betting() && v.players.find(p => p.id === v.toAct);
+  const cell = (label, value, cls, extra) => h('div', { class: 'cell ' + (cls || '') }, h('span', {}, label), h('b', {}, value), extra && h('small', {}, extra));
 
+  // una sola franja: bote, lo que te toca, tus fichas, ciegas y ronda
   const sound = store.get('ppt-sound') === 'on';
-  const top = h('header', { class: 'hud-top' },
-    h('div', { class: 'hud-stats' },
-      stat('Bote', fmt(pot), 'pot'),
-      mine && stat('Tus fichas', fmt(mine.stack)),
-      inPlay && stat('Para igualar', toCall > 0 ? fmt(toCall) : 'nada', toCall > 0 ? 'call' : ''),
-      turnOf && snap.turnLeftMs != null && !turnOf.isBot && stat(turnOf.id === snap.you ? 'Tu tiempo' : 'Tiempo', deadline(snap.turnLeftMs, 'low'), turnOf.id === snap.you ? 'mine' : ''),
-      stat('Ciegas', `${fmt(v.sb)}/${fmt(v.bb)}`),
-      snap.levelLeftMs != null && stat('Suben en', deadline(snap.levelLeftMs), 'wide')),
-    h('div', { class: 'hud-tools' },
+  const strip = h('header', { class: 'strip' },
+    h('div', { class: 'cells' },
+      cell('Bote', fmt(pot), 'c-pot'),
+      inPlay && cell('Para igualar', toCall > 0 ? fmt(toCall) : '—', toCall > 0 ? 'c-call' : ''),
+      mine && cell('Tus fichas', fmt(mine.stack)),
+      cell('Ciegas', `${fmt(v.sb)}/${fmt(v.bb)}`, 'wide', snap.levelLeftMs != null && ['suben en ', deadline(snap.levelLeftMs)]),
+      started() && cell('Ronda', PHASE[v.phase] || '—', 'wide')),
+    h('div', { class: 'tools' },
       h('span', { class: 'hud-code' }, 'Mesa ', h('b', {}, snap.code)),
-      tool('Posiciones', '📋', () => { showSide = !showSide; draw(); }, { 'aria-expanded': String(showSide) }),
-      tool(`Calidad: ${QUALITY_NAME[scene3d.mode]}${scene3d.mode === 'auto' ? ' (' + scene3d.quality + ')' : ''}`, '⚙️', cycleQuality, { title: 'Calidad gráfica: Auto, Alta, Media o Baja' }),
-      h('button', { class: 'tool', 'aria-label': sound ? 'Silenciar' : 'Activar sonido', title: 'El sonido llega en una fase siguiente', onclick: () => { store.set('ppt-sound', sound ? 'off' : 'on'); draw(); } }, sound ? '🔊' : '🔇'),
-      tool('Vista 2D', '2D', () => { store.set('ppt-view', '2d'); draw(); }),
+      tool('Posiciones', '☰', () => { showSide = !showSide; draw(); }, { 'aria-expanded': String(showSide) }),
+      ...options(sound, 'opt'),
       tool('Salir', '✕', exitRoom)));
+
+  // cartas de la mesa siempre legibles, y el nombre de tu mano
+  const myCards = mine && mine.inHand && !mine.folded && mine.cards.length === 2 ? mine.cards : null;
+  const hand = myCards && handLabel(myCards, v.board);
+  const info = started() && h('div', { class: 'tableinfo' },
+    h('div', { class: 'minib', 'aria-label': 'Cartas de la mesa' }, Array.from({ length: 5 }, (_, i) => miniCard(v.board[i]))),
+    hand && h('div', { class: 'myhand' }, h('span', {}, 'Tu mano'), h('b', {}, hand)));
+
+  // lo que acaba de pasar, en palabras
+  const recent = v.log.slice(-4).reverse();
+  const ticker = started() && recent.length > 0 && h('div', { class: 'ticker', 'aria-live': 'polite' },
+    recent.map((t, i) => h('p', { class: i ? 'old' : 'new' }, t)));
 
   const notice = (error || toast) && h('div', { class: 'hud-notice' },
     error && h('p', { class: 'err', role: 'alert' }, error),
@@ -506,11 +524,24 @@ function drawHud() {
   // el aviso del centro (turno, ganadores) va arriba de la barra de acciones para no tapar a los rivales
   const msg = centerMessage();
   const bar = actionBar();
+  // en el celular la última jugada va dentro de la barra (el historial flotante no cabe)
+  if (started() && recent.length) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));
   if (msg && (!Array.isArray(msg) || msg.length)) bar.firstChild.prepend(h('div', { class: 'hud-banner', 'aria-live': 'polite' }, msg));
   const side = showSide && h('aside', { class: 'hud-side' },
+    h('div', { class: 'side-opts' }, h('h2', {}, 'Opciones'), h('div', { class: 'row' }, options(sound, ''))),
     h('div', {}, h('h2', {}, 'Posiciones'), h('ol', {}, standings(v))),
-    h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-10).reverse().map(t => h('li', {}, t)))));
-  return [top, notice, side, bar, v.finished && finishOverlay()].filter(Boolean);
+    h('div', {}, h('h2', {}, 'Valor de las fichas'), h('ul', { class: 'legend' }, CHIPS.slice().reverse().map(c => h('li', {}, h('span', { class: 'dot', style: `background:${c.color};` }), h('span', {}, fmt(c.value)))))),
+    h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-12).reverse().map(t => h('li', {}, t)))));
+  if (info) strip.insertBefore(info, strip.lastChild);
+  return [strip, ticker, notice, side, bar, v.finished && finishOverlay()].filter(Boolean);
+}
+// Calidad, sonido y vista 2D: en la franja en pantallas anchas, dentro del panel en el celular.
+function options(sound, cls) {
+  return [
+    tool(`Calidad: ${QUALITY_NAME[scene3d.mode]}${scene3d.mode === 'auto' ? ' (' + scene3d.quality + ')' : ''}`, '⚙', cycleQuality, { title: 'Calidad gráfica: Auto, Alta, Media o Baja', class: 'tool ' + cls }),
+    h('button', { class: 'tool ' + cls, 'aria-label': sound ? 'Silenciar' : 'Activar sonido', title: 'El sonido llega en una fase siguiente', onclick: () => { store.set('ppt-sound', sound ? 'off' : 'on'); draw(); } }, sound ? '🔊' : '🔇'),
+    tool('Vista 2D', '2D', () => { store.set('ppt-view', '2d'); draw(); }, { class: 'tool ' + cls }),
+  ];
 }
 // Botón de la barra de arriba: texto completo en pantallas anchas, ícono en el celular.
 function tool(text, icon, onclick, props) {

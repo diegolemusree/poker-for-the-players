@@ -59,6 +59,14 @@ function addLog(s, text) {
   if (s.log.length > 40) s.log = s.log.slice(-40);
 }
 
+// Última jugada de cada quien (para mostrarla en la mesa) y un contador para animar la más reciente.
+function mark(s, p, type, amount = 0) {
+  s.actionNo = (s.actionNo || 0) + 1;
+  p.lastAction = { type, amount, allIn: !!p.allIn, n: s.actionNo };
+  s.lastAction = { id: p.id, ...p.lastAction };
+}
+const CARD = c => (c[0] === 'T' ? '10' : c[0]) + { s: '♠', h: '♥', d: '♦', c: '♣' }[c[1]];
+
 function post(p, amt) {
   const a = Math.max(0, Math.min(amt, p.stack));
   p.stack -= a; p.bet += a; p.total += a;
@@ -199,7 +207,7 @@ export function startHand(s, now = Date.now()) {
   [s.sb, s.bb] = levelAt(s, now);
   if (s.level !== prevLevel) addLog(s, `Suben las ciegas a ${s.sb}/${s.bb}.`);
 
-  s.players.forEach(p => Object.assign(p, { bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, inHand: p.stack > 0, startStack: p.stack }));
+  s.players.forEach(p => Object.assign(p, { bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, inHand: p.stack > 0, startStack: p.stack, lastAction: null }));
   const ins = s.players.filter(p => p.inHand);
   const dealer = nextFrom(s, s.dealerSeat, p => p.inHand);
   s.dealerSeat = dealer.seat;
@@ -207,6 +215,7 @@ export function startHand(s, now = Date.now()) {
   const sb = ins.length === 2 ? dealer : nextFrom(s, dealer.seat, p => p.inHand);
   const bb = nextFrom(s, sb.seat, p => p.inHand);
   post(sb, s.sb); post(bb, s.bb);
+  mark(s, sb, 'sb', sb.bet); mark(s, bb, 'bb', bb.bet);
   s.deck = newDeck(); s.board = []; s.results = null;
   for (let r = 0; r < 2; r++) {
     let p = dealer;
@@ -228,11 +237,11 @@ function roundDone(s) {
 }
 
 function nextStreet(s) {
-  s.players.forEach(p => { p.bet = 0; p.acted = false; });
+  s.players.forEach(p => { p.bet = 0; p.acted = false; if (p.lastAction && p.lastAction.type !== 'fold') p.lastAction = null; });
   s.currentBet = 0; s.minRaise = s.bb;
-  if (s.phase === 'preflop') { s.board.push(s.deck.pop(), s.deck.pop(), s.deck.pop()); s.phase = 'flop'; }
-  else if (s.phase === 'flop') { s.board.push(s.deck.pop()); s.phase = 'turn'; }
-  else if (s.phase === 'turn') { s.board.push(s.deck.pop()); s.phase = 'river'; }
+  if (s.phase === 'preflop') { s.board.push(s.deck.pop(), s.deck.pop(), s.deck.pop()); s.phase = 'flop'; addLog(s, `Sale el flop: ${s.board.map(CARD).join(' ')}.`); }
+  else if (s.phase === 'flop') { s.board.push(s.deck.pop()); s.phase = 'turn'; addLog(s, `Sale el turn: ${CARD(s.board[3])}.`); }
+  else if (s.phase === 'turn') { s.board.push(s.deck.pop()); s.phase = 'river'; addLog(s, `Sale el river: ${CARD(s.board[4])}.`); }
 }
 
 function progress(s, lastSeat) {
@@ -337,18 +346,21 @@ function applyAct(s, id, type, amount) {
   // 2) aplicar
   if (type === 'fold') {
     p.folded = true;
+    mark(s, p, 'fold');
     addLog(s, `${label(p)} se retira.`);
   } else if (type === 'check') {
+    mark(s, p, 'check');
     addLog(s, `${label(p)} pasa.`);
   } else if (type === 'call') {
-    if (toCall <= 0) addLog(s, `${label(p)} pasa.`);
-    else { const a = post(p, toCall); addLog(s, `${label(p)} iguala ${a}${p.allIn ? ' (all-in)' : ''}.`); }
+    if (toCall <= 0) { mark(s, p, 'check'); addLog(s, `${label(p)} pasa.`); }
+    else { const a = post(p, toCall); mark(s, p, 'call', a); addLog(s, `${label(p)} iguala ${a}${p.allIn ? ' (all-in)' : ''}.`); }
   } else {
     const raiseBy = target - s.currentBet;
     const was = s.currentBet;
     post(p, target - p.bet);
     if (raiseBy >= s.minRaise) { s.minRaise = raiseBy; s.players.forEach(x => { if (x !== p) x.acted = false; }); }
     s.currentBet = target;
+    mark(s, p, was === 0 ? 'bet' : 'raise', target);
     addLog(s, `${label(p)} ${was === 0 ? 'apuesta' : 'sube a'} ${target}${p.allIn ? ' (all-in)' : ''}.`);
   }
   p.acted = true;

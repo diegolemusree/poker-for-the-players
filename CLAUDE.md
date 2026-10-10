@@ -216,7 +216,13 @@ Los rivales también tienen animaciones en reposo propias de su personaje, secas
 - Paneles color papel crema desteñido (`#efe4c8`), línea delgada color tinta como trazo a mano y sombras planas mínimas. Nada de botones neón: los colores de acento salen de la paleta (mostaza, ladrillo, oliva, marino).
 - Tipografía de rotulado a mano de caricatura de Google Fonts, legible y con acentos, ñ, ¿ y ¡.
 - Barra de acciones abajo con botones grandes de al menos 44px: Retirarse, Pasar o Igualar, Apostar o Subir con slider y atajos (½ bote, bote, todo).
-- Una sola franja discreta arriba con bote, tus fichas, cuánto te toca igualar y temporizador de turno.
+- Una sola franja discreta arriba con bote, cuánto te toca igualar, tus fichas, ciegas (y cuándo suben) y la ronda (Antes del flop, Flop, Turn, River). En la misma franja, las cartas de la mesa en chico y **"Tu mano"** con el nombre de tu mejor jugada (`client/ui/hand.js`).
+- **Que siempre se entienda qué pasa:**
+  - Cada rival muestra en su etiqueta su última jugada como sello de color: Pasa, Iguala 50, Sube a 200, All-in, Se retira, Ciega. Si es su turno, "Pensando…" con su tiempo. El sello salta cuando la jugada es nueva. El servidor lo manda en `player.lastAction`.
+  - Un historial en vivo (abajo a la izquierda) cuenta las últimas jugadas en palabras, incluido "Sale el flop: 4♥ 2♥ 4♠".
+  - Cada apuesta sobre la mesa y el bote llevan su monto escrito encima, para no tener que contar fichas. El valor de cada color de ficha está en el panel "Posiciones".
+  - Las cartas comunitarias van grandes e inclinadas hacia el jugador.
+  - Cuando es tu turno, la barra se marca en mostaza y el aviso dice qué opciones tienes ("¡Te toca! Para seguir tienes que igualar 50").
 - Botón para silenciar y botón de calidad gráfica (alta, media, baja).
 
 ### Sonido
