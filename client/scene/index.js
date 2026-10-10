@@ -36,7 +36,9 @@ export function createTableScene(container, ui) {
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let mode = store.get('ppt-quality') || 'auto';
   if (mode !== 'auto' && !QUALITIES.includes(mode)) mode = 'auto';
-  let quality = mode === 'auto' ? 'media' : mode;
+  // en automático se arranca con la última calidad que se detectó en este equipo
+  const autoStart = () => (QUALITIES.includes(store.get('ppt-quality-auto')) ? store.get('ppt-quality-auto') : 'media');
+  let quality = mode === 'auto' ? autoStart() : mode;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -148,7 +150,7 @@ export function createTableScene(container, ui) {
     if (perf.time < 3) return;
     const fps = perf.frames / perf.time;
     Object.assign(perf, { frames: 0, time: 0, warm: 1 });
-    if (fps < 42) { quality = QUALITIES[QUALITIES.indexOf(quality) + 1]; applyQuality(); ui.onQuality && ui.onQuality(); }
+    if (fps < 42) { quality = QUALITIES[QUALITIES.indexOf(quality) + 1]; store.set('ppt-quality-auto', quality); applyQuality(); ui.onQuality && ui.onQuality(); }
   }
 
   /* ---------- ciclo de render (se pausa si la pestaña no se ve) ---------- */
@@ -206,7 +208,9 @@ export function createTableScene(container, ui) {
     const showdown = v.phase === 'showdown' && v.results;
     const shown = showdown && !v.results.fold ? v.results.shown : [];
     const winners = showdown ? v.results.winners.map(w => w.id) : [];
-    const base = me ? me.seat : 0;
+    // Sin asiento, la cámara de espectador mira desde un asiento libre para que nadie le tape la mesa.
+    const free = Array.from({ length: MAXP }, (_, i) => i).find(i => !v.players.some(p => p.seat === i));
+    const base = me ? me.seat : free ?? 0;
     if (rig.spectator !== !me) { rig.spectator = !me; placeRig(); }
 
     chips.begin();
@@ -223,11 +227,12 @@ export function createTableScene(container, ui) {
       const tan = feltTangent(t);
       const out = feltPoint(t, 1).setY(0).normalize();
 
-      s.chair.visible = !mine;
+      const front = rel === 0 && !me; // asiento junto al espectador: se oculta para que no estorbe
+      s.chair.visible = !mine && !front;
       s.chair.position.copy(ring);
       s.chair.lookAt(0, 0, 0);
 
-      const seated = p && !mine && !p.out;
+      const seated = p && !mine && !front && !p.out;
       if (seated && !s.creature) { s.creature = makeCreature(s.seat); scene.add(s.creature.group); }
       if (s.creature) {
         s.creature.group.visible = !!seated;
@@ -270,7 +275,8 @@ export function createTableScene(container, ui) {
       }
 
       // etiqueta
-      s.anchor.copy(ring).setY(p && seated ? HEAD_TOP + 0.08 : 1.15);
+      if (front) s.anchor.copy(feltPoint(t, 0.95, 0.95));
+      else s.anchor.copy(ring).setY(p && seated ? HEAD_TOP + 0.08 : 1.15);
       s.showLabel = fillLabel(s, p, { mine, me, started, v, snap, shown, winners });
       s.label.style.display = s.showLabel ? '' : 'none';
     }
@@ -335,7 +341,7 @@ export function createTableScene(container, ui) {
     setMode(m) {
       mode = m;
       store.set('ppt-quality', m);
-      quality = m === 'auto' ? 'media' : m;
+      quality = m === 'auto' ? autoStart() : m;
       Object.assign(perf, { frames: 0, time: 0, warm: 1.5 });
       applyQuality();
     },
