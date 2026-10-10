@@ -2,9 +2,13 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { score5, bestHand, cmp, handName } from '../server/hands.js';
 import {
-  BB, START, MAXP, createState, addPlayer, removePlayer, rebuy, startHand, act,
-  viewFor, canAct, isBetting,
+  MAXP, BLINDS, createState, addPlayer, removePlayer, rebuy, declineRebuy, resign, sitIn, autoAct,
+  pendingRebuys, startHand, act, viewFor, canAct, isBetting,
 } from '../server/engine.js';
+
+// Mesas de prueba: fichas y ciegas chicas, para que los números sean fáciles de leer.
+const START = 1000, BB = 20;
+const CFG = { start: START, levels: [[10, 20]] };
 
 /* ---------- evaluador de manos ---------- */
 
@@ -94,8 +98,8 @@ describe('evaluador de manos', () => {
 
 /* ---------- mesas controladas ---------- */
 
-function mesa(jugadores) {
-  const s = createState();
+function mesa(jugadores, cfg = CFG) {
+  const s = createState(cfg);
   for (const j of jugadores) {
     const p = addPlayer(s, { id: j.id, nick: j.id, seat: j.seat });
     if (j.stack !== undefined) p.stack = j.stack;
@@ -212,13 +216,45 @@ describe('reglas de la mesa', () => {
     }
   });
 
-  test('levantarse en plena mano retira al jugador y no rompe la mano', () => {
+  test('ausentarse en plena mano retira al jugador y después se retira solo en cada mano', () => {
     const s = mesa([{ id: 'A', seat: 0 }, { id: 'B', seat: 1 }, { id: 'C', seat: 2 }]);
     startHand(s);
-    removePlayer(s, s.toAct);
+    const quien = s.players.find(p => p.id !== s.toAct).id;
+    resign(s, quien);
+    assert.ok(s.players.find(p => p.id === quien).folded);
     jugarPasivo(s);
     assert.equal(s.phase, 'showdown');
-    assert.equal(s.players.reduce((a, p) => a + p.stack, 0) + 0, 3 * START);
+    assert.equal(s.players.reduce((a, p) => a + p.stack, 0), 3 * START);
+    // la siguiente mano no se detiene a esperar al ausente
+    startHand(s);
+    let guard = 0;
+    while (isBetting(s) && s.toAct !== null) {
+      assert.ok(++guard < 100);
+      assert.notEqual(s.toAct, quien, 'el ausente nunca se queda con el turno');
+      const p = s.players.find(x => x.id === s.toAct);
+      act(s, p.id, s.currentBet - p.bet > 0 ? 'call' : 'check');
+    }
+    sitIn(s, quien);
+    assert.equal(s.players.find(p => p.id === quien).sittingOut, false);
+  });
+
+  test('autoAct se retira si hay apuesta y pasa si no', () => {
+    const s = mesa([{ id: 'A', seat: 0 }, { id: 'B', seat: 1 }, { id: 'C', seat: 2 }]);
+    startHand(s);
+    const quien = s.toAct;
+    autoAct(s);
+    assert.ok(s.players.find(p => p.id === quien).folded);
+    act(s, s.toAct, 'call');
+    const bb = s.toAct;
+    autoAct(s); // la ciega grande ya iguala: pasa
+    assert.ok(!s.players.find(p => p.id === bb).folded);
+  });
+
+  test('no se puede sentar ni levantar nadie una vez que empezó el torneo', () => {
+    const s = mesa([{ id: 'A', seat: 0 }, { id: 'B', seat: 1 }]);
+    startHand(s);
+    assert.throws(() => addPlayer(s, { id: 'Z', seat: 4 }), /ya empezó/);
+    assert.throws(() => removePlayer(s, 'A'), /ya empezó/);
   });
 });
 
@@ -317,7 +353,7 @@ function jugadaAleatoria(s, r) {
   const p = s.players.find(x => x.id === s.toAct);
   const toCall = s.currentBet - p.bet;
   const maxT = p.bet + p.stack;
-  const minT = s.currentBet === 0 ? BB : s.currentBet + s.minRaise;
+  const minT = s.currentBet === 0 ? s.bb : s.currentBet + s.minRaise;
   const bajo = Math.min(minT, maxT);
   const x = r();
   if (toCall > 0 && x < 0.15) return [p.id, 'fold'];
@@ -330,7 +366,7 @@ function intentoIlegal(s, r, ctx) {
   const id = s.toAct;
   const p = s.players.find(x => x.id === id);
   const maxT = p.bet + p.stack;
-  const minT = s.currentBet === 0 ? BB : s.currentBet + s.minRaise;
+  const minT = s.currentBet === 0 ? s.bb : s.currentBet + s.minRaise;
   const otro = s.players.find(x => x.id !== id);
   const opciones = [
     () => act(s, 'fantasma', 'fold'),
@@ -357,10 +393,11 @@ function simular(semilla) {
   const r = rng(semilla);
   const ri = (a, b) => a + Math.floor(r() * (b - a + 1));
   const ctx = `semilla ${semilla}`;
-  const s = createState();
+  // ciegas que suben muy rápido (cada "hora" simulada de 2.5 s) para recorrer varios niveles
+  const s = createState({ start: START, levels: [[10, 20], [20, 40], [50, 100], [200, 400]], levelMs: 2500 });
   const n = ri(2, 8);
   const asientos = [...Array(MAXP).keys()].sort(() => r() - 0.5).slice(0, n);
-  let total = 0, salieron = 0;
+  let total = 0;
   asientos.forEach((seat, i) => {
     const p = addPlayer(s, { id: 'p' + i, nick: 'J' + i, seat });
     p.stack = r() < 0.4 ? START : ri(1, 2000); // mezcla de fichas cortas y profundas para forzar botes laterales
@@ -369,42 +406,50 @@ function simular(semilla) {
 
   const invariante = (donde) => {
     const enMesa = suma(s, p => p.stack) + (isBetting(s) ? suma(s, p => p.total) : 0);
-    assert.equal(enMesa + salieron, total, `${ctx}: las fichas cambiaron (${donde})`);
+    assert.equal(enMesa, total, `${ctx}: las fichas cambiaron (${donde})`);
   };
   const hayFuga = (id, donde) => revisarSinFugas(s, id, `${ctx}: ${donde}`);
+  const activos = () => s.players.filter(p => !p.out);
 
-  const manos = ri(2, 6);
-  for (let h = 0; h < manos; h++) {
-    // entre manos: recargas y jugadores que se levantan
+  const manos = ri(3, 14);
+  let bbPrevio = 0;
+  for (let h = 0; h < manos && !s.finished; h++) {
+    // entre manos: recompras (una sola por jugador), renuncias y ausencias
+    for (const p of pendingRebuys(s)) {
+      const x = r();
+      if (x < 0.6 && p.rebuysLeft > 0) { rebuy(s, p.id); total += START; assert.throws(() => rebuy(s, p.id), Error, `${ctx}: segunda recompra`); }
+      else if (x < 0.75) declineRebuy(s, p.id);
+    }
+    if (s.finished) break;
     for (const p of s.players) {
-      if (p.stack === 0 && !p.leaving && r() < 0.7) { rebuy(s, p.id); total += START; }
+      if (!p.out && r() < 0.1) { p.sittingOut ? sitIn(s, p.id) : resign(s, p.id); }
     }
-    if (s.players.length > 2 && r() < 0.15) {
-      const p = s.players[ri(0, s.players.length - 1)];
-      const stack = p.stack;
-      removePlayer(s, p.id);
-      if (!s.players.includes(p)) salieron += stack;
+    if (s.players.filter(p => p.stack > 0).length < 2) { // solo queda uno en pie: los demás deciden
+      for (const p of pendingRebuys(s)) declineRebuy(s, p.id);
+      assert.ok(s.finished, `${ctx}: con un solo jugador con fichas el torneo debía terminar`);
+      break;
     }
-    if (s.players.filter(p => !p.leaving && p.stack > 0).length < 2) break;
-    salieron += suma(s, p => (p.leaving ? p.stack : 0)); // los marcados salen al repartir
-    startHand(s);
+    if (s.players.filter(p => p.stack > 0).every(p => p.sittingOut)) {
+      assert.throws(() => startHand(s, h * 1000), /ausentes/);
+      sitIn(s, s.players.find(p => p.stack > 0).id);
+    }
+    startHand(s, h * 1000);
+    assert.ok(s.bb >= bbPrevio, `${ctx}: las ciegas bajaron`);
+    bbPrevio = s.bb;
     invariante('al repartir');
 
-    let pasos = 0, alguienSeFue = false;
+    let pasos = 0;
     while (isBetting(s)) {
       assert.ok(++pasos <= 200, `${ctx}: la mano ${s.handNo} se atoró`);
       const turno = s.players.find(p => p.id === s.toAct);
-      assert.ok(turno && canAct(turno), `${ctx}: el turno apunta a alguien que no puede actuar`);
+      assert.ok(turno && canAct(turno) && !turno.sittingOut, `${ctx}: el turno apunta a alguien que no puede actuar`);
       hayFuga(s.players[ri(0, s.players.length - 1)].id, `calle ${s.phase}`);
       if (r() < 0.25) intentoIlegal(s, r, ctx);
 
-      if (r() < 0.03) { // alguien se levanta en plena mano
+      if (r() < 0.03) { // alguien se ausenta en plena mano
         const p = s.players[ri(0, s.players.length - 1)];
-        const stack = p.stack, bote = suma(s, q => q.total);
-        removePlayer(s, p.id);
-        if (!s.players.includes(p)) { salieron += stack; alguienSeFue = true; }
-        if (!isBetting(s)) assert.equal(s.results.winners.reduce((a, w) => a + w.amount, 0), bote, `${ctx}: el bote repartido no cuadra`);
-        invariante('tras levantarse');
+        if (!p.out && !p.sittingOut && s.players.filter(q => q.stack > 0 && !q.sittingOut).length > 1) resign(s, p.id);
+        invariante('tras ausentarse');
         continue;
       }
       act(s, ...jugadaAleatoria(s, r));
@@ -413,14 +458,129 @@ function simular(semilla) {
 
     assert.equal(s.phase, 'showdown', `${ctx}: la mano no terminó`);
     assert.equal(s.toAct, null);
-    // si alguien se fue, su aportación ya no está en la mesa y no se puede comparar
-    if (!alguienSeFue) assert.equal(s.results.winners.reduce((a, w) => a + w.amount, 0), suma(s, p => p.total), `${ctx}: el bote repartido no cuadra`);
+    assert.equal(s.results.winners.reduce((a, w) => a + w.amount, 0), suma(s, p => p.total), `${ctx}: el bote repartido no cuadra`);
     invariante('al terminar la mano');
     for (const p of s.players) hayFuga(p.id, 'showdown');
     hayFuga(null, 'showdown/espectador');
+
+    // eliminaciones: sin fichas y sin recompra = fuera; con recompra = sigue pendiente
+    for (const p of s.players) {
+      if (p.inHand && p.stack === 0) assert.equal(p.out, p.rebuysLeft === 0, `${ctx}: eliminación incorrecta`);
+      if (p.out) assert.equal(p.stack, 0);
+    }
+    const puestos = s.players.filter(p => p.out).map(p => p.place);
+    assert.equal(new Set(puestos).size, puestos.length, `${ctx}: puestos repetidos`);
+    if (s.finished) {
+      assert.equal(activos().length, 1);
+      assert.equal(activos()[0].stack, total, `${ctx}: el campeón debe tener todas las fichas`);
+      assert.equal(activos()[0].place, 1);
+      assert.equal(s.winner, activos()[0].id);
+    } else {
+      assert.ok(activos().length >= 2, `${ctx}: el torneo debía haber terminado`);
+    }
   }
 }
 
 test(`${PARTIDAS} partidas aleatorias de 2 a 8 jugadores: las fichas no cambian y ninguna mano se atora`, () => {
   for (let i = 0; i < PARTIDAS; i++) simular(1000 + i);
+});
+
+/* ---------- torneo ---------- */
+
+describe('torneo', () => {
+  test('la configuración por omisión: 5,000 fichas y ciegas que suben cada 15 minutos', () => {
+    const s = createState();
+    const p = addPlayer(s, { id: 'A', seat: 0 });
+    assert.equal(p.stack, 5000);
+    assert.equal(s.config.levelMs, 15 * 60000);
+    assert.deepEqual([s.sb, s.bb], BLINDS[0]);
+    for (let i = 1; i < BLINDS.length; i++) assert.ok(BLINDS[i][1] > BLINDS[i - 1][1]);
+  });
+
+  test('las ciegas suben con el reloj, no antes', () => {
+    const s = mesa([{ id: 'A', seat: 0 }, { id: 'B', seat: 1 }], { start: 5000, levels: [[25, 50], [50, 100], [75, 150]], levelMs: 1000 });
+    const t0 = 1_000_000;
+    startHand(s, t0);
+    assert.deepEqual([s.sb, s.bb], [25, 50]);
+    jugarPasivo(s);
+    startHand(s, t0 + 999);
+    assert.deepEqual([s.sb, s.bb], [25, 50]);
+    jugarPasivo(s);
+    startHand(s, t0 + 1000);
+    assert.deepEqual([s.sb, s.bb], [50, 100]);
+    assert.equal(s.players.reduce((a, p) => a + p.bet, 0), 150);
+    jugarPasivo(s);
+    startHand(s, t0 + 9000); // se pasó de varios niveles: llega al último y ahí se queda
+    assert.deepEqual([s.sb, s.bb], [75, 150]);
+  });
+
+  test('cada jugador recompra una sola vez; sin recompra queda fuera con su lugar', () => {
+    const s = mesa([{ id: 'A', seat: 0, stack: 100 }, { id: 'B', seat: 1 }, { id: 'C', seat: 2 }]);
+    startHand(s);
+    // A se juega todo y pierde contra una mano arreglada
+    arreglar(s, { A: ['2c', '3d'], B: ['Ah', 'Ad'], C: ['Kh', 'Kd'] }, ['7c', '8h', '9s', 'Js', '4h']);
+    let guard = 0;
+    while (isBetting(s)) {
+      assert.ok(++guard < 50);
+      const p = s.players.find(x => x.id === s.toAct);
+      if (p.id === 'A') act(s, 'A', 'raise', 100);
+      else act(s, p.id, 'call');
+    }
+    const A = s.players.find(p => p.id === 'A');
+    assert.equal(A.stack, 0);
+    assert.equal(A.out, false, 'todavía puede recomprar');
+    assert.deepEqual(pendingRebuys(s).map(p => p.id), ['A']);
+    rebuy(s, 'A');
+    assert.equal(A.stack, START);
+    assert.equal(A.rebuysLeft, 0);
+    // segunda vez: se queda sin fichas otra vez (lo forzamos) y ya no hay recompra
+    A.stack = 0;
+    assert.throws(() => rebuy(s, 'A'), /usaste/);
+    declineRebuy(s, 'A');
+    assert.equal(A.out, true);
+    assert.equal(A.place, 3);
+  });
+
+  test('el torneo termina cuando alguien tiene todas las fichas', () => {
+    const s = mesa([{ id: 'A', seat: 0, stack: 300 }, { id: 'B', seat: 1, stack: 300 }]);
+    s.players.forEach(p => { p.rebuysLeft = 0; });
+    startHand(s);
+    arreglar(s, { A: ['Ah', 'Ad'], B: ['2c', '7d'] }, ['Ks', '9d', '4c', '5h', '8s']);
+    act(s, s.toAct, 'raise', 300);
+    act(s, s.toAct, 'call');
+    assert.equal(s.finished, true);
+    assert.equal(s.winner, 'A');
+    const A = s.players.find(p => p.id === 'A'), B = s.players.find(p => p.id === 'B');
+    assert.equal(A.stack, 600);
+    assert.equal(B.out, true);
+    assert.equal(B.place, 2);
+    assert.equal(A.place, 1);
+    assert.throws(() => startHand(s), /terminó/);
+  });
+
+  test('si el último rival tiene recompra pendiente, el torneo espera su decisión', () => {
+    const s = mesa([{ id: 'A', seat: 0, stack: 300 }, { id: 'B', seat: 1, stack: 300 }]);
+    startHand(s);
+    arreglar(s, { A: ['Ah', 'Ad'], B: ['2c', '7d'] }, ['Ks', '9d', '4c', '5h', '8s']);
+    act(s, s.toAct, 'raise', 300);
+    act(s, s.toAct, 'call');
+    assert.equal(s.finished, false);
+    assert.deepEqual(pendingRebuys(s).map(p => p.id), ['B']);
+    assert.throws(() => startHand(s), /al menos 2/);
+    declineRebuy(s, 'B');
+    assert.equal(s.finished, true);
+    assert.equal(s.winner, 'A');
+    assert.equal(s.players.find(p => p.id === 'B').place, 2);
+  });
+
+  test('con recompra, el que se la juega y vuelve puede ganar el torneo completo', () => {
+    const s = mesa([{ id: 'A', seat: 0, stack: 300 }, { id: 'B', seat: 1, stack: 300 }]);
+    startHand(s);
+    arreglar(s, { A: ['Ah', 'Ad'], B: ['2c', '7d'] }, ['Ks', '9d', '4c', '5h', '8s']);
+    act(s, s.toAct, 'raise', 300);
+    act(s, s.toAct, 'call');
+    rebuy(s, 'B');
+    assert.equal(s.players.find(p => p.id === 'B').stack, START);
+    assert.equal(s.finished, false);
+  });
 });

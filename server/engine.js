@@ -1,18 +1,27 @@
-// Motor de Texas Hold'em No Limit. Puro: recibe un estado y una acción, modifica el estado
-// y lanza errores en español. Nada de red ni de sockets aquí dentro.
+// Motor de Texas Hold'em No Limit en formato de torneo. Puro: recibe un estado y una acción,
+// modifica el estado y lanza errores en español. Nada de red ni de sockets aquí dentro.
 //
 // Garantía: cualquier función que lance un error lo hace ANTES de tocar el estado,
 // así que un intento ilegal nunca deja la mesa a medias.
+//
+// Torneo: todos empiezan con `start` fichas, las ciegas suben cada `levelMs`, cada jugador
+// tiene una recompra, y el torneo termina cuando solo queda un jugador en pie.
 
 import { randomInt } from 'node:crypto';
 import { RANKS, SUITS, bestHand, cmp, handName } from './hands.js';
 
-export const SB = 10;
-export const BB = 20;
-export const START = 1000;
+export const START = 5000;
 export const MAXP = 8;
 export const TURN_LIMIT = 45000;
+export const LEVEL_MINUTES = 15;
+export const REBUYS = 1;
 export const BETTING = ['preflop', 'flop', 'turn', 'river'];
+// [ciega chica, ciega grande]. 19 niveles de 15 min = ~4h45; el último se repite.
+export const BLINDS = [
+  [25, 50], [50, 100], [75, 150], [100, 200], [125, 250], [150, 300], [200, 400], [250, 500], [300, 600],
+  [400, 800], [500, 1000], [600, 1200], [800, 1600], [1000, 2000], [1250, 2500], [1500, 3000],
+  [2000, 4000], [2500, 5000], [3000, 6000],
+];
 
 /* ---------- ayudas ---------- */
 
@@ -56,71 +65,154 @@ function post(p, amt) {
 
 /* ---------- mesa y asientos ---------- */
 
-export function createState() {
+// opts: { start, levels, levelMinutes, levelMs, rebuys }
+export function createState(opts = {}) {
+  const levels = opts.levels || BLINDS;
   return {
+    config: {
+      start: opts.start || START,
+      levels,
+      levelMs: opts.levelMs || (opts.levelMinutes || LEVEL_MINUTES) * 60000,
+      rebuys: opts.rebuys ?? REBUYS,
+    },
     players: [], phase: 'lobby', deck: [], board: [], dealerSeat: -1, toAct: null,
-    currentBet: 0, minRaise: BB, handNo: 0, log: [], results: null, turnAt: 0,
+    level: 0, sb: levels[0][0], bb: levels[0][1], levelEndsAt: null,
+    currentBet: 0, minRaise: levels[0][1], handNo: 0, log: [], results: null, turnAt: 0,
+    finished: false, winner: null,
   };
 }
 
 export function addPlayer(s, { id, nick = '', seat }) {
+  if (s.handNo > 0) throw new Error('El torneo ya empezó, no se pueden sentar más jugadores.');
   if (!id) throw new Error('Falta el identificador del jugador.');
   if (!Number.isInteger(seat) || seat < 0 || seat >= MAXP) throw new Error('Ese asiento no existe.');
   if (s.players.some(p => p.id === id)) throw new Error('Ya estás sentado.');
   if (s.players.some(p => p.seat === seat)) throw new Error('Ese asiento ya está ocupado.');
   const p = {
-    id, nick: String(nick || '').trim().slice(0, 16), seat, stack: START,
+    id, nick: String(nick || '').trim().slice(0, 16), seat, stack: s.config.start,
     bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, inHand: false,
+    rebuysLeft: s.config.rebuys, out: false, place: null, sittingOut: false, startStack: 0,
   };
   s.players.push(p);
-  addLog(s, `${label(p)} se sienta con ${START} fichas.`);
+  addLog(s, `${label(p)} se sienta con ${p.stack} fichas.`);
   return p;
 }
 
+// Solo antes de que empiece el torneo. Después se usa resign().
 export function removePlayer(s, id) {
   const p = s.players.find(x => x.id === id);
   if (!p) throw new Error('No estás sentado en esta mesa.');
+  if (s.handNo > 0) throw new Error('El torneo ya empezó. Puedes retirarte, pero tu lugar se queda en la mesa.');
   addLog(s, `${label(p)} se levanta.`);
-  if (isBetting(s) && p.inHand) {
-    foldOut(s, p);
-    if (isBetting(s)) { p.leaving = true; return; } // se va al terminar la mano
-  }
   s.players = s.players.filter(x => x.id !== id);
+}
+
+// Dejar de jugar sin salirse: se retira de cada mano (y paga ciegas) hasta que vuelva con sitIn().
+export function resign(s, id) {
+  const p = s.players.find(x => x.id === id);
+  if (!p) throw new Error('No estás sentado en esta mesa.');
+  if (p.out) throw new Error('Ya quedaste fuera del torneo.');
+  p.sittingOut = true;
+  addLog(s, `${label(p)} se ausenta.`);
+  foldOut(s, p);
+}
+
+export function sitIn(s, id) {
+  const p = s.players.find(x => x.id === id);
+  if (!p) throw new Error('No estás sentado en esta mesa.');
+  if (p.sittingOut) { p.sittingOut = false; addLog(s, `${label(p)} vuelve a la mesa.`); }
+}
+
+// Jugadores sin fichas que todavía pueden decidir si recompran.
+export function pendingRebuys(s) {
+  if (s.finished || isBetting(s)) return [];
+  return s.players.filter(p => !p.out && p.stack === 0);
 }
 
 export function rebuy(s, id) {
   const p = s.players.find(x => x.id === id);
   if (!p) throw new Error('No estás sentado en esta mesa.');
-  if (p.stack > 0) throw new Error('Solo puedes recargar cuando te quedas sin fichas.');
-  if (isBetting(s) && p.inHand) throw new Error('Espera a que termine la mano para recargar.');
-  p.stack = START;
-  addLog(s, `${label(p)} recarga ${START}.`);
+  if (p.out) throw new Error('Ya quedaste fuera del torneo.');
+  if (p.stack > 0) throw new Error('Solo puedes recomprar cuando te quedas sin fichas.');
+  if (isBetting(s) && p.inHand) throw new Error('Espera a que termine la mano para recomprar.');
+  if (p.rebuysLeft <= 0) throw new Error('Ya usaste tu recompra.');
+  p.rebuysLeft--; p.stack = s.config.start;
+  addLog(s, `${label(p)} recompra ${s.config.start} fichas.`);
+}
+
+// Renunciar a la recompra: quedas fuera.
+export function declineRebuy(s, id) {
+  const p = s.players.find(x => x.id === id);
+  if (!p) throw new Error('No estás sentado en esta mesa.');
+  if (p.out) throw new Error('Ya quedaste fuera del torneo.');
+  if (p.stack > 0) throw new Error('Todavía tienes fichas.');
+  if (isBetting(s) && p.inHand) throw new Error('Espera a que termine la mano.');
+  eliminate(s, p);
+  checkEnd(s);
+}
+
+function eliminate(s, p) {
+  p.out = true;
+  p.place = s.players.filter(x => !x.out).length + 1;
+  p.sittingOut = false;
+  addLog(s, `${label(p)} queda fuera del torneo en el lugar ${p.place}.`);
+}
+
+function checkEnd(s) {
+  const alive = s.players.filter(p => !p.out);
+  if (s.handNo > 0 && alive.length === 1 && !s.finished) {
+    s.finished = true; s.winner = alive[0].id; alive[0].place = 1;
+    addLog(s, `${label(alive[0])} gana el torneo.`);
+  }
+}
+
+// Al terminar una mano: elimina a quien se quedó sin fichas y ya no tiene recompra.
+function afterHand(s) {
+  const busted = s.players.filter(p => p.inHand && p.stack === 0 && !p.out && p.rebuysLeft <= 0)
+    .sort((a, b) => a.startStack - b.startStack); // el que llegó con menos, queda peor
+  for (const p of busted) eliminate(s, p);
+  checkEnd(s);
 }
 
 /* ---------- reglas del juego ---------- */
 
-export function startHand(s) {
-  if (!['lobby', 'showdown'].includes(s.phase)) throw new Error('Ya hay una mano en juego.');
-  const stay = s.players.filter(p => !p.leaving);
-  if (stay.filter(p => p.stack > 0).length < 2) throw new Error('Se necesitan al menos 2 jugadores con fichas.');
+export function levelAt(s, now) {
+  const last = s.config.levels.length - 1;
+  while (s.levelEndsAt !== null && now >= s.levelEndsAt && s.level < last) {
+    s.level++; s.levelEndsAt += s.config.levelMs;
+  }
+  return s.config.levels[s.level];
+}
 
-  s.players = stay;
-  s.players.forEach(p => Object.assign(p, { bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, inHand: p.stack > 0 }));
+export function startHand(s, now = Date.now()) {
+  if (s.finished) throw new Error('El torneo ya terminó.');
+  if (!['lobby', 'showdown'].includes(s.phase)) throw new Error('Ya hay una mano en juego.');
+  const withChips = s.players.filter(p => p.stack > 0);
+  if (withChips.length < 2) throw new Error('Se necesitan al menos 2 jugadores con fichas.');
+  if (withChips.every(p => p.sittingOut)) throw new Error('Todos los jugadores están ausentes.');
+
+  if (s.levelEndsAt === null) s.levelEndsAt = now + s.config.levelMs; // el reloj arranca con la primera mano
+  const prevLevel = s.level;
+  [s.sb, s.bb] = levelAt(s, now);
+  if (s.level !== prevLevel) addLog(s, `Suben las ciegas a ${s.sb}/${s.bb}.`);
+
+  s.players.forEach(p => Object.assign(p, { bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, inHand: p.stack > 0, startStack: p.stack }));
   const ins = s.players.filter(p => p.inHand);
   const dealer = nextFrom(s, s.dealerSeat, p => p.inHand);
   s.dealerSeat = dealer.seat;
   // heads-up: el dealer pone la ciega chica
   const sb = ins.length === 2 ? dealer : nextFrom(s, dealer.seat, p => p.inHand);
   const bb = nextFrom(s, sb.seat, p => p.inHand);
-  post(sb, SB); post(bb, BB);
+  post(sb, s.sb); post(bb, s.bb);
   s.deck = newDeck(); s.board = []; s.results = null;
   for (let r = 0; r < 2; r++) {
     let p = dealer;
     for (let i = 0; i < ins.length; i++) { p = nextFrom(s, p.seat, x => x.inHand); p.cards.push(s.deck.pop()); }
   }
-  s.currentBet = BB; s.minRaise = BB; s.phase = 'preflop'; s.handNo = (s.handNo || 0) + 1;
+  s.currentBet = s.bb; s.minRaise = s.bb; s.phase = 'preflop'; s.handNo++;
   addLog(s, `Mano ${s.handNo}: reparte ${label(dealer)}. Ciegas de ${label(sb)} y ${label(bb)}.`);
   progress(s, bb.seat);
+  settleSitters(s);
 }
 
 function roundDone(s) {
@@ -134,7 +226,7 @@ function roundDone(s) {
 
 function nextStreet(s) {
   s.players.forEach(p => { p.bet = 0; p.acted = false; });
-  s.currentBet = 0; s.minRaise = BB;
+  s.currentBet = 0; s.minRaise = s.bb;
   if (s.phase === 'preflop') { s.board.push(s.deck.pop(), s.deck.pop(), s.deck.pop()); s.phase = 'flop'; }
   else if (s.phase === 'flop') { s.board.push(s.deck.pop()); s.phase = 'turn'; }
   else if (s.phase === 'turn') { s.board.push(s.deck.pop()); s.phase = 'river'; }
@@ -168,6 +260,7 @@ function winByFold(s) {
   s.results = { fold: true, shown: [], winners: [{ id: w.id, name: label(w), amount: pot, hand: '' }] };
   s.phase = 'showdown'; s.toAct = null;
   addLog(s, `${label(w)} gana ${pot} (los demás se retiraron).`);
+  afterHand(s);
 }
 
 function showdown(s) {
@@ -207,11 +300,10 @@ function showdown(s) {
   });
   s.results = { fold: false, shown: L.map(p => p.id), hands: Object.fromEntries(L.map(p => [p.id, handName(sc[p.id])])), winners };
   s.phase = 'showdown'; s.toAct = null;
+  afterHand(s);
 }
 
-// Jugada de `id`: type = 'fold' | 'check' | 'call' | 'raise'. En 'raise', `amount` es el
-// total al que se sube (entero), no el incremento; si pasa de tus fichas, es all-in.
-export function act(s, id, type, amount) {
+function applyAct(s, id, type, amount) {
   if (!isBetting(s) || s.toAct !== id) throw new Error('No es tu turno.');
   const p = s.players.find(x => x.id === id);
   const toCall = s.currentBet - p.bet;
@@ -224,7 +316,7 @@ export function act(s, id, type, amount) {
     if (!Number.isInteger(amount) || amount <= 0) throw new Error('El monto debe ser un número entero mayor que cero.');
     const maxT = p.bet + p.stack;
     target = Math.min(amount, maxT);
-    const minT = s.currentBet === 0 ? BB : s.currentBet + s.minRaise;
+    const minT = s.currentBet === 0 ? s.bb : s.currentBet + s.minRaise;
     if (target <= s.currentBet) throw new Error(`Para subir tienes que superar ${s.currentBet}.`);
     if (target < minT && target < maxT) throw new Error(`La apuesta mínima es ${minT}.`);
   } else if (type !== 'fold' && type !== 'call') {
@@ -252,12 +344,36 @@ export function act(s, id, type, amount) {
   progress(s, p.seat);
 }
 
-// Retira a un jugador aunque no sea su turno (se levantó o se desconectó).
+// Los ausentes se retiran (o pasan) solos en cuanto les toca.
+function settleSitters(s) {
+  for (let guard = 0; guard < 100 && isBetting(s); guard++) {
+    const p = s.players.find(x => x.id === s.toAct);
+    if (!p || !p.sittingOut) return;
+    applyAct(s, p.id, s.currentBet - p.bet > 0 ? 'fold' : 'check');
+  }
+}
+
+// Jugada de `id`: type = 'fold' | 'check' | 'call' | 'raise'. En 'raise', `amount` es el
+// total al que se sube (entero), no el incremento; si pasa de tus fichas, es all-in.
+export function act(s, id, type, amount) {
+  applyAct(s, id, type, amount);
+  settleSitters(s);
+}
+
+// Lo que pasa cuando se acaba el tiempo del turno: se retira si hay apuesta, si no pasa.
+export function autoAct(s) {
+  const p = s.players.find(x => x.id === s.toAct);
+  if (!isBetting(s) || !p) throw new Error('No hay turno pendiente.');
+  act(s, p.id, s.currentBet - p.bet > 0 ? 'fold' : 'check');
+}
+
+// Retira a un jugador aunque no sea su turno (se ausentó o se desconectó).
 export function foldOut(s, p) {
   if (!isBetting(s) || !p.inHand || p.folded) return;
   p.folded = true; p.acted = true;
   if (s.toAct === p.id) progress(s, p.seat);
   else if (live(s).length === 1) winByFold(s);
+  settleSitters(s);
 }
 
 /* ---------- vista filtrada para cada jugador ---------- */
