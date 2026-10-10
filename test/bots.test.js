@@ -63,8 +63,8 @@ function torneoDeBots(semilla, dificultades, maxManos = 400) {
 
 describe('bots', () => {
   test('hay nombres divertidos y no se repiten', () => {
-    const bots = makeBots(7, 'normal', ['Don Chepe']);
-    assert.equal(new Set(bots.map(b => b.name)).size, 7);
+    const bots = makeBots(5, 'normal', ['Don Chepe']);
+    assert.equal(new Set(bots.map(b => b.name)).size, 5);
     assert.ok(!bots.some(b => b.name === 'Don Chepe'));
     assert.ok(BOT_NAMES.length >= 8);
   });
@@ -73,7 +73,7 @@ describe('bots', () => {
     test(`mesas solo de bots (${dif}): jugadas siempre legales, sin ver cartas ajenas y fichas intactas`, () => {
       let terminados = 0;
       for (let g = 0; g < 12; g++) {
-        const n = 2 + (g % 7);
+        const n = 2 + (g % 5);
         const s = torneoDeBots(500 + g, Array(n).fill(dif));
         if (s.finished) terminados++;
       }
@@ -83,7 +83,7 @@ describe('bots', () => {
 
   test('mesas mezcladas de dificultades', () => {
     for (let g = 0; g < 10; g++) {
-      const n = 3 + (g % 6);
+      const n = 3 + (g % 4);
       torneoDeBots(900 + g, Array.from({ length: n }, (_, i) => DIFFICULTIES[(i + g) % 3]));
     }
   });

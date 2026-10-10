@@ -5,7 +5,7 @@
 // La jugada siempre es legal; se aplica con el mismo act() del motor que usan los humanos.
 
 import { RANKS, SUITS, bestHand, cmp } from './hands.js';
-import { CHIP_UNIT } from './engine.js';
+import { CHIP_UNIT, MAXP } from './engine.js';
 
 export const DIFFICULTIES = ['facil', 'normal', 'dificil'];
 
@@ -82,7 +82,7 @@ export function decide(view, myId, { difficulty = 'normal', rng = Math.random, i
 
   // posición: 0 = primero en hablar después del dealer, 1 = el dealer
   const order = view.players.filter(p => p.inHand && !p.folded)
-    .sort((a, b) => ((a.seat - view.dealerSeat - 1 + 8) % 8) - ((b.seat - view.dealerSeat - 1 + 8) % 8));
+    .sort((a, b) => ((a.seat - view.dealerSeat - 1 + MAXP) % MAXP) - ((b.seat - view.dealerSeat - 1 + MAXP) % MAXP));
   const late = order.length > 1 ? order.findIndex(p => p.id === myId) / (order.length - 1) : 1;
 
   const e = equity(me, view.board, n, iterations || cfg.iters, rng);

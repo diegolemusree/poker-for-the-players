@@ -3,29 +3,30 @@
 // Los nombres y las fichas de cada rival son etiquetas HTML que siguen su posición 3D.
 
 import * as THREE from 'three';
-import { smallOutlines } from './toon.js';
-import { buildCasino } from './casino.js';
-import { makeTable, feltPoint, feltTangent, FELT_Y, TABLE_A, TABLE_B } from '../models/table.js';
+import { toon, addFlatLights, INK } from './toon.js';
+import { createInk } from './ink.js';
+import { buildRoom } from './room.js';
+import { makeTable, makeTableProps, makeChair, feltPoint, feltTangent, FELT_Y, TABLE_R } from '../models/table.js';
 import { makeCard, setCard, setAnisotropy, CARD_H } from '../models/cards.js';
 import { ChipField } from '../models/chipStacks.js';
-import { makeCreature, makeChair, HEAD_TOP } from '../models/creatures.js';
 
-const MAXP = 8;
+const MAXP = 6;
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
 const DEG = Math.PI / 180;
-const RING = { a: TABLE_A + 0.45, b: TABLE_B + 0.48 };
+const RING = TABLE_R + 0.44;
+const HEAD_TOP = 1.5; // altura de la etiqueta sobre cada asiento
 const LOOK = { yaw: 40 * DEG, pitch: 15 * DEG };
 const MY_CARD_TILT = 0.38;
 const LABEL_TOP = 74;
 // lugares fijos frente a mí y en el centro; las cartas comunitarias van más grandes para leerlas de lejos
-const MY = { cards: TABLE_B * 0.64, stack: new THREE.Vector3(0.36, FELT_Y, TABLE_B * 0.7), bet: TABLE_B * 0.42, pot: 0.17, board: -0.06 };
-const BOARD_SCALE = 1.3;
+const MY = { cards: TABLE_R * 0.6, stack: new THREE.Vector3(0.27, FELT_Y, TABLE_R * 0.68), bet: TABLE_R * 0.36, pot: 0.14, board: -0.07 };
+const BOARD_SCALE = 1.2;
 
-// Mi asiento queda enfrente de la cámara; los otros 7 se reparten en el arco lejano (de 200° a 340°)
+// Mi asiento queda enfrente de la cámara; los otros 5 se reparten en el arco lejano (de 190° a 350°)
 // para que los vecinos de al lado se vean a los costados y no queden detrás de mí.
-export function seatAngle(rel) { return rel === 0 ? Math.PI / 2 : (203 + (rel - 1) * (134 / 6)) * DEG; }
-const ringPoint = t => new THREE.Vector3(RING.a * Math.cos(t), 0, RING.b * Math.sin(t));
+export function seatAngle(rel) { return rel === 0 ? Math.PI / 2 : (190 + (rel - 1) * 40) * DEG; }
+const ringPoint = t => new THREE.Vector3(RING * Math.cos(t), 0, RING * Math.sin(t));
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -40,8 +41,9 @@ export function createTableScene(container, ui) {
   const autoStart = () => (QUALITIES.includes(store.get('ppt-quality-auto')) ? store.get('ppt-quality-auto') : 'media');
   let quality = mode === 'auto' ? autoStart() : mode;
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  // sin antialias propio: la escena se dibuja en un render target y los contornos los pone ink.js
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  renderer.setClearColor('#120d0a');
   renderer.domElement.className = 'scene3d';
   renderer.domElement.setAttribute('aria-hidden', 'true');
   container.append(renderer.domElement);
@@ -52,17 +54,14 @@ export function createTableScene(container, ui) {
   container.append(labelLayer);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#1a0f2e');
-  scene.add(new THREE.HemisphereLight('#c9a8ff', '#3a2a20', 1.5));
-  const fill = new THREE.DirectionalLight('#ffd9f5', 0.6);
-  fill.position.set(-2, 3, 3);
-  scene.add(fill);
+  addFlatLights(scene);
+  const ink = createInk(renderer);
 
-  const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 60);
+  const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 12);
   camera.rotation.order = 'YXZ';
 
-  const casino = buildCasino(scene);
-  scene.add(makeTable());
+  const room = buildRoom(scene);
+  scene.add(makeTable(), makeTableProps());
   const chips = new ChipField(scene);
 
   // asientos: silla, criatura (cuando hay alguien), dos cartas y etiqueta
@@ -74,16 +73,15 @@ export function createTableScene(container, ui) {
     const label = document.createElement('div');
     label.className = 'seat3d';
     labelLayer.append(label);
-    return { seat, chair, creature: null, cards, label, anchor: new THREE.Vector3(), showLabel: false };
+    return { seat, chair, cards, label, anchor: new THREE.Vector3(), showLabel: false };
   });
   const board = Array.from({ length: 5 }, () => { const c = makeCard(); scene.add(c); return c; });
 
-  const dealer = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.012, 24), [
-    new THREE.MeshToonMaterial({ color: '#f4f1e8' }), dealerTop(), new THREE.MeshToonMaterial({ color: '#f4f1e8' })]);
+  const dealer = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.012, 24), [toon('#e3d6b8'), dealerTop(), toon('#e3d6b8')]);
   dealer.rotation.y = Math.PI / 2; // para que la "D" se lea derecha
   scene.add(dealer);
 
-  const turnRing = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.011, 8, 40), new THREE.MeshBasicMaterial({ color: '#ff6a3d' }));
+  const turnRing = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.01, 6, 40), toon('#d9a441', { pool: false }));
   turnRing.rotation.x = -Math.PI / 2;
   turnRing.scale.set(1, 0.75, 1);
   scene.add(turnRing);
@@ -92,9 +90,10 @@ export function createTableScene(container, ui) {
   const rig = { pos: new THREE.Vector3(), pitch: 0, yaw: 0, lookYaw: 0, lookPitch: 0, spectator: false, aspect: 1 };
   function placeRig() {
     const portrait = rig.aspect < 1;
-    const pos = rig.spectator ? new THREE.Vector3(0, 2.0, TABLE_B + 1.5) : new THREE.Vector3(0, 1.24, TABLE_B + 0.5);
-    const target = rig.spectator ? new THREE.Vector3(0, 0.72, -0.2) : new THREE.Vector3(0, 0.74, -0.75);
-    if (portrait) { pos.z += 0.45; pos.y += 0.25; }
+    // sentado: ojos a la altura de alguien en silla, mirando apenas hacia abajo
+    const pos = rig.spectator ? new THREE.Vector3(0, 1.62, TABLE_R + 1.15) : new THREE.Vector3(0, 1.18, TABLE_R + 0.38);
+    const target = rig.spectator ? new THREE.Vector3(0, 0.78, -0.1) : new THREE.Vector3(0, 0.86, -0.4);
+    if (portrait) { pos.z += 0.35; pos.y += 0.18; }
     rig.pos.copy(pos);
     rig.pitch = Math.atan2(target.y - pos.y, pos.z - target.z);
   }
@@ -116,10 +115,11 @@ export function createTableScene(container, ui) {
   function resize() {
     const w = container.clientWidth || innerWidth, h = container.clientHeight || innerHeight;
     renderer.setSize(w, h, false);
+    ink.setSize(w, h, renderer.getPixelRatio());
     rig.aspect = w / h;
     camera.aspect = rig.aspect;
     // en pantallas angostas se abre el campo de visión para que quepa la mesa
-    camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(45 * DEG) / rig.aspect)) / DEG, 60, 92);
+    camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(49 * DEG) / rig.aspect)) / DEG, 62, 92);
     camera.updateProjectionMatrix();
     placeRig();
     wake();
@@ -131,14 +131,7 @@ export function createTableScene(container, ui) {
   function applyQuality() {
     const dpr = window.devicePixelRatio || 1;
     renderer.setPixelRatio(quality === 'alta' ? Math.min(dpr, 2) : quality === 'media' ? Math.min(dpr, 1.25) : 1);
-    const shadows = quality === 'alta';
-    if (renderer.shadowMap.enabled !== shadows) {
-      renderer.shadowMap.enabled = shadows;
-      scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => { m.needsUpdate = true; }); });
-    }
-    casino.spot.castShadow = shadows;
-    smallOutlines.forEach(o => { o.visible = quality !== 'baja'; });
-    casino.setQuality(quality, reduced.matches);
+    room.setQuality(quality, reduced.matches);
     resize();
   }
   // En modo automático se miden los cuadros por segundo y se baja la calidad si el equipo no puede.
@@ -169,12 +162,10 @@ export function createTableScene(container, ui) {
     camera.position.y += Math.sin(t * 1.1) * 0.006 * breathe;
     camera.rotation.set(rig.pitch + rig.lookPitch + Math.sin(t * 1.1 + 0.6) * 0.004 * breathe, rig.yaw + rig.lookYaw, 0);
 
-    casino.tick(t, dt);
-    const low = quality === 'baja';
-    for (const s of seats) if (s.creature && s.creature.group.visible) s.creature.tick(t + s.creature.offset, low);
+    room.tick(t, dt);
     if (turnRing.visible) { const p = 1 + Math.sin(t * 5) * 0.06; turnRing.scale.set(p, 0.75 * p, p); }
 
-    renderer.render(scene, camera);
+    ink.render(scene, camera);
     placeLabels();
   }
   function placeLabels() {
@@ -233,12 +224,6 @@ export function createTableScene(container, ui) {
       s.chair.lookAt(0, 0, 0);
 
       const seated = p && !mine && !front && !p.out;
-      if (seated && !s.creature) { s.creature = makeCreature(s.seat); scene.add(s.creature.group); }
-      if (s.creature) {
-        s.creature.group.visible = !!seated;
-        s.creature.group.position.copy(ring);
-        s.creature.group.lookAt(0, 0, 0);
-      }
 
       // cartas
       const holding = p && p.inHand && p.cards.length && !p.folded;
@@ -251,7 +236,7 @@ export function createTableScene(container, ui) {
           c.position.set((i - 0.5) * 0.13, FELT_Y + 0.002 + (CARD_H / 2) * Math.sin(MY_CARD_TILT), MY.cards);
           c.rotation.set(MY_CARD_TILT, (0.5 - i) * 0.08, 0);
         } else {
-          c.position.copy(feltPoint(t, 0.72, FELT_Y + 0.002 + i * 0.003)).addScaledVector(tan, (i - 0.5) * 0.07);
+          c.position.copy(feltPoint(t, 0.62, FELT_Y + 0.002 + i * 0.003)).addScaledVector(tan, (i - 0.5) * 0.07);
           c.rotation.set(0, (i - 0.5) * 0.12, 0);
         }
       });
@@ -259,24 +244,24 @@ export function createTableScene(container, ui) {
       // fichas: pila propia y apuesta de esta ronda
       if (p && !p.out) {
         if (mine) chips.addStack(p.stack, MY.stack, new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), s.seat + 1);
-        else chips.addStack(p.stack, feltPoint(t, 0.8).addScaledVector(tan, -0.24), tan, out, s.seat + 1);
+        else chips.addStack(p.stack, feltPoint(t, 0.84).addScaledVector(tan, -0.15), tan, out, s.seat + 1);
         if (betting && p.bet > 0) {
           betSum += p.bet;
-          chips.addStack(p.bet, mine ? new THREE.Vector3(0, FELT_Y, MY.bet) : feltPoint(t, 0.48), mine ? new THREE.Vector3(1, 0, 0) : tan, mine ? new THREE.Vector3(0, 0, -1) : out.clone().negate(), s.seat + 11);
+          chips.addStack(p.bet, mine ? new THREE.Vector3(0, FELT_Y, MY.bet) : feltPoint(t, 0.42), mine ? new THREE.Vector3(1, 0, 0) : tan, mine ? new THREE.Vector3(0, 0, -1) : out.clone().negate(), s.seat + 11);
         }
       }
       if (p && v.toAct === p.id && betting) {
         turnRing.visible = true;
-        turnRing.position.copy(mine ? new THREE.Vector3(0, FELT_Y + 0.003, MY.cards - 0.02) : feltPoint(t, 0.72, FELT_Y + 0.003));
+        turnRing.position.copy(mine ? new THREE.Vector3(0, FELT_Y + 0.003, MY.cards - 0.02) : feltPoint(t, 0.62, FELT_Y + 0.003));
       }
       if (started && v.dealerSeat === s.seat && p) {
         dealer.visible = true;
-        dealer.position.copy(mine ? new THREE.Vector3(-0.32, FELT_Y + 0.006, MY.cards - 0.06) : feltPoint(t, 0.62, FELT_Y + 0.006).addScaledVector(tan, 0.22));
+        dealer.position.copy(mine ? new THREE.Vector3(-0.24, FELT_Y + 0.006, MY.cards - 0.04) : feltPoint(t, 0.64, FELT_Y + 0.006).addScaledVector(tan, 0.15));
       }
 
       // etiqueta
       if (front) s.anchor.copy(feltPoint(t, 0.95, 0.95));
-      else s.anchor.copy(ring).setY(p && seated ? HEAD_TOP + 0.08 : 1.15);
+      else s.anchor.copy(ring).setY(p && seated ? HEAD_TOP : 1.12);
       s.showLabel = fillLabel(s, p, { mine, me, started, v, snap, shown, winners });
       s.label.style.display = s.showLabel ? '' : 'none';
     }
@@ -352,11 +337,11 @@ function dealerTop() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d');
-  g.fillStyle = '#f4f1e8'; g.fillRect(0, 0, 128, 128);
-  g.strokeStyle = '#1b1530'; g.lineWidth = 8; g.beginPath(); g.arc(64, 64, 54, 0, Math.PI * 2); g.stroke();
-  g.fillStyle = '#1b1530'; g.font = '900 72px "Arial Rounded MT Bold", Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#e3d6b8'; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = INK; g.lineWidth = 6; g.beginPath(); g.arc(64, 64, 54, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = INK; g.font = '900 72px "Arial Rounded MT Bold", Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText('D', 64, 68);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.MeshToonMaterial({ map: t });
+  return toon('#ffffff', { map: t });
 }

@@ -11,10 +11,10 @@ Responde y comenta en español. El nombre de la marca va en inglés ("Poker for 
 ## Identidad de la marca
 
 - Nombre completo: **Poker for the Players**. Usarlo en el `<title>`, en la pantalla de inicio y en la vista previa al compartir el link.
-- Logotipo en SVG con estilo de caricatura sci-fi: letras gruesas con contorno, colores chillones y algún detalle alienígena o de palo de baraja. Original, sin parecerse a logos de series existentes.
+- Logotipo en SVG con el mismo estilo de animación 2D de la escena (ver "Estilo visual"): letras rotuladas a mano con línea delgada color tinta, colores de la paleta apagada y algún detalle alienígena o de palo de baraja. Original, sin parecerse a logos de series existentes.
 - Favicon e ícono para celular (`apple-touch-icon` y `manifest.json`) para que se pueda agregar a la pantalla de inicio como si fuera app.
 - Etiquetas Open Graph (`og:title`, `og:description`, `og:image`) con una imagen de vista previa de 1200 x 630, para que el link se vea bien al mandarlo por WhatsApp.
-- Pantalla de inicio con la escena del casino interdimensional de fondo, el logo, y tres acciones claras: "Jugar contra la compu", "Crear mesa" y "Unirme con código".
+- Pantalla de inicio con el cuarto de juego de fondo, el logo, y tres acciones claras: "Jugar contra la compu", "Crear mesa" y "Unirme con código".
 
 ## Archivo de referencia
 
@@ -56,7 +56,7 @@ poker-for-the-players/
   client/
     index.html
     main.js         # arranque, conexión con Socket.IO
-    scene/          # escena three.js: casino, mesa, cámara, luces, contornos
+    scene/          # escena three.js: cuarto, cámara, materiales planos y contornos (ink.js)
     models/         # geometría por código de fichas, cartas, manos y criaturas
     animations/     # jugadas propias, rivales, reposo y "pensando"
     ui/             # barra de acciones, HUD, pantallas de inicio
@@ -75,7 +75,7 @@ poker-for-the-players/
 
 1. **Mesas con código**: pantalla inicial con "Crear mesa" (genera un código de 5 letras) y "Unirme" (escribir código). El link `/?mesa=ABCDE` entra directo.
 2. **Apodo**: el jugador escribe su apodo antes de sentarse. Se guarda en `localStorage` para la próxima vez.
-3. **Asientos**: hasta 8. Click en un asiento libre para sentarse antes de que empiece el torneo.
+3. **Asientos**: hasta 6 (`MAXP` en `server/engine.js`; la mesa redonda chica está pensada para 6). Click en un asiento libre para sentarse antes de que empiece el torneo.
 4. **Formato torneo** (decisión del dueño, para una noche de póker a distancia de ~4 horas):
    - Todos empiezan con **5,000 fichas**.
    - Ciegas que suben por reloj: niveles de 15 minutos por omisión (configurable al crear la mesa: 2, 5, 10, 15, 20 o 30), empezando en 25/50 y subiendo hasta 3000/6000 (lista `BLINDS` en `server/engine.js`). El nivel nuevo aplica al repartir la siguiente mano.
@@ -97,7 +97,7 @@ poker-for-the-players/
 
 Dos formas de jugar con bots:
 
-1. **Práctica en solitario**: desde "Jugar contra la compu", el jugador elige cuántos rivales (1 a 7) y la dificultad, y empieza de inmediato. Es una mesa privada que nadie más puede ver ni unirse.
+1. **Práctica en solitario**: desde "Jugar contra la compu", el jugador elige cuántos rivales (1 a 5) y la dificultad, y empieza de inmediato. Es una mesa privada que nadie más puede ver ni unirse.
 2. **Rellenar asientos en una mesa con amigos**: en una mesa normal, cualquier jugador sentado puede agregar o quitar bots en los asientos libres entre manos. Útil cuando son pocos.
 
 ### Dificultades
@@ -113,7 +113,7 @@ Dos formas de jugar con bots:
 - Tienen un pequeño componente aleatorio para no ser predecibles.
 - Esperan entre 1 y 3 segundos antes de actuar, para que se sienta natural y se vean las animaciones.
 - Siempre envían jugadas legales a través del mismo `act()` del motor que usan los humanos.
-- Cada bot es una de las criaturas del casino, con nombre inventado y gracioso en español (por ejemplo "Don Chepe", "La Güera", "El Profe") y un ícono de bot discreto junto a su nombre, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el robot es calculador, el blob es impulsivo).
+- Cada bot es uno de los personajes del cuarto de juego, con nombre inventado y gracioso en español (por ejemplo "Don Chepe", "La Güera", "El Profe") y un ícono de bot discreto junto a su nombre, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el cabezón de cables es calculador, el del casco es impulsivo).
 - Si se quedan sin fichas, usan su única recompra casi siempre; si no, quedan eliminados.
 - En práctica en solitario, si el humano se queda sin fichas, ofrecer "Recomprar" (si le queda) o quedar fuera y ver cómo termina; al final, "Volver al inicio" para una nueva partida.
 
@@ -126,25 +126,51 @@ Dos formas de jugar con bots:
 - Escapar o usar `textContent` para apodos, nunca `innerHTML` con texto de usuarios.
 - Mantener el diseño accesible: foco visible, botones de al menos 44px de alto, `prefers-reduced-motion`.
 
-## Estilo visual: primera persona en un casino interdimensional de caricatura
+## Estilo visual: primera persona en un cuarto de juego de animación 2D
 
-La experiencia es en **primera persona**: la cámara son los ojos del jugador sentado en su silla. Frente a él ve el borde acolchado de la mesa, sus propias manos, sus dos cartas, su pila de fichas, y al fondo el resto de la mesa con los rivales, el bote y las cartas comunitarias.
+La experiencia es en **primera persona**: la cámara son los ojos del jugador sentado en su silla. Frente a él ve el borde de la mesa, sus dos cartas sobre el fieltro, su pila de fichas al alcance de la mano y, al otro lado de la mesa chica, a los rivales enmarcados por el cuarto.
 
-El mundo NO es realista. Es una **caricatura animada para adultos de ciencia ficción**, absurda, colorida y un poco asquerosa. Todo es **original**: no usar personajes, objetos, lugares, logos, frases ni diseños reconocibles de ninguna serie o franquicia existente. Si algo se parece demasiado a algo conocido, cambiarlo.
+**Todo debe parecer un cuadro dibujado a mano de un capítulo de una serie animada de televisión para adultos de ciencia ficción, no un videojuego.** Todo es **original**: no usar personajes, objetos, lugares, logos, frases ni diseños reconocibles de ninguna serie o franquicia existente. Si algo se parece demasiado a algo conocido, cambiarlo. Lo absurdo está en los personajes y los objetos, no en luces de neón.
+
+Lo que NO queremos (así se veía la versión anterior y se descartó): colores neón saturados, materiales brillantes, casi sin contornos, un casino gigante y vacío, personajes hechos de bloques.
+
+### Técnica de render
+
+- **Sin iluminación realista.** Materiales planos de 2 tonos como máximo: el color base y una sola sombra plana un poco más oscura (`MeshToonMaterial` con rampa de 2 pasos, una luz ambiental y una direccional; ver `client/scene/toon.js`). Nada de brillos, reflejos, mapas de sombras ni degradados suaves.
+- **La luz se pinta, no se simula.** La lámpara crea "charcos" de luz con bordes duros según la distancia al foco: la mesa iluminada, una penumbra cálida, un resplandor rojizo en paredes y piso cercanos, y el resto del cuarto más oscuro. El parche claro del fieltro y el cono de luz son formas planas.
+- **Contornos color tinta `#1d1611` en todo**, siluetas y bordes internos, con línea delgada y uniforme como trazo de animación (no gruesa tipo cómic). Se hacen con un posproceso (`client/scene/ink.js`): la escena se dibuja una vez con dos salidas (color + número de trazo por material, y normales) y una pasada a pantalla completa pinta línea donde cambia la profundidad, la normal o el material. Materiales que no deben separarse con línea (el fieltro y su parche iluminado, el piso y sus manchas) comparten nombre de trazo (`edge`). Lo translúcido (cono de luz, humo) va en una capa aparte que se dibuja después, sin contorno.
+- **Formas simples y un poco imperfectas**: nada de bloques perfectos; `wobble()` deforma levemente la geometría.
+- Todo se modela con geometría por código y texturas pintadas en canvas; si se usan modelos externos, deben ser CC0 y anotarse en `public/assets/CREDITOS.md`.
+
+### Paleta (apagada y terrosa)
+
+| Elemento | Color |
+|---|---|
+| Tinta (contornos y texto dibujado) | `#1d1611` |
+| Paredes | café rojizo oscuro `#6b3a2a` |
+| Lambrín (mitad inferior) | madera `#5a4030`, moldura `#4a3324` |
+| Piso | caqui desteñido `#7d7350`, manchas `#6b6243` |
+| Tapete bajo la mesa | óxido gastado `#8c5b3b` |
+| Fieltro | verde apagado `#5f9a3a`, más claro bajo la lámpara `#86b84e` |
+| Madera de mesa y sillas | `#7a4a2c`, `#6a4530` |
+| Lámpara | domo mostaza `#c9a03a` |
+| Papel (cartas, paneles) | crema `#efe4c8` |
+
+**Prohibido:** rosa neón, morado chillón, verde limón brillante, fondos saturados.
 
 ### Dirección de arte
 
-- **Escenario**: un casino de mala muerte en un planeta extraño. Paredes con tubos y luces de neón parpadeando, una ventana grande con cielo de dos soles, planetas cercanos y naves pasando de vez en cuando. Máquinas raras al fondo haciendo ruidos.
-- **Mesa**: fieltro verde chillón con alguna mancha sospechosa, riel acolchado de un material alienígena con costuras, lámpara colgante que zumba.
-- **Fichas**: estilo caricatura con colores por denominación: **blanca 10, verde 25, roja 50, negra 100, morada 500, amarilla 1,000**, con un detalle extraño, como que brillan un poco o tienen un símbolo alienígena. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
-- **Cartas**: baraja de caricatura legible, con índices grandes y claros. Las figuras J, Q, K son criaturas inventadas del mundo del juego. El reverso lleva el logo de Poker for the Players.
-- **Rivales**: criaturas originales sentadas en sus asientos, de cuerpo visible de la cintura para arriba, cada una con personalidad: por ejemplo un blob gelatinoso de tres ojos, un tipo con cabeza de vegetal, un robot oxidado que echa humo, una señora alienígena con muchos brazos. Los humanos en la mesa usan una de estas criaturas como avatar, elegida al sentarse, con su apodo flotando encima.
-- **Manos del jugador**: manos de caricatura visibles en primera persona, con contorno grueso. El jugador puede elegir el color de piel o un tipo de mano alienígena.
-- **Técnica de render**: sombreado toon (`MeshToonMaterial` con rampa de 3 o 4 tonos), contornos gruesos negros (shader de contorno o postproceso), colores planos saturados, sin texturas fotográficas. Todo se puede modelar con geometría por código; si se usan modelos externos, deben ser CC0 y anotarse en `public/assets/CREDITOS.md`.
+- **Escenario**: un cuarto de juego chico, sucio y acogedor, no un casino. Paredes café rojizo con lambrín de madera, piso caqui con manchas, tapete redondo gastado bajo la mesa, cuadros enmarcados con paisajes de planetas raros, una puerta con un letrero chueco, manchas de humedad. Una botella y un cenicero sobre la mesa. Humo que sube en espiral de algún rival y se disuelve. Un mesero alienígena original que de vez en cuando pasa al fondo con una charola.
+- **Mesa**: redonda, pequeña, de madera, para máximo 6 jugadores, con una sola pata central. Fieltro verde gastado y riel de cuero café.
+- **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
+- **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
+- **Cartas**: papel crema, índices grandes y claros en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
+- **Rivales**: personajes originales dibujados en el mismo estilo, de la cintura para arriba: formas simples, extremidades delgadas, ojos grandes con pupilas pequeñas, párpados caídos y expresiones secas, aburridas o sospechosas. Mezcla de criaturas alienígenas y seres con equipo tecnológico improvisado (cables, tubos, cascos). Cada uno con una silueta distinta y reconocible. Animaciones en reposo sutiles y secas: parpadeo, mirar de reojo, fumar, rascarse. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo flotando encima.
+- **Manos del jugador**: manos de caricatura en el mismo estilo de línea delgada. El jugador puede elegir el color de piel o un tipo de mano alienígena.
 
 ### Cámara
 
-- Fija en el asiento del jugador, a la altura de los ojos, mirando ligeramente hacia abajo a la mesa.
+- Fija en el asiento del jugador, a la altura de los ojos de alguien sentado en una silla, mirando ligeramente hacia abajo a la mesa. Como la mesa es chica, los rivales se ven cerca y enmarcados por el cuarto, como en una toma de la serie.
 - Respiración sutil (balanceo mínimo) para que se sienta vivo.
 - El jugador puede mirar un poco alrededor arrastrando con el dedo o el mouse (límite de unos 40 grados a cada lado y 15 arriba y abajo), y la cámara regresa sola al centro.
 - Cuando habla otro jugador, la cámara gira levemente hacia él, como cuando volteas a ver quién apuesta.
@@ -175,34 +201,36 @@ Mientras no es el turno del jugador, cada pocos segundos se reproduce al azar un
 - Volver a espiar las esquinas de sus cartas
 - Poner una ficha encima de sus cartas como protector
 - Tomar un trago de un vaso con un líquido de color raro que burbujea
-- Voltear a ver por la ventana cuando pasa una nave
+- Voltear a ver al mesero cuando pasa al fondo
 - Rascarse la cabeza o estirar los dedos
 
 Cuando **sí es su turno**, las animaciones cambian a "pensando": tamborileo más rápido, mirar el bote, mirar sus cartas, sopesar una pila de fichas en la mano. El jugador nunca pierde control: si presiona un botón, la animación en reposo se corta suavemente y empieza la de la jugada.
 
-Los rivales también tienen animaciones en reposo propias de su personaje (el blob tiembla, el robot echa vapor, la alienígena de muchos brazos juega con fichas en cuatro manos a la vez).
+Los rivales también tienen animaciones en reposo propias de su personaje, secas y sutiles (el del casco echa humo por una válvula, la de cuatro brazos se rasca la nuca mientras tamborilea).
 
 ### Interfaz encima de la escena
 
-- Barra de acciones abajo, estilo caricatura, con botones grandes de al menos 44px: Retirarse, Pasar o Igualar, Apostar o Subir con slider y atajos (½ bote, bote, todo).
-- Información clave siempre legible encima de la escena 3D: bote, tus fichas, cuánto te toca igualar y temporizador de turno.
+- Paneles color papel crema desteñido (`#efe4c8`), línea delgada color tinta como trazo a mano y sombras planas mínimas. Nada de botones neón: los colores de acento salen de la paleta (mostaza, ladrillo, oliva, marino).
+- Tipografía de rotulado a mano de caricatura de Google Fonts, legible y con acentos, ñ, ¿ y ¡.
+- Barra de acciones abajo con botones grandes de al menos 44px: Retirarse, Pasar o Igualar, Apostar o Subir con slider y atajos (½ bote, bote, todo).
+- Una sola franja discreta arriba con bote, tus fichas, cuánto te toca igualar y temporizador de turno.
 - Botón para silenciar y botón de calidad gráfica (alta, media, baja).
 
 ### Sonido
 
-Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la mesa, burbujas del vaso, zumbido de la lámpara, naves pasando, y un aviso cuando es tu turno. Música de fondo opcional tipo lounge espacial, apagada por defecto. Todo con licencia libre o generado con Web Audio. El sonido empieza solo después de la primera interacción del usuario.
+Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la mesa, burbujas del vaso, zumbido de la lámpara, pasos y vasos del mesero, y un aviso cuando es tu turno. Música de fondo opcional tipo lounge espacial, apagada por defecto. Todo con licencia libre o generado con Web Audio. El sonido empieza solo después de la primera interacción del usuario.
 
 ### Rendimiento y accesibilidad
 
 - Debe correr fluido en celulares de gama media y en una MacBook Pro Intel de 2018 con 8 GB.
-- Detectar equipos lentos y bajar la calidad automáticamente: menos sombras, sin postproceso, menos elementos animados en el fondo.
+- Detectar equipos lentos y bajar la calidad automáticamente. En calidad baja: resolución 1x, 30 cuadros por segundo y menos elementos animados en el fondo (el mesero pasa menos, menos humo). Los contornos se quedan siempre porque son parte del estilo; cuestan una sola pasada a pantalla completa.
 - Pausar el render cuando la pestaña no está visible.
 - Con `prefers-reduced-motion`: sin respiración de cámara, sin temblores, animaciones cortas.
 - Si el navegador no soporta WebGL, mostrar una vista 2D simple funcional para que nadie se quede sin jugar.
 
 ## Pruebas
 
-`test/engine.test.js` con `node --test`: simular al menos 3,000 partidas aleatorias de 2 a 8 jugadores y verificar que las fichas totales nunca cambian y que ninguna mano se queda atorada. Incluir bots en esas simulaciones (mesas solo de bots en las 3 dificultades) y verificar que nunca hagan jugadas ilegales ni reciban cartas ajenas. Probar el evaluador con casos conocidos (escalera real, escalera baja A-2-3-4-5, full contra color, empates).
+`test/engine.test.js` con `node --test`: simular al menos 3,000 partidas aleatorias de 2 a 6 jugadores y verificar que las fichas totales nunca cambian y que ninguna mano se queda atorada. Incluir bots en esas simulaciones (mesas solo de bots en las 3 dificultades) y verificar que nunca hagan jugadas ilegales ni reciban cartas ajenas. Probar el evaluador con casos conocidos (escalera real, escalera baja A-2-3-4-5, full contra color, empates).
 
 ## Comandos esperados
 

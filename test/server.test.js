@@ -139,7 +139,7 @@ describe('servidor', () => {
     assert.ok((await a.emit('start', {})).ok);
     assert.ok((await a.emit('bots:add', { count: 1, difficulty: 'normal' })).error, 'no se agregan bots con el torneo en marcha');
     await b.emit('room:join', { code: r.code });
-    assert.ok((await b.emit('sit', { nick: 'Tarde', seat: 6 })).error, 'no se puede entrar una vez iniciado');
+    assert.ok((await b.emit('sit', { nick: 'Tarde', seat: 3 })).error, 'no se puede entrar una vez iniciado');
 
     const s = await a.emit('room:create', { nick: 'X', solo: true, bots: 2, difficulty: 'facil' });
     assert.ok((await b.emit('room:join', { code: s.code })).error, 'las prácticas son privadas');

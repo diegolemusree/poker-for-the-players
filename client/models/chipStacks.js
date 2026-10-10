@@ -1,19 +1,20 @@
 // Fichas 3D en pilas reales por denominación. Un InstancedMesh por color: pocas llamadas de dibujo
-// aunque haya cientos de fichas en la mesa. Cada ficha tiene franjas en el canto y un centro que brilla.
+// aunque haya cientos de fichas en la mesa. Cada ficha tiene franjas en el canto y un centro más claro.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHIPS, stackBreakdown } from '../chips.js';
-import { gradientMap, outline } from '../scene/toon.js';
+import { toon } from '../scene/toon.js';
 
 export const CHIP_R = 0.027, CHIP_H = 0.009;
 const PER_COLUMN = 15;
 const GAP = CHIP_R * 2 + 0.005;
-const INLAY = { 1000: '#fff6a8', 500: '#e2b8ff', 100: '#5ef2c2', 50: '#ffe0d6', 25: '#d6ffb0', 10: '#ff5fb5' };
-const STRIPE = { 10: '#3aa0ff' };
+const INLAY = { 1000: '#ddb760', 500: '#4d5d78', 100: '#4a423b', 50: '#bd6a52', 25: '#8b955a', 10: '#cbbd9c' };
+const STRIPE = { 10: '#a4452f' };
 
 function paint(geo, fn) {
   const g = geo.toNonIndexed();
+  g.computeVertexNormals(); // normales planas: el canto biselado marca una línea entre ficha y ficha
   const pos = g.getAttribute('position'), col = new Float32Array(pos.count * 3);
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), color = new THREE.Color();
   for (let i = 0; i < pos.count; i += 3) {
@@ -28,28 +29,26 @@ function paint(geo, fn) {
 }
 
 function chipGeometry(info) {
-  const stripe = STRIPE[info.value] || '#fffaf0';
-  const body = paint(new THREE.CylinderGeometry(CHIP_R, CHIP_R, CHIP_H, 24, 1), (mid, n) => {
-    if (Math.abs(n.y) > 0.7) return info.color;
+  const stripe = STRIPE[info.value] || '#e3d6b8';
+  const h = CHIP_H / 2, bevel = 0.0018;
+  const profile = [[0, -h], [CHIP_R - bevel, -h], [CHIP_R, -h + bevel], [CHIP_R, h - bevel], [CHIP_R - bevel, h], [0, h]].map(([x, y]) => new THREE.Vector2(x, y));
+  const body = paint(new THREE.LatheGeometry(profile, 24), (mid, n) => {
+    if (Math.abs(n.y) > 0.5) return info.color;
     const seg = Math.floor(((Math.atan2(mid.z, mid.x) + Math.PI) / (Math.PI * 2)) * 24);
     return seg % 4 < 2 ? stripe : info.color;
   });
   const inlay = paint(new THREE.CylinderGeometry(CHIP_R * 0.6, CHIP_R * 0.6, CHIP_H + 0.0018, 18, 1), () => INLAY[info.value]);
-  // el "símbolo alienígena": un ojito en el centro
-  const eye = paint(new THREE.CylinderGeometry(CHIP_R * 0.22, CHIP_R * 0.22, CHIP_H + 0.0026, 10, 1), () => info.edge);
-  return mergeGeometries([body, inlay, eye]);
+  return mergeGeometries([body, inlay]);
 }
 
 export class ChipField {
   constructor(parent, capacity = 700) {
     this.meshes = new Map();
     for (const info of CHIPS) {
-      const mat = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: gradientMap(), emissive: info.color, emissiveIntensity: 0.16 });
+      const mat = toon('#ffffff', { vertexColors: true, side: THREE.DoubleSide });
       const m = new THREE.InstancedMesh(chipGeometry(info), mat, capacity);
       m.count = 0;
-      m.castShadow = true;
       m.frustumCulled = false;
-      outline(m, 'small');
       parent.add(m);
       this.meshes.set(info.value, m);
     }
@@ -82,10 +81,7 @@ export class ChipField {
     });
   }
   end() {
-    for (const m of this.meshes.values()) {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.userData.outline) m.userData.outline.count = m.count;
-    }
+    for (const m of this.meshes.values()) m.instanceMatrix.needsUpdate = true;
   }
 }
 

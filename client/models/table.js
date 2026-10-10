@@ -1,89 +1,89 @@
-// Mesa ovalada: fieltro verde chillón con manchas sospechosas, línea de apuestas
-// y riel acolchado de piel alienígena con costuras amarillas.
+// Mesa redonda chica de madera para 6: fieltro verde gastado (más claro bajo la lámpara),
+// riel de cuero café, una sola pata central con base de cruz. También las sillas de madera.
 
 import * as THREE from 'three';
-import { mesh, toon } from '../scene/toon.js';
+import { mesh, toon, wobble } from '../scene/toon.js';
 
-export const TABLE_A = 1.55, TABLE_B = 0.92, FELT_Y = 0.76;
-const RAIL_R = 0.085;
+export const TABLE_R = 0.74, FELT_Y = 0.76;
+const decal = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
 
-class EllipsePath extends THREE.Curve {
-  constructor(a, b, y) { super(); this.a = a; this.b = b; this.y = y; }
-  getPoint(t, target = new THREE.Vector3()) {
-    const ang = t * Math.PI * 2;
-    return target.set(this.a * Math.cos(ang), this.y, this.b * Math.sin(ang));
-  }
-}
-
-function ellipseShape(a, b, hole) {
-  const s = new THREE.Shape();
-  s.absellipse(0, 0, a, b, 0, Math.PI * 2, false);
-  if (hole) { const h = new THREE.Path(); h.absellipse(0, 0, hole[0], hole[1], 0, Math.PI * 2, true); s.holes.push(h); }
-  return s;
-}
-function slab(shape, depth, color, y, kind = 'big') {
-  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 64 });
-  geo.rotateX(-Math.PI / 2);
-  const m = mesh(geo, color, kind);
-  m.position.y = y;
+function put(parent, m, x, y, z, rx = 0, ry = 0, rz = 0) {
+  m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
+  parent.add(m);
   return m;
+}
+// mancha plana e irregular sobre una superficie horizontal
+function blob(r, seed, segs = 22) {
+  const g = new THREE.CircleGeometry(r, segs);
+  const p = g.getAttribute('position');
+  for (let i = 1; i < p.count; i++) {
+    const a = Math.atan2(p.getY(i), p.getX(i));
+    const k = 1 + Math.sin(a * 3 + seed) * 0.16 + Math.sin(a * 5 + seed * 2.1) * 0.08;
+    p.setXY(i, p.getX(i) * k, p.getY(i) * k);
+  }
+  g.rotateX(-Math.PI / 2);
+  return g;
 }
 
 export function makeTable() {
   const g = new THREE.Group();
+  const wood = '#7a4a2c', woodDark = '#5e3a24';
 
-  // base y pedestal
-  const base = slab(ellipseShape(TABLE_A - 0.05, TABLE_B - 0.05), 0.16, '#3b1f4f', FELT_Y - 0.22);
-  g.add(base);
-  const ped = mesh(new THREE.CylinderGeometry(0.28, 0.5, FELT_Y - 0.22, 20), '#2a1638');
-  ped.position.y = (FELT_Y - 0.22) / 2;
-  g.add(ped);
+  // pata central y base de cruz
+  put(g, mesh(wobble(new THREE.CylinderGeometry(0.075, 0.095, FELT_Y - 0.16, 10, 3), 0.004, 2), woodDark), 0, (FELT_Y - 0.16) / 2 + 0.06, 0);
+  put(g, mesh(wobble(new THREE.CylinderGeometry(0.13, 0.15, 0.08, 10), 0.004, 3), wood), 0, 0.1, 0);
+  for (const a of [Math.PI / 4, -Math.PI / 4]) put(g, mesh(wobble(new THREE.BoxGeometry(0.98, 0.06, 0.1, 4, 1, 1), 0.006, 4 + a), woodDark), 0, 0.03, 0, 0, a, 0);
 
-  const felt = slab(ellipseShape(TABLE_A, TABLE_B), 0.05, '#27d65f', FELT_Y - 0.05, null);
-  felt.receiveShadow = true;
-  g.add(felt);
+  // cubierta: faldón, tabla, fieltro y riel
+  put(g, mesh(wobble(new THREE.CylinderGeometry(0.82, 0.8, 0.09, 40, 1, true), 0.005, 5), toon(woodDark, { side: THREE.DoubleSide })), 0, FELT_Y - 0.075, 0);
+  put(g, mesh(wobble(new THREE.CylinderGeometry(0.87, 0.86, 0.045, 40), 0.003, 6), wood), 0, FELT_Y - 0.04, 0);
+  put(g, mesh(new THREE.CylinderGeometry(TABLE_R + 0.03, TABLE_R + 0.03, 0.02, 48), toon('#5f9a3a', { edge: 'felt' })), 0, FELT_Y - 0.01, 0);
+  const rail = put(g, mesh(wobble(new THREE.TorusGeometry(TABLE_R + 0.06, 0.055, 10, 64), 0.003, 7), '#4b2e22'), 0, FELT_Y + 0.018, 0, Math.PI / 2);
+  rail.scale.z = 0.75;
 
-  const line = slab(ellipseShape(TABLE_A * 0.56, TABLE_B * 0.56, [TABLE_A * 0.56 - 0.018, TABLE_B * 0.56 - 0.018]), 0.001, '#b8ff9a', FELT_Y, null);
-  g.add(line);
-
-  // manchas sospechosas
-  const stains = [[-0.62, 0.22, 0.13, '#1fa84a'], [0.7, -0.32, 0.09, '#8f3fbf'], [0.42, 0.5, 0.06, '#d9b52c'], [-0.34, -0.55, 0.08, '#1a9440'], [1.05, 0.14, 0.05, '#c2410c']];
-  stains.forEach(([x, z, r, col], i) => {
-    const s = new THREE.Mesh(new THREE.CircleGeometry(r, 18), toon(col, { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
-    s.rotation.x = -Math.PI / 2; s.rotation.z = i;
-    s.scale.set(1, 0.7 + (i % 3) * 0.15, 1);
-    s.position.set(x, FELT_Y + 0.0006, z);
-    s.receiveShadow = true;
-    g.add(s);
+  // parche claro bajo la lámpara y desgaste del fieltro (mismo trazo que el fieltro: sin línea)
+  put(g, mesh(blob(0.46, 1.3, 40), toon('#86b84e', { edge: 'felt', ...decal })), 0, FELT_Y + 0.0006, -0.02);
+  [[-0.5, 0.25, 0.07, 2], [0.42, -0.44, 0.05, 5], [0.55, 0.3, 0.04, 8], [-0.2, -0.6, 0.05, 11]].forEach(([x, z, r, s]) => {
+    put(g, mesh(blob(r, s), toon('#53873a', { edge: 'felt', ...decal })), x, FELT_Y + 0.0009, z);
   });
-
-  // riel acolchado
-  const railGeo = new THREE.TubeGeometry(new EllipsePath(TABLE_A + 0.06, TABLE_B + 0.06, FELT_Y + 0.03), 160, RAIL_R, 14, true);
-  const rail = mesh(railGeo, '#b8327f');
-  rail.castShadow = rail.receiveShadow = true;
-  g.add(rail);
-
-  // costuras
-  const N = 120;
-  const stitch = new THREE.InstancedMesh(new THREE.BoxGeometry(0.026, 0.006, 0.007), toon('#ffe36e'), N);
-  const o = new THREE.Object3D(), path = new EllipsePath(TABLE_A + 0.06, TABLE_B + 0.06, FELT_Y + 0.03 + RAIL_R + 0.001);
-  for (let i = 0; i < N; i++) {
-    const t = i / N;
-    path.getPoint(t, o.position);
-    const tan = path.getTangent(t);
-    o.rotation.set(0, -Math.atan2(tan.z, tan.x), 0);
-    o.updateMatrix();
-    stitch.setMatrixAt(i, o.matrix);
-  }
-  g.add(stitch);
   return g;
 }
 
-// Punto del óvalo: ángulo `t` y fracción `f` del radio (1 = borde del fieltro).
+// Utilería sobre la mesa: una botella y un cenicero con una colilla.
+export function makeTableProps() {
+  const g = new THREE.Group();
+  const bottle = new THREE.Group();
+  const profile = [[0, 0], [0.042, 0], [0.045, 0.01], [0.044, 0.14], [0.03, 0.17], [0.014, 0.2], [0.014, 0.25], [0.017, 0.26], [0, 0.26]].map(([x, y]) => new THREE.Vector2(x, y));
+  put(bottle, mesh(wobble(new THREE.LatheGeometry(profile, 14), 0.002, 9), '#4e5a34'), 0, 0, 0);
+  put(bottle, mesh(new THREE.CylinderGeometry(0.0455, 0.0455, 0.06, 14, 1, true), toon('#d8c9a3', { side: THREE.DoubleSide })), 0, 0.075, 0);
+  put(g, bottle, 0.5, FELT_Y, 0.3, 0, 0, 0.02);
+
+  const tray = new THREE.Group();
+  put(tray, mesh(wobble(new THREE.CylinderGeometry(0.07, 0.062, 0.025, 16), 0.003, 10), '#7d8a86'), 0, 0.0125, 0);
+  put(tray, mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.004, 16), '#3b3a36'), 0, 0.024, 0);
+  put(tray, mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.055, 6), '#e3d6b8'), 0.02, 0.03, 0.01, 0, 0, Math.PI / 2 - 0.2);
+  put(g, tray, -0.47, FELT_Y, 0.33);
+  return g;
+}
+
+// Silla de madera algo chueca; mira hacia +z (hacia la mesa), con el origen en el piso.
+export function makeChair() {
+  const g = new THREE.Group();
+  const wood = '#6a4530', dark = '#523525';
+  put(g, mesh(wobble(new THREE.BoxGeometry(0.46, 0.05, 0.42, 2, 1, 2), 0.006, 12), wood), 0, 0.46, -0.04);
+  for (const [x, z] of [[-0.19, 0.13], [0.19, 0.13], [-0.19, -0.2], [0.19, -0.2]]) {
+    put(g, mesh(new THREE.CylinderGeometry(0.02, 0.017, 0.44, 6), dark), x, 0.22, z, 0, 0, x * 0.08);
+  }
+  for (const x of [-0.19, 0.19]) put(g, mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6), dark), x, 0.72, -0.22, -0.08);
+  for (const y of [0.78, 0.92]) put(g, mesh(wobble(new THREE.BoxGeometry(0.42, 0.07, 0.025, 3, 1, 1), 0.005, y * 10), wood), 0, y, -0.23, -0.08);
+  return g;
+}
+
+// Punto del fieltro: ángulo `t` y fracción `f` del radio (1 = borde del fieltro).
 export function feltPoint(t, f, y = FELT_Y) {
-  return new THREE.Vector3(TABLE_A * f * Math.cos(t), y, TABLE_B * f * Math.sin(t));
+  return new THREE.Vector3(TABLE_R * f * Math.cos(t), y, TABLE_R * f * Math.sin(t));
 }
 // Dirección a lo largo del borde en el ángulo `t`.
 export function feltTangent(t) {
-  return new THREE.Vector3(-TABLE_A * Math.sin(t), 0, TABLE_B * Math.cos(t)).normalize();
+  return new THREE.Vector3(-Math.sin(t), 0, Math.cos(t));
 }

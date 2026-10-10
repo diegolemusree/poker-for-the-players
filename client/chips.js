@@ -2,12 +2,12 @@
 // Lo usa la interfaz (y lo usará la escena 3D). Es un módulo puro, también se prueba en Node.
 
 export const CHIPS = [
-  { value: 1000, name: 'amarilla', color: '#f2c230', edge: '#8a6a00' },
-  { value: 500,  name: 'morada',   color: '#7b3fc4', edge: '#3e1a6e' },
-  { value: 100,  name: 'negra',    color: '#1d1d22', edge: '#9a9aa6' },
-  { value: 50,   name: 'roja',     color: '#d2362c', edge: '#6e140f' },
-  { value: 25,   name: 'verde',    color: '#2e9b4f', edge: '#11502a' },
-  { value: 10,   name: 'blanca',   color: '#f4f1e8', edge: '#8c887c' },
+  { value: 1000, name: 'mostaza',  color: '#c99a35', edge: '#6e5216' },
+  { value: 500,  name: 'marino',   color: '#2f3f5c', edge: '#141c2b' },
+  { value: 100,  name: 'negra',    color: '#2b2622', edge: '#8a8174' },
+  { value: 50,   name: 'ladrillo', color: '#a4452f', edge: '#57200f' },
+  { value: 25,   name: 'oliva',    color: '#6f7a3c', edge: '#353b17' },
+  { value: 10,   name: 'crema',    color: '#e3d6b8', edge: '#7d705a' },
 ];
 
 // Lo que recibe cada jugador al empezar (o al recomprar): 32 fichas = 5,000.

@@ -1,13 +1,18 @@
-// Sombreado de caricatura: MeshToonMaterial con rampa de 3 tonos y contornos negros por "casco invertido"
-// (una copia de la malla, inflada sobre sus normales y pintada solo por dentro). No necesita posproceso.
+// Sombreado de animación 2D: cada material tiene su color base y una sola sombra plana (rampa de 2 tonos).
+// Los contornos no viven aquí: los dibuja el posproceso de ink.js. Para eso cada material escribe, además
+// del color, su número de trazo (en el alfa) y su normal (en una segunda salida). Donde cambia el número,
+// la normal o la profundidad, ink.js pinta una línea.
+// La luz de la lámpara también es pintada: charcos con bordes duros según la distancia al foco.
 
 import * as THREE from 'three';
-import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+
+export const INK = '#1d1611';
+export const LAMP = new THREE.Vector3(0, 1.58, 0);
 
 let ramp = null;
 export function gradientMap() {
   if (!ramp) {
-    ramp = new THREE.DataTexture(new Uint8Array([90, 170, 255]), 3, 1, THREE.RedFormat);
+    ramp = new THREE.DataTexture(new Uint8Array([0, 255]), 2, 1, THREE.RedFormat);
     ramp.minFilter = ramp.magFilter = THREE.NearestFilter;
     ramp.generateMipmaps = false;
     ramp.needsUpdate = true;
@@ -15,76 +20,98 @@ export function gradientMap() {
   return ramp;
 }
 
-const plain = new Map();
-// Material toon de un color; los de un solo color se comparten.
-export function toon(color, opts) {
-  if (!opts) {
-    if (!plain.has(color)) plain.set(color, new THREE.MeshToonMaterial({ color, gradientMap: gradientMap() }));
-    return plain.get(color);
-  }
-  return new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), ...opts });
+// Luz ambiental + una direccional: el lado iluminado sale con el color base exacto y el de sombra
+// con ~80 % del brillo (los toon de three dividen entre π, por eso las intensidades llevan π).
+export function addFlatLights(scene) {
+  const SHADE = 0.6;
+  scene.add(new THREE.AmbientLight('#ffffff', Math.PI * SHADE));
+  const sun = new THREE.DirectionalLight('#ffffff', Math.PI * (1 - SHADE));
+  sun.position.set(-0.6, 1.4, 1.1);
+  scene.add(sun);
 }
 
-// Grosor en metros por metro de distancia a la cámara: así el trazo mide lo mismo en pantalla de cerca y de lejos.
-const WIDTH = { big: 0.0055, small: 0.0032 };
-const outlineMats = {};
-function outlineMaterial(kind) {
-  if (outlineMats[kind]) return outlineMats[kind];
-  const width = { value: WIDTH[kind] };
-  const m = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+// Charcos de luz (multiplicadores en espacio lineal): mesa iluminada, penumbra cálida,
+// resplandor rojizo en paredes y piso cercanos, y el resto del cuarto en sombra.
+const POOL = `
+uniform vec3 inkLamp;
+vec3 lampPool(vec3 p) {
+  float d = distance(p, inkLamp);
+  if (d < 1.36) return vec3(1.0);
+  if (d < 2.0) return vec3(0.66, 0.6, 0.56);
+  if (d < 2.55) return vec3(0.56, 0.4, 0.34);
+  return vec3(0.33, 0.3, 0.31);
+}
+`;
+
+let nextId = 0;
+const named = new Map();
+// Número de trazo de 1 a 250. Materiales con el mismo nombre comparten número y no se separan con línea.
+function edgeId(name) {
+  if (name && named.has(name)) return named.get(name);
+  const id = ((nextId++ * 97) % 250) + 1;
+  if (name) named.set(name, id);
+  return id;
+}
+
+function inkify(m, { edge, pool = true } = {}) {
+  const id = { value: edgeId(edge) / 255 };
+  m.userData.edgeId = id;
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.outlineW = width;
-    sh.vertexShader = 'uniform float outlineW;\n' + sh.vertexShader.replace('#include <begin_vertex>', `
-      vec3 transformed = vec3(position);
-      vec4 oWorld = modelMatrix * vec4(position, 1.0);
+    sh.uniforms.edgeId = id;
+    sh.uniforms.inkLamp = { value: LAMP };
+    sh.vertexShader = 'varying vec3 vInkWorld;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+      vec4 inkW = vec4(transformed, 1.0);
       #ifdef USE_INSTANCING
-        oWorld = modelMatrix * instanceMatrix * vec4(position, 1.0);
+        inkW = instanceMatrix * inkW;
       #endif
-      float oDist = clamp(distance(oWorld.xyz, cameraPosition), 0.35, 9.0);
-      float oScale = (length(modelMatrix[0].xyz) + length(modelMatrix[1].xyz) + length(modelMatrix[2].xyz)) / 3.0;
-      transformed += normalize(normal) * outlineW * oDist / oScale;`);
+      vInkWorld = (modelMatrix * inkW).xyz;`);
+    sh.fragmentShader = 'uniform float edgeId;\nvarying vec3 vInkWorld;\nlayout(location = 1) out highp vec4 gInkNormal;\n' + POOL +
+      sh.fragmentShader
+        .replace('#include <opaque_fragment>', `${pool ? 'outgoingLight *= lampPool(vInkWorld);' : ''}\n#include <opaque_fragment>`)
+        .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+          gl_FragColor.a = edgeId;
+          gInkNormal = vec4(normalize(normal) * 0.5 + 0.5, 1.0);`);
   };
-  m.customProgramCacheKey = () => 'toon-outline';
-  return (outlineMats[kind] = m);
+  m.customProgramCacheKey = () => 'ink' + (pool ? 1 : 0);
+  return m;
 }
 
-// Normales suavizadas para que el contorno de una caja no se abra en las esquinas.
-const smoothCache = new WeakMap();
-function smoothed(geo) {
-  let g = smoothCache.get(geo);
-  if (!g) {
-    const c = new THREE.BufferGeometry();
-    c.setAttribute('position', geo.getAttribute('position'));
-    if (geo.index) c.setIndex(geo.index);
-    g = mergeVertices(c, 1e-4);
-    g.computeVertexNormals();
-    smoothCache.set(geo, g);
+const plain = new Map();
+// Material plano de un color. Los de un solo color se comparten.
+// opts.edge: nombre de grupo de trazo (p. ej. el fieltro y su parche iluminado), opts.pool: false para no oscurecerlo.
+export function toon(color, opts = {}) {
+  const { edge, pool, ...rest } = opts;
+  const shared = !Object.keys(rest).length;
+  const key = `${color}|${edge || ''}|${pool !== false}`;
+  if (shared && plain.has(key)) return plain.get(key);
+  const m = inkify(new THREE.MeshToonMaterial({ color, gradientMap: gradientMap(), ...rest }), { edge, pool: pool !== false });
+  if (shared) plain.set(key, m);
+  return m;
+}
+
+// Atajo: malla con material plano (o con el material que se le pase).
+export function mesh(geo, color, opts) {
+  return new THREE.Mesh(geo, typeof color === 'object' && color.isMaterial ? color : toon(color, opts));
+}
+
+// Pequeñas imperfecciones: mueve cada vértice con un ruido suave que depende solo de su posición,
+// así las costuras de la malla siguen cerradas y nada se ve como un bloque perfecto.
+export function wobble(geo, amount = 0.008, seed = 1) {
+  const p = geo.getAttribute('position');
+  const v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const n = (a, b, c) => Math.sin(v.x * a + seed) * Math.cos(v.y * b + seed * 1.7) + Math.sin(v.z * c + seed * 2.3) * 0.5;
+    p.setXYZ(i, v.x + n(5.1, 3.7, 4.3) * amount, v.y + n(3.3, 4.9, 5.7) * amount, v.z + n(4.7, 5.3, 3.1) * amount);
   }
-  return g;
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
 }
 
-// Contornos chicos (fichas, cartas) se apagan en calidad baja.
-export const smallOutlines = new Set();
-
-export function outline(mesh, kind = 'big') {
-  const geo = smoothed(mesh.geometry);
-  let o;
-  if (mesh.isInstancedMesh) {
-    o = new THREE.InstancedMesh(geo, outlineMaterial(kind), mesh.instanceMatrix.count);
-    o.instanceMatrix = mesh.instanceMatrix;
-    o.frustumCulled = false;
-    mesh.userData.outline = o;
-  } else o = new THREE.Mesh(geo, outlineMaterial(kind));
-  o.castShadow = o.receiveShadow = false;
-  o.userData.isOutline = true;
-  mesh.add(o);
-  if (kind === 'small') smallOutlines.add(o);
-  return mesh;
-}
-
-// Atajo: malla toon con contorno.
-export function mesh(geo, color, kind = 'big', opts) {
-  const m = new THREE.Mesh(geo, typeof color === 'object' && color.isMaterial ? color : toon(color, opts));
-  if (kind) outline(m, kind);
+// Capa de lo translúcido (cono de luz, humo): se dibuja después de los contornos para no llevar línea.
+export const GLOW_LAYER = 1;
+export function glow(m) {
+  m.layers.set(GLOW_LAYER);
   return m;
 }

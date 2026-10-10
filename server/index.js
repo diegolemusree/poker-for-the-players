@@ -10,6 +10,7 @@ import express from 'express';
 import { Server } from 'socket.io';
 import { Room, cleanNick } from './room.js';
 import { DIFFICULTIES } from './bots.js';
+import { MAXP } from './engine.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LETRAS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -97,7 +98,7 @@ export function createApp({ accessCode = process.env.ACCESS_CODE || '', tuning =
     socket.on('room:create', handle((d) => {
       const solo = !!d.solo;
       const n = Number(d.bots);
-      if (solo && (!Number.isInteger(n) || n < 1 || n > 7)) throw new Error('Elige de 1 a 7 rivales.');
+      if (solo && (!Number.isInteger(n) || n < 1 || n >= MAXP)) throw new Error(`Elige de 1 a ${MAXP - 1} rivales.`);
       if (solo && !DIFFICULTIES.includes(d.difficulty)) throw new Error('Dificultad no válida.');
       const r = makeRoom({ solo, levelMinutes: d.levelMinutes });
       enter(r);

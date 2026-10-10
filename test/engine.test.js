@@ -400,7 +400,7 @@ function simular(semilla) {
   const ctx = `semilla ${semilla}`;
   // ciegas que suben muy rápido (cada "hora" simulada de 2.5 s) para recorrer varios niveles
   const s = createState({ start: START, levels: [[10, 20], [20, 40], [50, 100], [200, 400]], levelMs: 2500 });
-  const n = ri(2, 8);
+  const n = ri(2, MAXP);
   const asientos = [...Array(MAXP).keys()].sort(() => r() - 0.5).slice(0, n);
   let total = 0;
   asientos.forEach((seat, i) => {
@@ -487,7 +487,7 @@ function simular(semilla) {
   }
 }
 
-test(`${PARTIDAS} partidas aleatorias de 2 a 8 jugadores: las fichas no cambian y ninguna mano se atora`, () => {
+test(`${PARTIDAS} partidas aleatorias de 2 a ${MAXP} jugadores: las fichas no cambian y ninguna mano se atora`, () => {
   for (let i = 0; i < PARTIDAS; i++) simular(1000 + i);
 });
 

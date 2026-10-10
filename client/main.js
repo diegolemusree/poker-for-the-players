@@ -4,7 +4,7 @@
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS } from './chips.js';
 
-const MAXP = 8;
+const MAXP = 6;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const SUIT_NAME = { s: 'picas', h: 'corazones', d: 'diamantes', c: 'tréboles' };
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
@@ -134,7 +134,7 @@ function drawHome() {
   nickIn.addEventListener('input', () => { nick = nickIn.value; store.set('ppt-nick', nick); });
   const need = () => { if (!nick.trim()) { error = 'Escribe tu apodo primero.'; draw(); nickIn.focus(); return false; } return true; };
 
-  const bots = h('select', { id: 'bots', 'aria-label': 'Número de rivales' }, [1, 2, 3, 4, 5, 6, 7].map(n => h('option', { value: n, selected: n === 3 }, `${n} ${n === 1 ? 'rival' : 'rivales'}`)));
+  const bots = h('select', { id: 'bots', 'aria-label': 'Número de rivales' }, [1, 2, 3, 4, 5].map(n => h('option', { value: n, selected: n === 3 }, `${n} ${n === 1 ? 'rival' : 'rivales'}`)));
   const dif = h('select', { id: 'dif', 'aria-label': 'Dificultad' }, Object.entries(DIF).map(([v, t]) => h('option', { value: v, selected: v === 'normal' }, t)));
   const lvlSolo = levelSelect(5), lvlMesa = levelSelect(15);
   const code = h('input', { type: 'text', maxLength: 5, id: 'code', placeholder: 'ABCDE', autocomplete: 'off', style: 'text-transform:uppercase;letter-spacing:.2em' });

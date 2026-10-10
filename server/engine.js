@@ -11,7 +11,7 @@ import { randomInt } from 'node:crypto';
 import { RANKS, SUITS, bestHand, cmp, handName } from './hands.js';
 
 export const START = 5000;
-export const MAXP = 8;
+export const MAXP = 6;
 export const TURN_LIMIT = 45000;
 export const LEVEL_MINUTES = 15;
 export const REBUYS = 1;
