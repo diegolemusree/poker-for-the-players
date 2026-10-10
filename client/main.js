@@ -48,8 +48,9 @@ function connectSocket() {
   socket = io({ auth: { token, accessCode: store.get('ppt-access') || '' }, reconnectionDelay: 800 });
   socket.on('connect', () => {
     error = ''; toast = '';
-    const code = new URLSearchParams(location.search).get('mesa') || store.get('ppt-room');
-    if (code) joinRoom(code, true); // también al reconectar tras perder la red: recupera asiento y cartas
+    const fromUrl = new URLSearchParams(location.search).get('mesa');
+    const code = fromUrl || store.get('ppt-room');
+    if (code) joinRoom(code, !fromUrl); // también al reconectar tras perder la red: recupera asiento y cartas
     else { screen = 'home'; draw(); }
   });
   socket.on('connect_error', (e) => {
@@ -266,7 +267,7 @@ function actionBar() {
     if (started()) hint('El torneo ya empezó. Estás mirando la mesa.');
     else {
       hint('Escribe tu apodo y elige un asiento libre en la mesa.');
-      const inp = h('input', { type: 'text', maxLength: 16, value: nick, placeholder: 'Tu apodo', 'aria-label': 'Tu apodo' });
+      const inp = h('input', { type: 'text', id: 'nick', maxLength: 16, value: nick, placeholder: 'Tu apodo', 'aria-label': 'Tu apodo' });
       inp.addEventListener('input', () => { nick = inp.value; store.set('ppt-nick', nick); });
       inner.append(h('div', { class: 'row' }, inp));
     }

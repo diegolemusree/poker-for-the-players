@@ -10,7 +10,7 @@ export const DIFFICULTIES = ['facil', 'normal', 'dificil'];
 
 // Qué tan bien juega cada nivel. `iters` = repeticiones de la simulación Monte Carlo.
 const LEVELS = {
-  facil:   { iters: 150, noise: 0.30, callMargin: -0.12, looseCall: 0.25, raiseQ: 0.75, betQ: 0.70, aggr: 0.35, bluff: 0,    pushBBs: 0,  delay: [1000, 2500] },
+  facil:   { iters: 300, noise: 0.30, callMargin: -0.12, looseCall: 0.25, raiseQ: 0.75, betQ: 0.70, aggr: 0.35, bluff: 0,    pushBBs: 0,  delay: [1000, 2500] },
   normal:  { iters: 400, noise: 0.12, callMargin: 0.02,  looseCall: 0.05, raiseQ: 0.55, betQ: 0.45, aggr: 0.65, bluff: 0.06, pushBBs: 7,  delay: [1000, 3000] },
   dificil: { iters: 800, noise: 0.04, callMargin: 0.04,  looseCall: 0,    raiseQ: 0.50, betQ: 0.38, aggr: 0.80, bluff: 0.12, pushBBs: 12, delay: [1000, 3000] },
 };
