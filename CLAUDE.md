@@ -37,7 +37,7 @@ En el prototipo, el estado completo (incluyendo el mazo y las cartas de todos) s
 ## Stack
 
 - Node.js 20+ con Express y Socket.IO
-- Frontend con three.js para la escena 3D, empaquetado con Vite. Sin framework de UI: HTML, CSS y JavaScript para la interfaz encima de la escena.
+- Frontend empaquetado con Vite, sin framework ni motor 3D: la mesa es una escena 2D por capas (ilustraciones WebP + canvas) y la interfaz es HTML, CSS y JavaScript encima.
 - Sin base de datos al inicio: las mesas viven en memoria del servidor
 - Entorno de desarrollo: Mac Intel con VS Code
 
@@ -56,19 +56,29 @@ poker-for-the-players/
   client/
     index.html
     main.js         # arranque, conexión con Socket.IO
-    scene/          # escena three.js: cuarto, cámara, materiales planos y contornos (ink.js)
-    models/         # geometría por código de fichas, cartas, manos y criaturas
-    animations/     # jugadas propias, rivales, reposo y "pensando"
-    ui/             # barra de acciones, HUD, pantallas de inicio
+    stage/          # mesa ilustrada por capas (ver "Estilo visual")
+      index.js        # arma las capas, acomoda la vista del servidor, etiquetas y ciclo de animación
+      projection.js   # cámara: convierte puntos de la mesa a pantalla; asientos y ajuste a la pantalla
+      table.js        # la mesa dibujada en canvas
+      items.js        # fichas, cartas y botón del dealer en perspectiva
+      cards.js        # caras y reversos de las cartas (canvas)
+      rivals.js       # poses, parpadeo, respiración de los rivales
+      characters.js   # registro de personajes y precarga del arte
+    ui/             # palos dibujados, nombre de la mano
     audio/
   public/
     assets/         # logo, sonidos, íconos, imagen para compartir
+      arte/         # ilustraciones optimizadas (WebP), generadas con scripts/optimizar-arte.py
     manifest.json
     robots.txt
   test/
     engine.test.js  # simulación de manos aleatorias
   referencia/
     poker-referencia.html
+  scripts/
+    recortar.py       # quita el fondo gris de las poses (arte/ -> arte/recortes/)
+    optimizar-arte.py # arte/ -> public/assets/arte/*.webp, con las poses alineadas
+  arte/               # originales pesados, fuera de git (se quedan en la Mac)
 ```
 
 ## Requisitos funcionales
@@ -136,16 +146,47 @@ La experiencia es en **primera persona**: la cámara son los ojos del jugador se
 
 Lo que NO queremos (así se veía la versión anterior y se descartó): colores neón saturados, materiales brillantes, casi sin contornos, un casino gigante y vacío, personajes hechos de bloques.
 
-### Técnica de render
+### Técnica: escena 2D por capas, como una animación de televisión
 
-- **Sin iluminación realista en los objetos 3D.** Materiales planos de 2 tonos como máximo (los personajes, al ser dibujos, sí llevan luz de borde y degradados suaves): el color base y una sola sombra plana un poco más oscura (`MeshToonMaterial` con rampa de 2 pasos, una luz ambiental y una direccional; ver `client/scene/toon.js`). Nada de brillos, reflejos, mapas de sombras ni degradados suaves.
-- **La luz se pinta, no se simula.** La mesa y quienes están sentados quedan bajo la lámpara y el cuarto se oscurece y entibia suave con la distancia; el posproceso oscurece las esquinas. El parche claro del fieltro, el resplandor rojizo en la pared (pintado en el tapiz) y el cono de luz (muy leve) son formas planas. Nada de anillos de luz ni reflectores.
-- **Sombras planas proyectadas** bajo los objetos (mesa, sillas, pilas de fichas, botella, cenicero): formas oscuras sin contorno que multiplican lo de abajo (`flatShadow()` en `toon.js`). Son de las señales que más lo hacen ver dibujado.
-- **Contornos color tinta `#1d1611` en todo**, siluetas y bordes internos, con línea delgada como trazo de animación (no gruesa tipo cómic): de ~2 px de pantalla, de orillas suaves, con un temblor leve de mano y un poco más gruesa en lo que está cerca. Nada de líneas de 1 px con escalones. Se hacen con un posproceso (`client/scene/ink.js`): la escena se dibuja una vez con dos salidas (color + número de trazo por material, y normales) y una pasada a pantalla completa pinta línea donde cambia la profundidad, la normal o el material. Materiales que no deben separarse con línea (el fieltro y su parche iluminado, el piso y sus manchas) comparten nombre de trazo (`edge`). Lo translúcido (cono de luz, humo) va en una capa aparte que se dibuja después, sin contorno.
-- **Formas simples y un poco imperfectas**: nada de bloques perfectos; `wobble()` deforma levemente la geometría.
-- **Fondos llenos de detalle dibujado**, como los de una serie: tapiz con rayas, grietas, manchas y escurrimientos; mosaico mugroso con colillas; vetas de madera; letreros chistosos en español rotulados a mano; cachivaches raros (frascos con un ojo, radio de bulbos, reloj de 13 horas). Todo pintado en texturas de canvas con líneas a mano, no fotos.
-- **Lente de toma de serie**: perspectiva plana, unos 55° verticales en pantallas horizontales. Nada de gran angular de videojuego.
-- Todo se modela con geometría por código y texturas pintadas en canvas; si se usan modelos externos, deben ser CC0 y anotarse en `public/assets/CREDITOS.md`.
+La mesa NO es 3D. Es una pila de capas 2D, de atrás hacia adelante (`client/stage/`):
+
+1. **Fondo**: la ilustración del garaje (`fondo-garaje`) como imagen que cubre la pantalla, centrada en horizontal para que la lámpara quede al centro; en pantallas verticales se recortan los lados. Un viñeteado CSS oscurece las esquinas.
+2. **Mesa** (`table.js`, canvas, se redibuja solo al cambiar el tamaño): octágono en perspectiva visto desde mi asiento, riel de madera café oscuro con vetas y juntas, canto visible en los lados que dan hacia mí, fieltro verde apagado con un octágono central un poco más oscuro, una sola sombra plana (la del riel sobre el fieltro y la de la mesa sobre el piso), mugre (baldosa de motas, manchas y rayones hecha una vez, más aros de vaso) y el charco de luz cálida de la lámpara en el centro, con las orillas más oscuras.
+3. **Cartas, bote y fichas** (`items.js`, canvas, se redibuja con cada jugada): en perspectiva sobre el fieltro, con una sombra plana debajo y contorno de tinta. Las comunitarias van grandes e inclinadas hacia el jugador; mis dos cartas boca arriba frente a mí, justo arriba de la barra de acciones, y mi pila a la derecha.
+4. **Rivales** (`rivals.js`, canvas animado a 30 cuadros, 20 en calidad baja): recortes ilustrados en sus asientos, más chicos mientras más lejos. La mesa los tapa de la cintura para abajo: a cada rival se le recorta la parte de la mesa que queda debajo de su cintura (la mesa que está delante de él), con una sombra plana de contacto sobre el fieltro. Se dibujan después de la mesa (no antes) para que la parte lejana del fieltro no tape el pecho de los de los lados.
+5. **Etiquetas y montos** en HTML, y encima la interfaz.
+
+Reglas:
+
+- **Una sola perspectiva** (`projection.js`): todo (mesa, cartas, fichas, asientos, etiquetas) usa la misma función que convierte un punto de la mesa a pantalla. La escala se ajusta para que la mesa y los rivales quepan entre la franja de arriba y la barra de acciones; el borde cercano de la mesa ocupa la parte de abajo. En vertical la cámara ve más desde arriba, la mesa ocupa casi todo el ancho y los personajes se agrandan para llenar el espacio de arriba.
+- **Línea de tinta `#1d1611` delgada y uniforme**, igual que la de las ilustraciones: su grueso se calcula con el tamaño al que se ve el fondo, así coincide a cualquier tamaño de pantalla.
+- **Formas planas**: color base y una sola sombra plana; nada de brillos ni reflejos. La luz se pinta.
+- Lo que se dibuja con código (mesa, fichas, cartas) imita el estilo de las ilustraciones; las ilustraciones nunca se re-dibujan con código.
+
+### Archivos de arte
+
+Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `public/assets/arte/`, generadas con `scripts/optimizar-arte.py`:
+
+| Archivo | Qué es |
+|---|---|
+| `fondo-garaje-3840.webp`, `fondo-garaje-1920.webp` | el cuarto, sin mesa ni personajes (se usa el chico si la pantalla no necesita más) |
+| `blorp-espera.webp`, `blorp-espera-parpadeo.webp` | Madame Blorp sentada de frente, esperando, y su parpadeo |
+| `blorp-espia.webp` | viendo sus cartas |
+| `blorp-apuesta.webp`, `blorp-apuesta-parpadeo.webp` | con fichas en la mano, y su parpadeo |
+| `*-chico.webp` | cada pose a la mitad, para calidad baja |
+| `personajes.json` | tamaño final y caja de recorte de cada personaje (para revisar) |
+
+**Receta para agregar un personaje** (todos los bots usan a Madame Blorp por ahora):
+
+1. Generar sus poses sentado de frente sobre fondo gris liso, en el mismo cuadro: `<nombre>-espera`, `-espera-parpadeo`, `-espia`, `-apuesta`, `-apuesta-parpadeo` (`.png` en `arte/`).
+2. Quitar el fondo: `.venv-rembg/bin/python scripts/recortar.py arte/<nombre>-*.png`.
+3. Optimizar: `.venv-rembg/bin/python scripts/optimizar-arte.py`. Escala todas las poses al mismo lienzo, las recorta con una sola caja común (para que al cambiar de pose nada brinque) y las exporta en WebP.
+4. Agregar su entrada en `CHARACTERS` de `client/stage/characters.js`: tamaño, punto de la cintura (debajo de la mano más baja con cartas o fichas: ahí lo tapa la mesa), ancho de lo de abajo (silla incluida) y alto en unidades de mesa.
+5. Asignarlo en `characterFor(jugador)`.
+
+### Asientos
+
+Mi lugar es el lado cercano del octágono. Los 5 rivales se sientan en el lado izquierdo, la diagonal lejana izquierda, el lado lejano, la diagonal lejana derecha y el lado derecho (las dos diagonales cercanas quedan vacías). Con pocos rivales se reparten: 1 enfrente; 2 en las diagonales lejanas; 3 en diagonal, enfrente y diagonal; 4 en los lados y las diagonales. Los lugares no cambian durante el torneo aunque alguien quede eliminado. Sin asiento y antes de empezar, cada asiento queda en su lugar fijo con su botón "Sentarme aquí". En vertical los rivales de los lados quedan cortados por la orilla de la pantalla y los de enfrente se enciman un poco.
 
 ### Paleta (apagada y terrosa)
 
@@ -155,8 +196,8 @@ Lo que NO queremos (así se veía la versión anterior y se descartó): colores 
 | Paredes | tablas de madera `#75614c` / `#6d5946` |
 | Tablero de herramientas | `#b39a6e`; repisa metálica `#7d8a86` |
 | Piso | concreto `#77705f` con manchas de aceite |
-| Fieltro | verde apagado `#5f9a3a`, centro `#3f6e2a` |
-| Madera de mesa y sillas | `#7a4a2c`, `#6a4530` |
+| Fieltro | verde apagado `#577a3d`, centro `#4b6b35` |
+| Madera de la mesa | riel `#6e4026`, pared interior `#4f2c18`, canto `#41241a` |
 | Lámpara | domo mostaza `#c9a03a` |
 | Papel (cartas, paneles) | crema `#efe4c8` |
 
@@ -164,21 +205,25 @@ Lo que NO queremos (así se veía la versión anterior y se descartó): colores 
 
 ### Dirección de arte
 
-- **Escenario**: un garaje-taller chico, sucio y acogedor, no un casino (referencia del dueño: rivales grandes alrededor de la mesa, tu mano con tus cartas abajo a la izquierda). Paredes de tablas de madera con mugre y grietas, tablero perforado con herramientas, repisa metálica con frascos raros (algunos brillan apenas), un póster original ("Mes del cerebro en frasco"), rejilla de ventilación, lavadora vieja, banco de trabajo con un aparato, bote de basura y piso de concreto con manchas de aceite. Nada de elementos de series existentes (ni sus pósters, marcas o fichas). Una botella y un cenicero sobre la mesa. Humo que sube en espiral de algún rival y se disuelve. Un mesero alienígena original que de vez en cuando pasa al fondo con una charola.
-- **Mesa**: octagonal, pequeña, de madera, para máximo 6 jugadores, con una sola pata central. Fieltro verde gastado con el centro más oscuro y una línea crema, riel de cuero café.
+- **Escenario**: un garaje-taller chico, sucio y acogedor, no un casino. Es la ilustración `fondo-garaje`: tablero perforado con herramientas, bobinas que echan chispas, osciloscopio, repisa con frascos raros, lavadora vieja con un frasco que brilla, cables por el piso y la lámpara mostaza colgando al centro. Nada de elementos de series existentes. Ideas para después: humo de algún rival, un mesero que pasa al fondo, botella y cenicero sobre la mesa.
+- **Mesa**: octagonal, pequeña, de madera, para máximo 6 jugadores. Fieltro verde apagado con un octágono central más oscuro, riel de madera café oscuro (ver "Técnica").
 - **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
 - **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto y el valor impreso en la ficha de arriba de cada columna (10, 25, 50, 100, 500, 1K), de cara al jugador. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
-- **Cartas**: tarjetas de esquinas redondas de verdad (geometría, no solo dibujo), papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en 3D y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
-- **Rivales**: recortes 2D dibujados a mano en canvas (`client/models/cutouts.js`), como los muñecos articulados de las series animadas: un cartón que siempre mira a la cámara, recargado en la mesa, con tres cuadros (ojos abiertos, parpadeo, mirada de reojo), respiración y humo del cigarro de quien fuma. Seis personajes originales: un blob gelatinoso con gorra, una señora cansada que fuma, un alien de cuatro ojos, un robot de visor, un flaco nervioso de lentes y un pulpo gruñón. Mismo estilo, formas simples, extremidades delgadas, ojos grandes con pupilas pequeñas, párpados caídos y expresiones secas, aburridas o sospechosas. Mezcla de criaturas alienígenas y seres con equipo tecnológico improvisado (cables, tubos, cascos). Cada uno con una silueta distinta y reconocible. Animaciones en reposo sutiles y secas: parpadeo, mirar de reojo, fumar, rascarse. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo flotando encima.
-- **Manos del jugador**: en primera persona tu mano sostiene tus dos cartas abiertas en abanico, abajo a la izquierda, frente a la cámara (recorte 2D con el pulgar encima). El jugador puede elegir el color de piel o un tipo de mano alienígena.
+- **Cartas**: tarjetas de esquinas redondas dibujadas en canvas (`client/stage/cards.js`) y puestas en perspectiva sobre la mesa, papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en la mesa y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
+- **Rivales**: ilustraciones recortadas (ver "Archivos de arte"), sentados de frente en sillas plegables, con sus cartas en la mano. Mismo estilo para todos: formas simples, ojos grandes con párpados caídos, expresiones secas, aburridas o sospechosas, mezcla de criaturas alienígenas y equipo improvisado. Cada uno con una silueta distinta y reconocible. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo encima.
+- **Animación de los rivales** (cambio de pose, como en una serie animada):
+  - **espera** por omisión, con parpadeo cada 3 a 6 s al azar (150 ms con la imagen de parpadeo);
+  - **espia** justo después de que le reparten (escalonado, como si fueran repartiendo) y de vez en cuando mientras espera;
+  - **apuesta** unos 2 s cuando iguala, apuesta o sube (no con ciegas, pasar ni retirarse), y luego regresa a espera;
+  - respiración muy sutil (escala vertical de 1 a 1.5 % desde la cintura), a un ritmo distinto para cada uno;
+  - si se retira o está ausente, se ve apagado (desaturado y oscuro) y un poco transparente;
+  - aro mostaza en el fieltro frente a quien está pensando.
+- **Manos del jugador**: por ahora mis dos cartas van boca arriba sobre la mesa frente a mí. Después: ilustraciones de mis manos sosteniendo las cartas (el jugador podrá elegir color de piel o mano alienígena).
 
 ### Cámara
 
-- Fija en el asiento del jugador, a la altura de los ojos de alguien sentado en una silla, mirando ligeramente hacia abajo a la mesa. Como la mesa es chica, los rivales se ven cerca y enmarcados por el cuarto, como en una toma de la serie.
-- Respiración sutil (balanceo mínimo) para que se sienta vivo.
-- El jugador puede mirar un poco alrededor arrastrando con el dedo o el mouse (límite de unos 40 grados a cada lado y 15 arriba y abajo), y la cámara regresa sola al centro.
-- Cuando habla otro jugador, la cámara gira levemente hacia él, como cuando volteas a ver quién apuesta.
-- Al llegar el flop, turn o river, la cámara baja un poco la mirada hacia el centro de la mesa.
+- Fija en el asiento del jugador, algo alta, viendo la mesa desde arriba como en una toma de la serie (`projection.js`). No se puede arrastrar para mirar alrededor.
+- Ideas para después (eran de la versión 3D): voltear levemente hacia quien habla, bajar la mirada al salir el flop.
 
 ### Animaciones de las jugadas propias
 
@@ -192,7 +237,7 @@ Cada botón dispara una animación en primera persona con las manos del jugador 
 - **Ganar el bote**: las dos manos jalan las fichas del centro hacia su lugar y las apilan.
 - **Ver tus cartas**: al repartir, la mano levanta las esquinas de las cartas para "espiarlas", y luego las deja sobre la mesa.
 
-Las animaciones de los rivales son equivalentes pero vistas desde enfrente (las criaturas aventando sus fichas, retirando cartas, etc.).
+Estas animaciones de las manos propias llegarán con las ilustraciones de las manos; por ahora la jugada se ve en la mesa (fichas, montos, sello en la etiqueta).
 
 ### Animaciones mientras esperas o piensas
 
@@ -210,7 +255,7 @@ Mientras no es el turno del jugador, cada pocos segundos se reproduce al azar un
 
 Cuando **sí es su turno**, las animaciones cambian a "pensando": tamborileo más rápido, mirar el bote, mirar sus cartas, sopesar una pila de fichas en la mano. El jugador nunca pierde control: si presiona un botón, la animación en reposo se corta suavemente y empieza la de la jugada.
 
-Los rivales también tienen animaciones en reposo propias de su personaje, secas y sutiles (el del casco echa humo por una válvula, la de cuatro brazos se rasca la nuca mientras tamborilea).
+Los rivales tienen sus propias animaciones de pose (ver "Animación de los rivales").
 
 ### Interfaz encima de la escena
 
@@ -233,11 +278,12 @@ Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la 
 
 ### Rendimiento y accesibilidad
 
-- Debe correr fluido en celulares de gama media y en una MacBook Pro Intel de 2018 con 8 GB.
-- Detectar equipos lentos y bajar la calidad automáticamente. En calidad baja: resolución 1x, 30 cuadros por segundo y menos elementos animados en el fondo (el mesero pasa menos, menos humo). Los contornos se quedan siempre porque son parte del estilo; cuestan una sola pasada a pantalla completa.
-- Pausar el render cuando la pestaña no está visible.
-- Con `prefers-reduced-motion`: sin respiración de cámara, sin temblores, animaciones cortas.
-- Si el navegador no soporta WebGL, mostrar una vista 2D simple funcional para que nadie se quede sin jugar.
+- Debe correr fluido en celulares de gama media y en una MacBook Pro Intel de 2018 con 8 GB. La escena no usa WebGL: la mesa se dibuja una vez por tamaño, las fichas y cartas una vez por jugada, y solo la capa de los rivales se anima (30 cuadros por segundo; cada pose se reduce una sola vez al tamaño en que se ve).
+- Las ilustraciones se precargan y decodifican antes de mostrar la mesa ("Abriendo el garaje…"). Si no cargan, queda la vista 2D simple.
+- Calidad (Auto, Alta, Media, Baja): resolución del canvas (hasta 2x, 1.5x o 1x). En baja, poses chicas, fondo chico y 20 cuadros por segundo. En automático se usa baja solo en equipos con muy pocos núcleos o poca memoria.
+- Pausar la animación cuando la pestaña no está visible.
+- Con `prefers-reduced-motion`: sin respiración ni pulso del aro de turno.
+- La vista 2D simple (botón "2D") sigue disponible como respaldo para quien la prefiera.
 
 ## Pruebas
 

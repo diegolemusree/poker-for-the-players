@@ -1,0 +1,25 @@
+{
+  "blorp": {
+    "poses": [
+      "apuesta",
+      "apuesta-parpadeo",
+      "espera",
+      "espera-parpadeo",
+      "espia"
+    ],
+    "lienzo": [
+      2752,
+      1536
+    ],
+    "caja": [
+      889,
+      141,
+      1824,
+      1536
+    ],
+    "tamano": [
+      935,
+      1395
+    ]
+  }
+}

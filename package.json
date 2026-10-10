@@ -16,8 +16,7 @@
   "dependencies": {
     "express": "^4.22.3",
     "socket.io": "^4.8.4",
-    "socket.io-client": "^4.8.4",
-    "three": "^0.180.0"
+    "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
     "vite": "^7.3.7"

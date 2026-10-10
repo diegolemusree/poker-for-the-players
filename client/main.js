@@ -1,5 +1,5 @@
-// Cliente: pantallas de inicio, mesa 3D en primera persona (client/scene/) con la interfaz encima,
-// y la vista 2D de respaldo si no hay WebGL. Todo texto de usuarios se pone con textContent / nodos de texto, nunca con innerHTML.
+// Cliente: pantallas de inicio, mesa ilustrada por capas (client/stage/) con la interfaz encima,
+// y la vista 2D simple de respaldo (si el jugador la elige o si la mesa ilustrada no carga). Todo texto de usuarios se pone con textContent / nodos de texto, nunca con innerHTML.
 
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
@@ -61,17 +61,17 @@ let raise = { key: '', value: 0 };
 let prevBoard = { hand: 0, len: 0 };
 let showSide = false;
 
-/* ---------- escena 3D ---------- */
-// Se usa si hay WebGL 2 y el jugador no eligió la vista 2D. Si algo falla al crearla, queda la 2D.
-const can3D = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
+/* ---------- mesa ilustrada ---------- */
+// Se usa salvo que el jugador elija la vista 2D simple. Si algo falla al cargarla o crearla, queda la 2D.
 let sceneMod = null, sceneLoading = null, sceneFailed = false;
-let scene3d = null, shell = null, hudEl = null;
-const use3D = () => can3D && !sceneFailed && store.get('ppt-view') !== '2d';
+let scene = null, shell = null, hudEl = null;
+const useStage = () => !sceneFailed && store.get('ppt-view') !== '2d';
 function loadScene() {
-  if (sceneMod || sceneLoading || !use3D()) return;
-  // las cartas se pintan con la letra de caricatura: se espera a que cargue antes de crear la escena
+  if (sceneMod || sceneLoading || !useStage()) return;
+  // las cartas se pintan con la letra de caricatura: se espera a que cargue antes de crear la escena,
+  // y las ilustraciones se precargan y decodifican antes de enseñar la mesa
   const font = document.fonts ? Promise.race([document.fonts.load('64px "Chewy"'), new Promise(r => setTimeout(r, 2500))]).catch(() => {}) : Promise.resolve();
-  sceneLoading = Promise.all([import('./scene/index.js'), font])
+  sceneLoading = Promise.all([import('./stage/index.js').then(m => m.preload().then(() => m)), font])
     .then(([m]) => { sceneMod = m; if (screen === 'table') draw(); })
     .catch(e => { console.error(e); sceneFailed = true; draw(); });
 }
@@ -201,7 +201,7 @@ function drawTable() {
     snap.levelLeftMs != null && h('span', { class: 'stat' }, 'Sube a ', h('b', {}, `${fmt(snap.nextBlinds[0])}/${fmt(snap.nextBlinds[1])}`), ' en ', deadline(snap.levelLeftMs)),
     started() && h('span', { class: 'stat' }, 'En pie ', h('b', {}, `${v.players.filter(p => !p.out).length}/${v.players.length}`)),
     h('span', { class: 'spacer' }),
-    can3D && !sceneFailed && h('button', { class: 'linkbtn', onclick: () => { store.del('ppt-view'); draw(); } }, 'Vista 3D'),
+    !sceneFailed && h('button', { class: 'linkbtn', onclick: () => { store.del('ppt-view'); draw(); } }, 'Vista ilustrada'),
     h('button', { class: 'linkbtn', onclick: exitRoom }, 'Salir de la mesa'));
 
   const notice = h('div', { class: 'notice' },
@@ -445,8 +445,8 @@ function keepFocus(fn) {
 }
 
 function draw() {
-  if (screen === 'table' && snap && use3D() && draw3D()) return;
-  if (scene3d) scene3d.setActive(false);
+  if (screen === 'table' && snap && useStage() && drawStage()) return;
+  if (scene) scene.setActive(false);
   const y = scrollY;
   const focus = document.activeElement && document.activeElement.id;
   const val = focus && document.activeElement.value;
@@ -455,30 +455,29 @@ function draw() {
   if (focus) { const el = document.getElementById(focus); if (el) { el.focus(); if (val != null && 'value' in el && el.type !== 'range') el.value = val; } }
   scrollTo(0, y);
 }
-addEventListener('resize', () => { if (screen === 'table' && !(scene3d && $app.firstChild === shell)) draw(); });
+addEventListener('resize', () => { if (screen === 'table' && !(scene && $app.firstChild === shell)) draw(); });
 
-// Mesa 3D: el canvas se crea una vez y se queda; solo la interfaz de encima se vuelve a pintar.
-function draw3D() {
+// Mesa ilustrada: las capas se crean una vez y se quedan; solo la interfaz de encima se vuelve a pintar.
+function drawStage() {
   if (!sceneMod) {
     loadScene();
-    $app.replaceChildren(h('main', { class: 'home' }, logo(), h('p', { class: 'tagline' }, 'Abriendo el casino…')));
+    $app.replaceChildren(h('main', { class: 'home' }, logo(), h('p', { class: 'tagline' }, 'Abriendo el garaje…')));
     return true;
   }
-  if (!scene3d) {
-    const stage = h('div', { class: 'stage3d' });
+  if (!scene) {
+    const stage = h('div', { class: 'scene-stage' });
     hudEl = h('div', { class: 'hud' });
-    shell = h('div', { class: 'shell3d' }, stage, hudEl);
+    shell = h('div', { class: 'scene-shell' }, stage, hudEl);
     $app.replaceChildren(shell);
     try {
-      scene3d = sceneMod.createTableScene(stage, {
+      scene = sceneMod.createTableScene(stage, {
         h, fmt, deadline,
         onSit: sit,
         onRemoveBot: seat => run('bots:remove', { seat }),
-        onQuality: () => draw(),
       });
     } catch (e) {
       console.error(e);
-      sceneFailed = true; scene3d = null; shell = null;
+      sceneFailed = true; scene = null; shell = null;
       return false;
     }
   }
@@ -486,13 +485,13 @@ function draw3D() {
     if ($app.firstChild !== shell) $app.replaceChildren(shell);
     hudEl.replaceChildren(...drawHud());
   });
-  scene3d.update(snap);
-  scene3d.setActive(true);
+  scene.update(snap);
+  scene.setActive(true);
   return true;
 }
 
 const QUALITY_NAME = { auto: 'Auto', alta: 'Alta', media: 'Media', baja: 'Baja' };
-// palo dibujado (el mismo trazo que en las cartas 3D)
+// palo dibujado (el mismo trazo que en las cartas de la mesa)
 function suitSvg(s) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
@@ -562,7 +561,7 @@ function drawHud() {
 // Calidad, sonido y vista 2D: en la franja en pantallas anchas, dentro del panel en el celular.
 function options(sound, cls) {
   return [
-    tool(`Calidad: ${QUALITY_NAME[scene3d.mode]}${scene3d.mode === 'auto' ? ' (' + scene3d.quality + ')' : ''}`, '⚙', cycleQuality, { title: 'Calidad gráfica: Auto, Alta, Media o Baja', class: 'tool ' + cls }),
+    tool(`Calidad: ${QUALITY_NAME[scene.mode]}${scene.mode === 'auto' ? ' (' + scene.quality + ')' : ''}`, '⚙', cycleQuality, { title: 'Calidad gráfica: Auto, Alta, Media o Baja', class: 'tool ' + cls }),
     h('button', { class: 'tool ' + cls, 'aria-label': sound ? 'Silenciar' : 'Activar sonido', title: 'El sonido llega en una fase siguiente', onclick: () => { store.set('ppt-sound', sound ? 'off' : 'on'); draw(); } }, sound ? '🔊' : '🔇'),
     tool('Vista 2D', '2D', () => { store.set('ppt-view', '2d'); draw(); }, { class: 'tool ' + cls }),
   ];
@@ -573,7 +572,7 @@ function tool(text, icon, onclick, props) {
 }
 function cycleQuality() {
   const order = ['auto', 'alta', 'media', 'baja'];
-  scene3d.setMode(order[(order.indexOf(scene3d.mode) + 1) % order.length]);
+  scene.setMode(order[(order.indexOf(scene.mode) + 1) % order.length]);
   draw();
 }
 setInterval(() => { // cuentas regresivas

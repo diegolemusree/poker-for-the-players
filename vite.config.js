@@ -1,4 +1,4 @@
-// Vite empaqueta el cliente (three.js incluido). En desarrollo corre dentro de Express (server/index.js).
+// Vite empaqueta el cliente. En desarrollo corre dentro de Express (server/index.js).
 import { fileURLToPath } from 'node:url';
 
 export default {
@@ -7,6 +7,5 @@ export default {
   build: {
     outDir: fileURLToPath(new URL('./dist', import.meta.url)),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 900,
   },
 };
