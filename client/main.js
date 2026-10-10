@@ -1,5 +1,7 @@
-// Cliente 2D sencillo. Todo texto de usuarios se pone con textContent / nodos de texto, nunca con innerHTML.
+// Cliente: pantallas de inicio, mesa 3D en primera persona (client/scene/) con la interfaz encima,
+// y la vista 2D de respaldo si no hay WebGL. Todo texto de usuarios se pone con textContent / nodos de texto, nunca con innerHTML.
 
+import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS } from './chips.js';
 
 const MAXP = 8;
@@ -54,6 +56,20 @@ let accessRequired = false;
 let nick = store.get('ppt-nick') || '';
 let raise = { key: '', value: 0 };
 let prevBoard = { hand: 0, len: 0 };
+let showSide = false;
+
+/* ---------- escena 3D ---------- */
+// Se usa si hay WebGL 2 y el jugador no eligió la vista 2D. Si algo falla al crearla, queda la 2D.
+const can3D = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
+let sceneMod = null, sceneLoading = null, sceneFailed = false;
+let scene3d = null, shell = null, hudEl = null;
+const use3D = () => can3D && !sceneFailed && store.get('ppt-view') !== '2d';
+function loadScene() {
+  if (sceneMod || sceneLoading || !use3D()) return;
+  sceneLoading = import('./scene/index.js')
+    .then(m => { sceneMod = m; if (screen === 'table') draw(); })
+    .catch(e => { console.error(e); sceneFailed = true; draw(); });
+}
 
 /* ---------- conexión ---------- */
 function connectSocket() {
@@ -169,6 +185,7 @@ function drawTable() {
     snap.levelLeftMs != null && h('span', { class: 'stat' }, 'Sube a ', h('b', {}, `${fmt(snap.nextBlinds[0])}/${fmt(snap.nextBlinds[1])}`), ' en ', deadline(snap.levelLeftMs)),
     started() && h('span', { class: 'stat' }, 'En pie ', h('b', {}, `${v.players.filter(p => !p.out).length}/${v.players.length}`)),
     h('span', { class: 'spacer' }),
+    can3D && !sceneFailed && h('button', { class: 'linkbtn', onclick: () => { store.del('ppt-view'); draw(); } }, 'Vista 3D'),
     h('button', { class: 'linkbtn', onclick: exitRoom }, 'Salir de la mesa'));
 
   const notice = h('div', { class: 'notice' },
@@ -402,7 +419,16 @@ async function copy(text) {
 }
 
 /* ---------- pintado ---------- */
+function keepFocus(fn) {
+  const focus = document.activeElement && document.activeElement.id;
+  const val = focus && document.activeElement.value;
+  fn();
+  if (focus) { const el = document.getElementById(focus); if (el) { el.focus(); if (val != null && 'value' in el && el.type !== 'range') el.value = val; } }
+}
+
 function draw() {
+  if (screen === 'table' && snap && use3D() && draw3D()) return;
+  if (scene3d) scene3d.setActive(false);
   const y = scrollY;
   const focus = document.activeElement && document.activeElement.id;
   const val = focus && document.activeElement.value;
@@ -411,7 +437,90 @@ function draw() {
   if (focus) { const el = document.getElementById(focus); if (el) { el.focus(); if (val != null && 'value' in el && el.type !== 'range') el.value = val; } }
   scrollTo(0, y);
 }
-addEventListener('resize', () => { if (screen === 'table') draw(); });
+addEventListener('resize', () => { if (screen === 'table' && !(scene3d && $app.firstChild === shell)) draw(); });
+
+// Mesa 3D: el canvas se crea una vez y se queda; solo la interfaz de encima se vuelve a pintar.
+function draw3D() {
+  if (!sceneMod) {
+    loadScene();
+    $app.replaceChildren(h('main', { class: 'home' }, logo(), h('p', { class: 'tagline' }, 'Abriendo el casino…')));
+    return true;
+  }
+  if (!scene3d) {
+    const stage = h('div', { class: 'stage3d' });
+    hudEl = h('div', { class: 'hud' });
+    shell = h('div', { class: 'shell3d' }, stage, hudEl);
+    $app.replaceChildren(shell);
+    try {
+      scene3d = sceneMod.createTableScene(stage, {
+        h, fmt, deadline,
+        onSit: sit,
+        onRemoveBot: seat => run('bots:remove', { seat }),
+        onQuality: () => draw(),
+      });
+    } catch (e) {
+      console.error(e);
+      sceneFailed = true; scene3d = null; shell = null;
+      return false;
+    }
+  }
+  keepFocus(() => {
+    if ($app.firstChild !== shell) $app.replaceChildren(shell);
+    hudEl.replaceChildren(...drawHud());
+  });
+  scene3d.update(snap);
+  scene3d.setActive(true);
+  return true;
+}
+
+const QUALITY_NAME = { auto: 'Auto', alta: 'Alta', media: 'Media', baja: 'Baja' };
+function drawHud() {
+  const v = snap.view, mine = me();
+  document.title = (mine && v.toAct === snap.you ? '¡Te toca! ' : '') + 'Poker for the Players';
+  const pot = potOf(v);
+  const inPlay = mine && betting() && mine.inHand && !mine.folded;
+  const toCall = inPlay ? Math.min(Math.max(0, v.currentBet - mine.bet), mine.stack) : 0;
+  const stat = (label, value, cls) => h('div', { class: 'hstat ' + (cls || '') }, h('span', {}, label), h('b', {}, value));
+  const turnOf = v.toAct && betting() && v.players.find(p => p.id === v.toAct);
+
+  const sound = store.get('ppt-sound') === 'on';
+  const top = h('header', { class: 'hud-top' },
+    h('div', { class: 'hud-stats' },
+      stat('Bote', fmt(pot), 'pot'),
+      mine && stat('Tus fichas', fmt(mine.stack)),
+      inPlay && stat('Para igualar', toCall > 0 ? fmt(toCall) : 'nada', toCall > 0 ? 'call' : ''),
+      turnOf && snap.turnLeftMs != null && !turnOf.isBot && stat(turnOf.id === snap.you ? 'Tu tiempo' : 'Tiempo', deadline(snap.turnLeftMs, 'low'), turnOf.id === snap.you ? 'mine' : ''),
+      stat('Ciegas', `${fmt(v.sb)}/${fmt(v.bb)}`),
+      snap.levelLeftMs != null && stat('Suben en', deadline(snap.levelLeftMs), 'wide')),
+    h('div', { class: 'hud-tools' },
+      h('span', { class: 'hud-code' }, 'Mesa ', h('b', {}, snap.code)),
+      tool('Posiciones', '📋', () => { showSide = !showSide; draw(); }, { 'aria-expanded': String(showSide) }),
+      tool(`Calidad: ${QUALITY_NAME[scene3d.mode]}${scene3d.mode === 'auto' ? ' (' + scene3d.quality + ')' : ''}`, '⚙️', cycleQuality, { title: 'Calidad gráfica: Auto, Alta, Media o Baja' }),
+      h('button', { class: 'tool', 'aria-label': sound ? 'Silenciar' : 'Activar sonido', title: 'El sonido llega en una fase siguiente', onclick: () => { store.set('ppt-sound', sound ? 'off' : 'on'); draw(); } }, sound ? '🔊' : '🔇'),
+      tool('Vista 2D', '2D', () => { store.set('ppt-view', '2d'); draw(); }),
+      tool('Salir', '✕', exitRoom)));
+
+  const notice = (error || toast) && h('div', { class: 'hud-notice' },
+    error && h('p', { class: 'err', role: 'alert' }, error),
+    toast && h('p', { class: 'note' }, toast));
+  // el aviso del centro (turno, ganadores) va arriba de la barra de acciones para no tapar a los rivales
+  const msg = centerMessage();
+  const bar = actionBar();
+  if (msg && (!Array.isArray(msg) || msg.length)) bar.firstChild.prepend(h('div', { class: 'hud-banner', 'aria-live': 'polite' }, msg));
+  const side = showSide && h('aside', { class: 'hud-side' },
+    h('div', {}, h('h2', {}, 'Posiciones'), h('ol', {}, standings(v))),
+    h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-10).reverse().map(t => h('li', {}, t)))));
+  return [top, notice, side, bar, v.finished && finishOverlay()].filter(Boolean);
+}
+// Botón de la barra de arriba: texto completo en pantallas anchas, ícono en el celular.
+function tool(text, icon, onclick, props) {
+  return h('button', { class: 'tool', onclick, 'aria-label': text, ...props }, h('span', { class: 'long' }, text), h('span', { class: 'short', 'aria-hidden': 'true' }, icon));
+}
+function cycleQuality() {
+  const order = ['auto', 'alta', 'media', 'baja'];
+  scene3d.setMode(order[(order.indexOf(scene3d.mode) + 1) % order.length]);
+  draw();
+}
 setInterval(() => { // cuentas regresivas
   const now = performance.now();
   document.querySelectorAll('.cd').forEach(e => { e.textContent = mmss(Number(e.dataset.end) - now); });
@@ -419,6 +528,7 @@ setInterval(() => { // cuentas regresivas
 
 /* ---------- arranque ---------- */
 (async () => {
+  loadScene();
   draw();
   try { accessRequired = (await (await fetch('/api/config')).json()).accessRequired; } catch { /* sigue */ }
   if (accessRequired && !store.get('ppt-access')) { screen = 'access'; draw(); }

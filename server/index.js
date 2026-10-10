@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { randomInt, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import express from 'express';
 import { Server } from 'socket.io';
 import { Room, cleanNick } from './room.js';
@@ -19,7 +20,8 @@ function iguales(a, b) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export function createApp({ accessCode = process.env.ACCESS_CODE || '', tuning = {}, emptyTtlMs = EMPTY_TTL } = {}) {
+// `clientMiddleware` sirve el cliente: Vite en desarrollo, `dist/` en producción. Sin él (pruebas), los archivos tal cual.
+export function createApp({ accessCode = process.env.ACCESS_CODE || '', tuning = {}, emptyTtlMs = EMPTY_TTL, clientMiddleware } = {}) {
   const app = express();
   const http = createServer(app);
   const io = new Server(http, { maxHttpBufferSize: 1e4 });
@@ -28,7 +30,7 @@ export function createApp({ accessCode = process.env.ACCESS_CODE || '', tuning =
   app.disable('x-powered-by');
   app.get('/api/config', (_req, res) => res.json({ accessRequired: !!accessCode }));
   app.use(express.static(path.join(ROOT, 'public')));
-  app.use(express.static(path.join(ROOT, 'client')));
+  app.use(clientMiddleware || express.static(path.join(ROOT, 'client')));
 
   // Código de acceso del grupo: se valida aquí, en el servidor.
   io.use((socket, next) => {
@@ -147,9 +149,19 @@ export function createApp({ accessCode = process.env.ACCESS_CODE || '', tuning =
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT) || 3000;
-  const srv = createApp();
+  const prod = process.argv.includes('--prod') || process.env.NODE_ENV === 'production';
+  let clientMiddleware;
+  if (prod) {
+    if (!existsSync(path.join(ROOT, 'dist', 'index.html'))) { console.error('Falta dist/. Corre "npm run build" antes de "npm start".'); process.exit(1); }
+    clientMiddleware = express.static(path.join(ROOT, 'dist'));
+  } else {
+    const { createServer: createVite } = await import('vite');
+    const vite = await createVite({ configFile: path.join(ROOT, 'vite.config.js'), server: { middlewareMode: true }, appType: 'spa' });
+    clientMiddleware = vite.middlewares;
+  }
+  const srv = createApp({ clientMiddleware });
   srv.listen(port).then(p => {
-    console.log(`Poker for the Players en http://localhost:${p}`);
+    console.log(`Poker for the Players en http://localhost:${p}${prod ? '' : ' (desarrollo, con Vite)'}`);
     if (!process.env.ACCESS_CODE) console.log('(sin ACCESS_CODE: no se pide código de acceso)');
   });
 }

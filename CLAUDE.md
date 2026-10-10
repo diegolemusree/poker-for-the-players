@@ -208,11 +208,13 @@ Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la 
 
 ```
 npm install
-npm run dev     # nodemon en http://localhost:3000
+npm run dev     # servidor + Vite (como middleware) en http://localhost:3000
 npm test
+npm run build   # empaqueta el cliente en dist/
+npm start       # producción: sirve dist/ (corre antes npm run build)
 ```
 
-`npm run dev` debe levantar el servidor y Vite juntos. Para probar multijugador en local, abrir varias pestañas o ventanas de incógnito. Para probar desde el celular en la misma red WiFi, usar la IP local de la Mac (por ejemplo `http://192.168.1.50:3000`).
+`npm run dev` levanta el servidor y Vite juntos en el mismo puerto. Para probar multijugador en local, abrir varias pestañas o ventanas de incógnito. Para probar desde el celular en la misma red WiFi, usar la IP local de la Mac (por ejemplo `http://192.168.1.50:3000`).
 
 ## Fuera de alcance por ahora
 

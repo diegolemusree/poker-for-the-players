@@ -49,4 +49,23 @@ function bestSmall(x) {
   return [[100, best[0]], [50, best[1]], [25, best[2]], [10, best[3]]].filter(([, n]) => n).map(([value, count]) => ({ value, count }));
 }
 
+// Para pilas que se ven en la mesa: además de las fichas grandes deja cambio en fichas más chicas,
+// como una pila de verdad (5,000 = 4 de 1,000, 1 de 500 y 5 de 100, no solo 5 amarillas).
+const KEEP = [[1000, 1000], [500, 500], [100, 200]];
+export function stackBreakdown(amount) {
+  amount = Math.max(0, Math.floor(amount));
+  const out = [];
+  let r = amount;
+  for (const [v, keep] of KEEP) {
+    const n = Math.max(0, Math.floor((r - keep) / v));
+    if (n) { out.push({ value: v, count: n }); r -= n * v; }
+  }
+  const tail = breakdown(r);
+  for (const c of tail.chips) {
+    const same = out.find(o => o.value === c.value);
+    if (same) same.count += c.count; else out.push({ ...c });
+  }
+  return { chips: out.sort((a, b) => b.value - a.value), rest: tail.rest };
+}
+
 export const chipInfo = value => CHIPS.find(c => c.value === value);
