@@ -15,6 +15,9 @@ export const MAXP = 8;
 export const TURN_LIMIT = 45000;
 export const LEVEL_MINUTES = 15;
 export const REBUYS = 1;
+// La ficha más chica es de 10, pero con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20:
+// por eso las apuestas van en múltiplos de 5 (salvo el all-in) y los botes se reparten en unidades de 5.
+export const CHIP_UNIT = 5;
 export const BETTING = ['preflop', 'flop', 'turn', 'river'];
 // [ciega chica, ciega grande]. 19 niveles de 15 min = ~4h45; el último se repite.
 export const BLINDS = [
@@ -283,9 +286,16 @@ function showdown(s) {
       if (c > 0) { top = sc[p.id]; ws = [p]; } else if (c === 0) ws.push(p);
     });
     ws.sort((a, b) => seatOrder(a) - seatOrder(b));
-    const share = Math.floor(amt / ws.length);
-    let rem = amt - share * ws.length;
-    ws.forEach(p => { const a = share + (rem > 0 ? 1 : 0); if (rem > 0) rem--; won[p.id] = (won[p.id] || 0) + a; });
+    // reparto en unidades de 5; lo que sobra va al primer ganador después del dealer
+    const units = Math.floor(amt / CHIP_UNIT);
+    const share = Math.floor(units / ws.length);
+    let rem = units - share * ws.length, loose = amt - units * CHIP_UNIT;
+    ws.forEach(p => {
+      let a = share * CHIP_UNIT;
+      if (rem > 0) { a += CHIP_UNIT; rem--; }
+      a += loose; loose = 0;
+      won[p.id] = (won[p.id] || 0) + a;
+    });
   }
   if (carry) {
     const top = L.slice().sort((a, b) => cmp(sc[b.id], sc[a.id]))[0];
@@ -319,6 +329,7 @@ function applyAct(s, id, type, amount) {
     const minT = s.currentBet === 0 ? s.bb : s.currentBet + s.minRaise;
     if (target <= s.currentBet) throw new Error(`Para subir tienes que superar ${s.currentBet}.`);
     if (target < minT && target < maxT) throw new Error(`La apuesta mínima es ${minT}.`);
+    if (target < maxT && target % CHIP_UNIT !== 0) throw new Error(`Las apuestas van en múltiplos de ${CHIP_UNIT}.`);
   } else if (type !== 'fold' && type !== 'call') {
     throw new Error('Jugada no válida.');
   }

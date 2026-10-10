@@ -152,7 +152,8 @@ describe('reglas de la mesa', () => {
       ['Ks', 'Kd', '7c', '8c', '9h']);
     jugarPasivo(s);
     const por = Object.fromEntries(s.results.winners.map(w => [w.id, w.amount]));
-    assert.deepEqual(por, { B: 23, A: 22 }); // bote 45: 15 entre A y B (8 y 7) + 30 entre A y B (15 y 15)
+    // bote 45: 15 entre A y B en unidades de 5 (10 y 5, la sobra a B) + 30 entre A y B (15 y 15)
+    assert.deepEqual(por, { B: 25, A: 20 });
     const stack = id => s.players.find(p => p.id === id).stack;
     assert.equal(stack('A') + stack('B') + stack('C'), 2 * START + 5);
     assert.equal(stack('C'), 0);
@@ -202,6 +203,7 @@ describe('reglas de la mesa', () => {
       () => act(s, quien, 'raise', '100'),
       () => act(s, quien, 'raise', BB),
       () => act(s, quien, 'raise', BB + 5),
+      () => act(s, quien, 'raise', 2 * BB + 3), // no es múltiplo de 5
       () => act(s, quien, 'allin'),
       () => startHand(s),
       () => rebuy(s, quien),
@@ -354,11 +356,12 @@ function jugadaAleatoria(s, r) {
   const toCall = s.currentBet - p.bet;
   const maxT = p.bet + p.stack;
   const minT = s.currentBet === 0 ? s.bb : s.currentBet + s.minRaise;
-  const bajo = Math.min(minT, maxT);
+  const bajo = Math.min(Math.ceil(minT / 5) * 5, maxT);
   const x = r();
   if (toCall > 0 && x < 0.15) return [p.id, 'fold'];
   if (x < 0.6 || p.stack <= toCall) return [p.id, toCall > 0 ? 'call' : 'check'];
-  const monto = [bajo, bajo + Math.floor(r() * (maxT - bajo + 1)), maxT, maxT + 1 + Math.floor(r() * 50)];
+  const medio = Math.min(maxT, bajo + 5 * Math.floor(r() * ((maxT - bajo) / 5 + 1)));
+  const monto = [bajo, medio, maxT, maxT + 1 + Math.floor(r() * 50)];
   return [p.id, 'raise', monto[Math.floor(r() * monto.length)]];
 }
 
@@ -381,6 +384,8 @@ function intentoIlegal(s, r, ctx) {
   ];
   if (s.currentBet - p.bet > 0) opciones.push(() => act(s, id, 'check'));
   if (s.currentBet > 0) opciones.push(() => act(s, id, 'raise', 1 + Math.floor(r() * s.currentBet)));
+  const impar = Math.ceil(minT / 5) * 5 + 1 + Math.floor(r() * 4); // no es múltiplo de 5
+  if (impar < maxT) opciones.push(() => act(s, id, 'raise', impar));
   const lo = s.currentBet + 1, hi = Math.min(minT - 1, maxT - 1);
   if (lo <= hi) opciones.push(() => act(s, id, 'raise', lo + Math.floor(r() * (hi - lo + 1))));
   const antes = JSON.stringify(s);
@@ -400,7 +405,7 @@ function simular(semilla) {
   let total = 0;
   asientos.forEach((seat, i) => {
     const p = addPlayer(s, { id: 'p' + i, nick: 'J' + i, seat });
-    p.stack = r() < 0.4 ? START : ri(1, 2000); // mezcla de fichas cortas y profundas para forzar botes laterales
+    p.stack = r() < 0.4 ? START : 5 * ri(1, 400); // mezcla de fichas cortas y profundas para forzar botes laterales
     total += p.stack;
   });
 
@@ -467,6 +472,7 @@ function simular(semilla) {
     for (const p of s.players) {
       if (p.inHand && p.stack === 0) assert.equal(p.out, p.rebuysLeft === 0, `${ctx}: eliminación incorrecta`);
       if (p.out) assert.equal(p.stack, 0);
+      assert.equal(p.stack % 5, 0, `${ctx}: quedó un monto que no se forma con fichas`);
     }
     const puestos = s.players.filter(p => p.out).map(p => p.place);
     assert.equal(new Set(puestos).size, puestos.length, `${ctx}: puestos repetidos`);

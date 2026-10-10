@@ -5,6 +5,7 @@
 // La jugada siempre es legal; se aplica con el mismo act() del motor que usan los humanos.
 
 import { RANKS, SUITS, bestHand, cmp } from './hands.js';
+import { CHIP_UNIT } from './engine.js';
 
 export const DIFFICULTIES = ['facil', 'normal', 'dificil'];
 
@@ -92,9 +93,9 @@ export function decide(view, myId, { difficulty = 'normal', rng = Math.random, i
   const call = () => ({ type: toCall > 0 ? 'call' : 'check' });
   const shove = () => ({ type: 'raise', amount: maxT });
   const sizing = (frac) => { // sube a currentBet + fracción del bote
-    let target = view.currentBet + Math.round((pot + toCall) * frac);
-    target = Math.max(low, Math.min(maxT, target));
-    if (maxT - target < view.bb * 2) target = maxT; // no dejar un sobrante ridículo
+    let target = view.currentBet + (pot + toCall) * frac;
+    target = Math.ceil(Math.max(low, target) / CHIP_UNIT) * CHIP_UNIT; // se forma con fichas reales
+    if (target >= maxT || maxT - target < view.bb * 2) target = maxT; // no dejar un sobrante ridículo
     return { type: 'raise', amount: target };
   };
   const fraction = difficulty === 'dificil'

@@ -1,5 +1,7 @@
 // Cliente 2D sencillo. Todo texto de usuarios se pone con textContent / nodos de texto, nunca con innerHTML.
 
+import { breakdown, chipInfo, STARTING_CHIPS } from './chips.js';
+
 const MAXP = 8;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const SUIT_NAME = { s: 'picas', h: 'corazones', d: 'diamantes', c: 'tréboles' };
@@ -22,10 +24,20 @@ function h(tag, props, ...kids) {
     else if (k in e && k !== 'list') e[k] = v;
     else e.setAttribute(k, v);
   }
-  kids.flat().forEach(c => { if (c != null && c !== false) e.append(c); });
+  kids.flat(Infinity).forEach(c => { if (c != null && c !== false) e.append(c); });
   return e;
 }
 const fmt = n => Number(n).toLocaleString('es-MX');
+// Pilas de fichas de colores para un monto (máximo 5 por pila, solo es visual).
+function chipStack(amount, big) {
+  const cols = breakdown(amount).chips.slice(0, 4).map(c => {
+    const info = chipInfo(c.value);
+    const col = h('span', { class: 'col', title: `${c.count} × ${fmt(c.value)}` });
+    for (let i = 0; i < Math.min(c.count, 5); i++) col.append(h('span', { class: 'disc', style: `background:${info.color};border-color:${info.edge}` }));
+    return col;
+  });
+  return h('span', { class: 'chips' + (big ? ' big' : ''), 'aria-hidden': 'true' }, cols);
+}
 const mmss = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 let token = store.get('ppt-token');
@@ -172,7 +184,7 @@ function drawTable() {
   const msg = h('div', { class: 'msg', 'aria-live': 'polite' }, centerMessage());
   const table = h('div', { class: 'table' }, h('div', { class: 'felt' }),
     h('div', { class: 'center' }, board,
-      pot > 0 && h('div', { class: 'pot' }, h('span', { class: 'chip' }), fmt(pot)), msg));
+      pot > 0 && h('div', { class: 'pot' }, chipStack(pot, true), fmt(pot)), msg));
 
   // asientos
   const base = mine ? mine.seat : 0;
@@ -190,7 +202,7 @@ function drawTable() {
     seatContent(el, p, v);
     table.append(el);
     if (p.bet > 0 && BETTING.includes(v.phase)) {
-      table.append(h('div', { class: 'bet', style: `left:${50 + rx * .62 * Math.cos(ang)}%;top:${50 + ry * .58 * Math.sin(ang)}%` }, h('span', { class: 'chip' }), fmt(p.bet)));
+      table.append(h('div', { class: 'bet', style: `left:${50 + rx * .62 * Math.cos(ang)}%;top:${50 + ry * .58 * Math.sin(ang)}%` }, chipStack(p.bet), fmt(p.bet)));
     }
   }
 
@@ -313,6 +325,8 @@ function lobbyControls(inner) {
   const link = `${location.origin}/?mesa=${snap.code}`;
   inner.append(
     h('p', { class: 'hint' }, `Mesa ${snap.code}. Pásales este link a tus amigos y siéntense. Torneo: ${fmt(5000)} fichas, ciegas cada ${snap.levelMinutes} min, una recompra por persona; termina cuando alguien tenga todas las fichas.`),
+    h('p', { class: 'hint startchips' }, 'Cada quien recibe 32 fichas: ',
+      STARTING_CHIPS.map((c, i) => [i ? (i === STARTING_CHIPS.length - 1 ? ' y ' : ', ') : '', chipStack(c.value), ` ${c.count} de ${fmt(c.value)}`]), '.'),
     h('div', { class: 'row' },
       h('button', { class: 'btn small', onclick: () => copy(link) }, 'Copiar link'),
       h('span', { class: 'hint' }, `${v.players.length}/${snap.maxPlayers} jugadores`)));
@@ -328,7 +342,8 @@ function turnControls(inner, mine) {
   const v = snap.view;
   const toCall = v.currentBet - mine.bet;
   const maxT = mine.bet + mine.stack;
-  const minT = Math.min(maxT, v.currentBet === 0 ? v.bb : v.currentBet + v.minRaise);
+  // las apuestas van en múltiplos de 5 (se forman con fichas de 10 y 25); el all-in puede ser cualquier monto
+  const minT = Math.min(maxT, Math.ceil((v.currentBet === 0 ? v.bb : v.currentBet + v.minRaise) / 5) * 5);
   const pot = potOf(v);
   const r1 = h('div', { class: 'row' },
     h('button', { class: 'btn', onclick: () => run('act', { type: 'fold' }) }, 'Retirarse'),
@@ -341,9 +356,9 @@ function turnControls(inner, mine) {
 
   const key = `${v.handNo}:${v.phase}:${v.toAct}`;
   if (raise.key !== key) raise = { key, value: minT };
-  const clamp = x => Math.max(minT, Math.min(maxT, Math.round(x) || minT));
-  const rng = h('input', { type: 'range', min: minT, max: maxT, step: Math.max(1, Math.round(v.sb / 5)), value: clamp(raise.value), 'aria-label': 'Cantidad' });
-  const num = h('input', { type: 'number', min: minT, max: maxT, step: 1, value: clamp(raise.value), 'aria-label': 'Cantidad' });
+  const clamp = x => { x = Math.round((x || minT) / 5) * 5; return x >= maxT ? maxT : Math.max(minT, x); };
+  const rng = h('input', { type: 'range', min: minT, max: maxT, step: 5, value: clamp(raise.value), 'aria-label': 'Cantidad' });
+  const num = h('input', { type: 'number', min: minT, max: maxT, step: 5, value: clamp(raise.value), 'aria-label': 'Cantidad' });
   const verb = v.currentBet === 0 ? 'Apostar' : 'Subir a';
   const go = h('button', { class: 'btn hot', onclick: () => run('act', { type: 'raise', amount: clamp(+num.value) }) });
   const setV = x => { x = clamp(x); raise.value = x; rng.value = x; num.value = x; go.textContent = x >= maxT ? `All-in ${fmt(x)}` : `${verb} ${fmt(x)}`; };

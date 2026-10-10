@@ -69,7 +69,11 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .sit{width:100%;padding:10px 6px;border-radius:12px;border:1.5px dashed rgba(255,255,255,.55);background:rgba(0,0,0,.25);color:#fff;cursor:pointer;font-weight:700;font-size:14px;min-height:44px}
 .emptyseat{width:100%;padding:10px 6px;border-radius:12px;border:1.5px dashed rgba(255,255,255,.25);color:rgba(255,255,255,.5);font-size:13px}
 .bet{position:absolute;transform:translate(-50%,-50%);z-index:1;background:rgba(0,0,0,.45);color:#fff;border-radius:999px;padding:2px 9px 2px 4px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:5px}
-.bet .chip{width:14px;height:14px;border-width:2px}
+.chips{display:inline-flex;gap:2px;align-items:flex-end;vertical-align:middle}
+.chips .col{display:flex;flex-direction:column-reverse}
+.chips .disc{display:block;width:14px;height:5px;border-radius:50%;border:1.5px solid;margin-top:-1px;box-shadow:0 1px 0 rgba(0,0,0,.5)}
+.chips.big .disc{width:20px;height:7px}
+.startchips{line-height:2}
 .card{width:var(--cw,34px);aspect-ratio:5/7;border-radius:calc(var(--cw,34px)*.13);background:var(--ivory);color:var(--black);box-shadow:0 1px 0 rgba(0,0,0,.25),0 4px 10px rgba(0,0,0,.35);position:relative;font-family:var(--serif);flex:none}
 .card .r{position:absolute;top:5%;left:9%;font-weight:900;font-size:calc(var(--cw,34px)*.4);line-height:1;letter-spacing:-.04em}
 .card .s{position:absolute;bottom:4%;right:9%;font-size:calc(var(--cw,34px)*.48);line-height:1}
