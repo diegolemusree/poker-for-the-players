@@ -3,21 +3,22 @@
 // Los nombres y las fichas de cada rival son etiquetas HTML que siguen su posición 3D.
 
 import * as THREE from 'three';
-import { toon, addFlatLights, INK } from './toon.js';
+import { toon, addFlatLights, glow, INK } from './toon.js';
 import { createInk } from './ink.js';
 import { buildRoom } from './room.js';
 import { makeTable, makeTableProps, makeChair, feltPoint, feltTangent, FELT_Y, TABLE_R } from '../models/table.js';
 import { makeCard, setCard, setAnisotropy, CARD_H } from '../models/cards.js';
 import { ChipField } from '../models/chipStacks.js';
+import { makeCutout, makeHand, CUT_H } from '../models/cutouts.js';
 
 const MAXP = 6;
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
 const DEG = Math.PI / 180;
 const RING = TABLE_R + 0.44;
-const HEAD_TOP = 1.5; // altura de la etiqueta sobre cada asiento
+const CUT_R = TABLE_R + 0.3, CUT_Y = FELT_Y - 0.06; // los rivales recortados, recargados en la mesa
+const HEAD_TOP = CUT_Y + CUT_H * 0.94; // altura de la etiqueta sobre cada rival
 const LOOK = { yaw: 40 * DEG, pitch: 15 * DEG };
-const MY_CARD_TILT = 0.38;
 let labelTop = 74; // debajo de la franja de arriba (se mide en cada actualización)
 // lugares fijos frente a mí y en el centro; las cartas comunitarias van más grandes para leerlas de lejos
 const MY = { cards: TABLE_R * 0.6, stack: new THREE.Vector3(0.27, FELT_Y, TABLE_R * 0.68), bet: TABLE_R * 0.38, pot: -0.27, board: 0.08 };
@@ -65,6 +66,31 @@ export function createTableScene(container, ui) {
 
   const camera = new THREE.PerspectiveCamera(62, 1, 0.05, 12);
   camera.rotation.order = 'YXZ';
+  scene.add(camera);
+  // mi mano sostiene mis cartas frente a la cámara (abajo a la izquierda)
+  const hand = makeHand();
+  const handGroup = new THREE.Group();
+  handGroup.add(hand.back, hand.front);
+  hand.back.position.set(-0.035, -0.06, -0.012);
+  hand.front.position.set(-0.035, -0.06, 0.006);
+  camera.add(handGroup);
+  const HAND_CARD = [{ x: -0.035, y: 0, z: 0, r: 0.18 }, { x: 0.035, y: 0.008, z: 0.002, r: -0.08 }];
+  function placeHand() {
+    const d = 0.42, ty = Math.tan((camera.fov * DEG) / 2), tx = ty * camera.aspect;
+    // en vertical la barra de acciones ocupa casi media pantalla: las cartas suben
+    const portrait = camera.aspect < 1;
+    handGroup.position.set(-tx * d * (portrait ? 0.42 : 0.52), -ty * d * (portrait ? -0.02 : 0.22), -d);
+    handGroup.scale.setScalar(portrait ? 0.6 : 0.72);
+  }
+
+  // humo en espiral del cigarro de quien fuma: bolitas planas que suben, crecen y se desvanecen
+  const puffs = Array.from({ length: 9 }, (_, i) => {
+    const m = glow(new THREE.Mesh(new THREE.CircleGeometry(1, 16), new THREE.MeshBasicMaterial({ color: '#e8dfcf', transparent: true, depthWrite: false })));
+    m.userData.phase = i / 9;
+    m.visible = false;
+    scene.add(m);
+    return m;
+  });
 
   const room = buildRoom(scene);
   scene.add(makeTable(), makeTableProps());
@@ -79,7 +105,7 @@ export function createTableScene(container, ui) {
     const label = document.createElement('div');
     label.className = 'seat3d';
     labelLayer.append(label);
-    return { seat, chair, cards, label, anchor: new THREE.Vector3(), showLabel: false };
+    return { seat, chair, cut: null, cards, label, anchor: new THREE.Vector3(), showLabel: false };
   });
   const board = Array.from({ length: 5 }, () => { const c = makeCard(); scene.add(c); return c; });
   // montos flotando sobre cada apuesta y sobre el bote
@@ -141,6 +167,7 @@ export function createTableScene(container, ui) {
     camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(40 * DEG) / rig.aspect)) / DEG, 54, 88);
     camera.updateProjectionMatrix();
     placeRig();
+    placeHand();
     wake();
   }
   const ro = new ResizeObserver(resize);
@@ -182,10 +209,34 @@ export function createTableScene(container, ui) {
     camera.rotation.set(rig.pitch + rig.lookPitch + Math.sin(t * 1.1 + 0.6) * 0.004 * breathe, rig.yaw + rig.lookYaw, 0);
 
     room.tick(t, dt);
+    let smoker = null;
+    for (const s of seats) {
+      if (!s.cut || !s.cut.group.visible) continue;
+      s.cut.group.lookAt(camera.position.x, s.cut.group.position.y, camera.position.z);
+      s.cut.tick(t, reduced.matches);
+      if (!smoker && s.cut.smokeAt()) smoker = s.cut;
+    }
+    tickSmoke(smoker, t);
     if (turnRing.visible) { const p = 1 + Math.sin(t * 5) * 0.06; turnRing.scale.set(p, 0.75 * p, p); }
 
     ink.render(scene, camera);
     placeLabels();
+  }
+  const smokeFrom = new THREE.Vector3();
+  function tickSmoke(smoker, t) {
+    const low = quality === 'baja';
+    puffs.forEach((m, i) => {
+      m.visible = !!smoker && (!low || i % 2 === 0);
+      if (!m.visible) return;
+      smokeFrom.copy(smoker.smokeAt());
+      smoker.group.localToWorld(smokeFrom);
+      const k = (t * 0.22 + m.userData.phase) % 1;
+      const a = k * 9 + i;
+      m.position.set(smokeFrom.x + Math.cos(a) * 0.025 * (0.3 + k), smokeFrom.y + k * 0.42, smokeFrom.z + Math.sin(a) * 0.025 * (0.3 + k));
+      m.scale.setScalar(0.008 + k * 0.035);
+      m.material.opacity = 0.75 * (1 - k) * Math.min(1, k * 6);
+      m.lookAt(camera.position);
+    });
   }
   function placeLabels() {
     const w = el.clientWidth, h = el.clientHeight;
@@ -208,10 +259,10 @@ export function createTableScene(container, ui) {
       let y = Math.max(labelTop + s.label.offsetHeight, ((1 - v3.y) / 2) * h);
       // si choca con una etiqueta ya puesta, se acomoda debajo de ella
       const lw = s.label.offsetWidth, lh = s.label.offsetHeight;
-      for (let k = 0; k < placed.length; k++) {
+      for (let k = 0, guard = 0; k < placed.length && guard < 40; k++, guard++) {
         const o = placed[k];
         // (y es la orilla de abajo de cada etiqueta)
-        if (Math.abs(o.x - x) < (o.w + lw) / 2 + 4 && y - lh < o.y + 4 && o.y - o.h < y + 4) { y = o.y + lh + 4; k = -1; }
+        if (Math.abs(o.x - x) < (o.w + lw) / 2 + 4 && y - lh < o.y + 4 && o.y - o.h < y + 4) { y = o.y + lh + 5; k = -1; } // +5 contra +4: el redondeo no puede volver a chocar
       }
       placed.push({ x, y, w: lw, h: lh });
       s.label.style.transform = `translate(${x}px,${y}px) translate(-50%,-100%)`;
@@ -241,6 +292,7 @@ export function createTableScene(container, ui) {
     if (rig.spectator !== !me) { rig.spectator = !me; placeRig(); }
 
     chips.begin();
+    handGroup.visible = false;
     let nAmt = 0;
     const amt = (pos, text, cls) => { const a = amountLabel(nAmt++); a.on = true; a.pos.copy(pos).setY(FELT_Y + 0.05); a.el.className = 'amt3d ' + (cls || ''); a.el.textContent = text; a.el.style.display = ''; };
     turnRing.visible = false;
@@ -262,18 +314,34 @@ export function createTableScene(container, ui) {
       s.chair.lookAt(0, 0, 0);
 
       const seated = p && !mine && !front && !p.out;
+      if (seated && !s.cut) { s.cut = makeCutout(s.seat); scene.add(s.cut.group); }
+      if (s.cut) {
+        s.cut.group.visible = !!seated;
+        s.cut.group.position.set(CUT_R * Math.cos(t), CUT_Y, CUT_R * Math.sin(t));
+        // retirado o ausente: se ve más apagado
+        s.cut.mesh.material.color.set(p && (p.folded || p.sittingOut) ? '#a89c8c' : '#ffffff');
+      }
 
       // cartas
       const holding = p && p.inHand && p.cards.length && !p.folded;
+      if (mine) handGroup.visible = !!holding;
       s.cards.forEach((c, i) => {
         c.visible = !!holding;
         if (!holding) return;
         const code = p.cards[i] || null;
         setCard(c, mine || shown.includes(p.id) ? code : null);
         if (mine) {
-          c.position.set((i - 0.5) * 0.13, FELT_Y + 0.002 + (CARD_H / 2) * Math.sin(MY_CARD_TILT), MY.cards);
-          c.rotation.set(MY_CARD_TILT, (0.5 - i) * 0.08, 0);
+          // en la mano: de frente a la cámara y abiertas en abanico
+          if (c.parent !== handGroup) handGroup.add(c);
+          const k = HAND_CARD[i];
+          c.position.set(k.x, k.y, k.z);
+          c.rotation.order = 'ZXY';
+          c.rotation.set(Math.PI / 2, 0, k.r);
+          c.scale.setScalar(0.85);
         } else {
+          if (c.parent !== scene) scene.add(c);
+          c.rotation.order = 'XYZ';
+          c.scale.setScalar(1);
           c.position.copy(feltPoint(t, 0.7, FELT_Y + 0.002 + i * 0.003)).addScaledVector(tan, (i - 0.5) * 0.07);
           c.rotation.set(0, (i - 0.5) * 0.12, 0);
         }
@@ -290,7 +358,7 @@ export function createTableScene(container, ui) {
           chips.addStack(p.bet, at, mine ? new THREE.Vector3(1, 0, 0) : tan, mine ? new THREE.Vector3(0, 0, -1) : out.clone().negate(), s.seat + 11);
         }
       }
-      if (p && v.toAct === p.id && betting) {
+      if (p && v.toAct === p.id && betting && !mine) {
         turnRing.visible = true;
         turnRing.position.copy(mine ? new THREE.Vector3(0, FELT_Y + 0.003, MY.cards - 0.02) : feltPoint(t, 0.7, FELT_Y + 0.003));
       }
