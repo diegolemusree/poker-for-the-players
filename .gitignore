@@ -25,3 +25,6 @@ coverage/
 
 # Originales de arte (pesados): se quedan en la Mac; las versiones optimizadas van en public/assets/
 arte/
+
+# Entorno de Python para recortes (rembg)
+.venv-rembg/
