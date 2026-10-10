@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 
 export const INK = '#1d1611';
-export const LAMP = new THREE.Vector3(0, 1.58, 0);
+export const LAMP = new THREE.Vector3(0, 1.4, 0);
 
 let ramp = null;
 export function gradientMap() {
@@ -30,16 +30,12 @@ export function addFlatLights(scene) {
   scene.add(sun);
 }
 
-// Charcos de luz (multiplicadores en espacio lineal): mesa iluminada, penumbra cálida,
-// resplandor rojizo en paredes y piso cercanos, y el resto del cuarto en sombra.
+// Charco de luz (multiplicador en espacio lineal): la mesa y quien está sentado quedan bajo la lámpara;
+// el resto del cuarto queda un tono más oscuro y cálido, con un borde duro como en un fondo pintado.
 const POOL = `
 uniform vec3 inkLamp;
 vec3 lampPool(vec3 p) {
-  float d = distance(p, inkLamp);
-  if (d < 1.36) return vec3(1.0);
-  if (d < 2.0) return vec3(0.66, 0.6, 0.56);
-  if (d < 2.55) return vec3(0.56, 0.4, 0.34);
-  return vec3(0.33, 0.3, 0.31);
+  return distance(p, inkLamp) < 1.32 ? vec3(1.0) : vec3(0.62, 0.52, 0.48);
 }
 `;
 
@@ -109,9 +105,26 @@ export function wobble(geo, amount = 0.008, seed = 1) {
   return geo;
 }
 
+// Sombra plana proyectada: una forma oscura sin contorno que multiplica lo que tiene debajo.
+const shadowMat = new THREE.MeshBasicMaterial({
+  color: '#a08a7c', blending: THREE.MultiplyBlending, premultipliedAlpha: true, transparent: true, depthWrite: false,
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+});
+export function shadowMaterial() { return shadowMat; }
+
 // Capa de lo translúcido (cono de luz, humo): se dibuja después de los contornos para no llevar línea.
 export const GLOW_LAYER = 1;
 export function glow(m) {
   m.layers.set(GLOW_LAYER);
+  return m;
+}
+
+// Sombra elíptica bajo un objeto, ya acostada y en la capa translúcida. Se corre un poco
+// en contra de la luz direccional para que se lea como sombra proyectada.
+const shadowGeo = new THREE.CircleGeometry(1, 28).rotateX(-Math.PI / 2);
+export function flatShadow(rx, rz, y = 0.003) {
+  const m = glow(new THREE.Mesh(shadowGeo, shadowMat));
+  m.scale.set(rx, 1, rz);
+  m.position.set(0.02, y, -0.015);
   return m;
 }

@@ -1,8 +1,10 @@
 // Contornos de animación: la escena se dibuja una vez en un render target con dos salidas
 // (color + número de trazo en el alfa, y normales) más su profundidad. Una pasada a pantalla completa
-// compara cada píxel con sus vecinos y pinta una línea delgada color tinta donde cambia la profundidad
-// (siluetas), la normal (dobleces) o el número de trazo (un material contra otro).
-// Después se dibuja encima la capa translúcida (cono de luz, humo) usando la misma profundidad.
+// busca, en un anillo alrededor de cada píxel, cambios de profundidad (siluetas), de normal (dobleces)
+// o de número de trazo (un material contra otro) y pinta ahí una línea color tinta.
+// El trazo imita uno hecho a mano: centrado en el borde, con orillas suaves, un temblor leve
+// y un poco más grueso en lo que está cerca de la cámara.
+// Después se dibuja encima la capa translúcida (sombras planas, cono de luz, humo) con la misma profundidad.
 
 import * as THREE from 'three';
 import { INK, GLOW_LAYER } from './toon.js';
@@ -17,25 +19,42 @@ uniform vec3 ink;
 varying vec2 vUv;
 
 float viewZ(vec2 uv) { return -perspectiveDepthToViewZ(texture2D(tDepth, uv).x, near, far); }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+
+vec4 C; vec3 N; float Z;
+// 1 si entre el centro y este vecino hay un borde
+float edge(vec2 uv) {
+  float zn = viewZ(uv);
+  float e = smoothstep(0.03, 0.06, abs(zn - Z) / min(zn, Z));
+  vec3 nn = texture2D(tNormal, uv).xyz * 2.0 - 1.0;
+  e = max(e, 1.0 - smoothstep(0.7, 0.85, dot(N, nn)));
+  return max(e, step(0.5 / 255.0, abs(texture2D(tColor, uv).a - C.a)));
+}
 
 void main() {
-  vec4 c = texture2D(tColor, vUv);
-  vec3 n = texture2D(tNormal, vUv).xyz * 2.0 - 1.0;
-  float z = viewZ(vUv);
-  float e = 0.0;
-  // diferencias hacia la derecha, arriba y en diagonal: la línea queda de un solo lado del borde
-  vec2 offs[3];
-  offs[0] = vec2(width, 0.0); offs[1] = vec2(0.0, width); offs[2] = vec2(width, width);
-  for (int i = 0; i < 3; i++) {
-    vec2 uv = vUv + offs[i] * texel;
-    float zn = viewZ(uv);
-    // umbral relativo a la distancia, para que el piso visto de lado no se llene de rayas
-    e = max(e, smoothstep(0.035, 0.07, abs(zn - z) / min(z, zn)));
-    vec3 nn = texture2D(tNormal, uv).xyz * 2.0 - 1.0;
-    e = max(e, 1.0 - smoothstep(0.72, 0.86, dot(n, nn)));
-    e = max(e, step(0.5 / 255.0, abs(texture2D(tColor, uv).a - c.a)));
+  vec2 px = gl_FragCoord.xy / width;
+  // temblor de mano: el punto de muestreo se mueve un poquito con un ruido suave
+  vec2 wob = (vec2(noise(px * 0.045), noise(px * 0.045 + 31.0)) - 0.5) * 1.4 * width;
+  vec2 uv = vUv + wob * texel;
+  C = texture2D(tColor, uv);
+  N = texture2D(tNormal, uv).xyz * 2.0 - 1.0;
+  Z = viewZ(uv);
+  // más grueso de cerca, más fino de lejos, y el grosor también respira un poco a lo largo del trazo
+  float w = width * clamp(1.5 / Z, 0.7, 1.45) * (0.85 + 0.3 * noise(px * 0.02 + 7.0));
+  float inner = 0.0, outer = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float a = float(i) * 0.785398;
+    vec2 d = vec2(cos(a), sin(a));
+    inner = max(inner, edge(uv + d * w * texel));
+    if (i % 2 == 1) outer = max(outer, edge(uv + d * (w + 0.9) * texel));
   }
-  gl_FragColor = vec4(mix(c.rgb, ink, e), 1.0);
+  float e = max(inner, outer * 0.5);
+  gl_FragColor = vec4(mix(texture2D(tColor, vUv).rgb, ink, e), 1.0);
   gl_FragDepth = texture2D(tDepth, vUv).x;
   #include <colorspace_fragment>
 }`;
@@ -67,8 +86,8 @@ export function createInk(renderer) {
       const W = Math.max(1, Math.floor(w * pixelRatio)), H = Math.max(1, Math.floor(h * pixelRatio));
       target.setSize(W, H);
       material.uniforms.texel.value.set(1 / W, 1 / H);
-      // la línea mide ~1 px de pantalla en cualquier densidad
-      material.uniforms.width.value = Math.max(1, Math.round(pixelRatio * 1.1));
+      // medio grosor del trazo en píxeles del render: ~1 px de pantalla, el trazo completo mide ~2
+      material.uniforms.width.value = pixelRatio;
     },
     render(scene, camera) {
       material.uniforms.near.value = camera.near;

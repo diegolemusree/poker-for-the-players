@@ -91,8 +91,8 @@ export function createTableScene(container, ui) {
   function placeRig() {
     const portrait = rig.aspect < 1;
     // sentado: ojos a la altura de alguien en silla, mirando apenas hacia abajo
-    const pos = rig.spectator ? new THREE.Vector3(0, 1.62, TABLE_R + 1.15) : new THREE.Vector3(0, 1.18, TABLE_R + 0.38);
-    const target = rig.spectator ? new THREE.Vector3(0, 0.78, -0.1) : new THREE.Vector3(0, 0.86, -0.4);
+    const pos = rig.spectator ? new THREE.Vector3(0, 1.62, TABLE_R + 1.3) : new THREE.Vector3(0, 1.2, TABLE_R + 0.5);
+    const target = rig.spectator ? new THREE.Vector3(0, 0.78, -0.1) : new THREE.Vector3(0, 0.82, -0.3);
     if (portrait) { pos.z += 0.35; pos.y += 0.18; }
     rig.pos.copy(pos);
     rig.pitch = Math.atan2(target.y - pos.y, pos.z - target.z);
@@ -118,8 +118,8 @@ export function createTableScene(container, ui) {
     ink.setSize(w, h, renderer.getPixelRatio());
     rig.aspect = w / h;
     camera.aspect = rig.aspect;
-    // en pantallas angostas se abre el campo de visión para que quepa la mesa
-    camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(49 * DEG) / rig.aspect)) / DEG, 62, 92);
+    // lente de toma de serie (perspectiva plana, sin gran angular); en pantallas angostas se abre para que quepa la mesa
+    camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(40 * DEG) / rig.aspect)) / DEG, 54, 88);
     camera.updateProjectionMatrix();
     placeRig();
     wake();

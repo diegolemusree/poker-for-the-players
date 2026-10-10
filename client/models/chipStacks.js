@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { CHIPS, stackBreakdown } from '../chips.js';
-import { toon } from '../scene/toon.js';
+import { toon, shadowMaterial, GLOW_LAYER } from '../scene/toon.js';
 
 export const CHIP_R = 0.027, CHIP_H = 0.009;
 const PER_COLUMN = 15;
@@ -52,9 +52,15 @@ export class ChipField {
       parent.add(m);
       this.meshes.set(info.value, m);
     }
+    // una sombra plana bajo cada pila
+    this.shadows = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20).rotateX(-Math.PI / 2), shadowMaterial(), 80);
+    this.shadows.layers.set(GLOW_LAYER);
+    this.shadows.count = 0;
+    this.shadows.frustumCulled = false;
+    parent.add(this.shadows);
     this.tmp = new THREE.Object3D();
   }
-  begin() { for (const m of this.meshes.values()) m.count = 0; }
+  begin() { for (const m of this.meshes.values()) m.count = 0; this.shadows.count = 0; }
 
   // Pone `amount` como pilas sobre `origin` (en la mesa), con las columnas a lo largo de `across`
   // y las filas hacia `back`. `seed` hace que el desorden de cada pila sea estable entre redibujos.
@@ -66,6 +72,17 @@ export class ChipField {
     }
     const perRow = Math.min(5, cols.length);
     const rnd = mulberry(seed * 9973 + Math.round(amount));
+    const rows = Math.ceil(cols.length / perRow);
+    if (this.shadows.count < this.shadows.instanceMatrix.count) {
+      const sx = ((perRow - 1) / 2) * GAP + CHIP_R * 1.3, sz = ((rows - 1) / 2) * GAP * 0.95 + CHIP_R * 1.3;
+      this.tmp.position.copy(origin).addScaledVector(back, ((rows - 1) / 2) * GAP * 0.95);
+      this.tmp.position.x += 0.008; this.tmp.position.z -= 0.006; this.tmp.position.y += 0.0008;
+      this.tmp.rotation.set(0, -Math.atan2(across.z, across.x), 0);
+      this.tmp.scale.set(sx, 1, sz);
+      this.tmp.updateMatrix();
+      this.shadows.setMatrixAt(this.shadows.count++, this.tmp.matrix);
+      this.tmp.scale.set(1, 1, 1);
+    }
     cols.forEach((col, i) => {
       const row = Math.floor(i / perRow), k = i % perRow;
       const inRow = Math.min(perRow, cols.length - row * perRow);
@@ -82,6 +99,7 @@ export class ChipField {
   }
   end() {
     for (const m of this.meshes.values()) m.instanceMatrix.needsUpdate = true;
+    this.shadows.instanceMatrix.needsUpdate = true;
   }
 }
 

@@ -2,7 +2,7 @@
 // riel de cuero café, una sola pata central con base de cruz. También las sillas de madera.
 
 import * as THREE from 'three';
-import { mesh, toon, wobble } from '../scene/toon.js';
+import { mesh, toon, wobble, flatShadow } from '../scene/toon.js';
 
 export const TABLE_R = 0.74, FELT_Y = 0.76;
 const decal = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
@@ -56,12 +56,14 @@ export function makeTableProps() {
   const profile = [[0, 0], [0.042, 0], [0.045, 0.01], [0.044, 0.14], [0.03, 0.17], [0.014, 0.2], [0.014, 0.25], [0.017, 0.26], [0, 0.26]].map(([x, y]) => new THREE.Vector2(x, y));
   put(bottle, mesh(wobble(new THREE.LatheGeometry(profile, 14), 0.002, 9), '#4e5a34'), 0, 0, 0);
   put(bottle, mesh(new THREE.CylinderGeometry(0.0455, 0.0455, 0.06, 14, 1, true), toon('#d8c9a3', { side: THREE.DoubleSide })), 0, 0.075, 0);
+  bottle.add(flatShadow(0.06, 0.05, 0.001));
   put(g, bottle, 0.5, FELT_Y, 0.3, 0, 0, 0.02);
 
   const tray = new THREE.Group();
   put(tray, mesh(wobble(new THREE.CylinderGeometry(0.07, 0.062, 0.025, 16), 0.003, 10), '#7d8a86'), 0, 0.0125, 0);
   put(tray, mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.004, 16), '#3b3a36'), 0, 0.024, 0);
   put(tray, mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.055, 6), '#e3d6b8'), 0.02, 0.03, 0.01, 0, 0, Math.PI / 2 - 0.2);
+  tray.add(flatShadow(0.08, 0.07, 0.001));
   put(g, tray, -0.47, FELT_Y, 0.33);
   return g;
 }
@@ -75,6 +77,7 @@ export function makeChair() {
     put(g, mesh(new THREE.CylinderGeometry(0.02, 0.017, 0.44, 6), dark), x, 0.22, z, 0, 0, x * 0.08);
   }
   for (const x of [-0.19, 0.19]) put(g, mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.5, 6), dark), x, 0.72, -0.22, -0.08);
+  g.add(flatShadow(0.3, 0.27, 0.01));
   for (const y of [0.78, 0.92]) put(g, mesh(wobble(new THREE.BoxGeometry(0.42, 0.07, 0.025, 3, 1, 1), 0.005, y * 10), wood), 0, y, -0.23, -0.08);
   return g;
 }
