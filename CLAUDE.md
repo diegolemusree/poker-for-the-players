@@ -75,14 +75,20 @@ poker-for-the-players/
 
 1. **Mesas con código**: pantalla inicial con "Crear mesa" (genera un código de 5 letras) y "Unirme" (escribir código). El link `/?mesa=ABCDE` entra directo.
 2. **Apodo**: el jugador escribe su apodo antes de sentarse. Se guarda en `localStorage` para la próxima vez.
-3. **Asientos**: hasta 8. Click en un asiento libre para sentarse con 1,000 fichas.
-4. **Reglas**: ciegas 10/20, dealer rota cada mano, heads-up correcto (el dealer pone la ciega chica y habla primero preflop).
+3. **Asientos**: hasta 8. Click en un asiento libre para sentarse antes de que empiece el torneo.
+4. **Formato torneo** (decisión del dueño, para una noche de póker a distancia de ~4 horas):
+   - Todos empiezan con **5,000 fichas**.
+   - Ciegas que suben por reloj: niveles de 15 minutos por omisión (configurable al crear la mesa: 2, 5, 10, 15, 20 o 30), empezando en 25/50 y subiendo hasta 3000/6000 (lista `BLINDS` en `server/engine.js`). El nivel nuevo aplica al repartir la siguiente mano.
+   - **Una sola recompra por jugador** por torneo (5,000 fichas), cuando se queda sin fichas y entre manos. Sin recompra disponible, queda eliminado con su lugar final.
+   - El torneo **termina cuando un jugador tiene todas las fichas**. Si solo queda uno con fichas y otros aún pueden recomprar, tienen 60 segundos para decidir.
+   - Una vez empezado no entran jugadores nuevos; quien se va queda "ausente" (se retira solo cada mano y paga ciegas) hasta que vuelve.
+   - Dealer rota cada mano, heads-up correcto (el dealer pone la ciega chica y habla primero preflop).
 5. **Acciones**: retirarse, pasar, igualar, apostar o subir con slider y atajos (½ bote, bote, todo).
 6. **Showdown**: mostrar cartas de los que llegaron, nombre de la jugada y ganador(es).
 7. **Turno con tiempo**: 45 segundos. Al vencer, el servidor pasa o retira automáticamente (ya no depende de que otro jugador presione un botón).
 8. **Reconexión**: si alguien recarga la página, recupera su asiento y sus cartas. Usar un `playerToken` aleatorio guardado en `localStorage`, nunca el id del socket.
-9. **Siguiente mano**: cualquier jugador sentado puede repartir, o repartir automático 5 segundos después del showdown.
-10. **Recargar fichas** cuando un jugador se queda en cero, y **levantarse** de la mesa.
+9. **Siguiente mano**: se reparte automáticamente 5 segundos después del showdown.
+10. **Recompra única** cuando un jugador se queda en cero (ver formato torneo), y **levantarse** de la mesa antes de empezar o **ausentarse** durante el torneo. Si alguien deja pasar dos turnos seguidos, queda ausente.
 11. **Mesas vacías** se borran de memoria después de 30 minutos sin jugadores.
 12. **Acceso solo para el grupo**: código de acceso general del sitio, configurado con la variable de entorno `ACCESS_CODE`. Se pide una sola vez al entrar y se recuerda en el dispositivo. Si `ACCESS_CODE` no está definida (por ejemplo en desarrollo), no se pide. Validar en el servidor, no solo en el navegador.
 13. El sitio no debe aparecer en buscadores: `robots.txt` con `Disallow: /` y la etiqueta `noindex`.
@@ -108,8 +114,8 @@ Dos formas de jugar con bots:
 - Esperan entre 1 y 3 segundos antes de actuar, para que se sienta natural y se vean las animaciones.
 - Siempre envían jugadas legales a través del mismo `act()` del motor que usan los humanos.
 - Cada bot es una de las criaturas del casino, con nombre inventado y gracioso en español (por ejemplo "Don Chepe", "La Güera", "El Profe") y un ícono de bot discreto junto a su nombre, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el robot es calculador, el blob es impulsivo).
-- Si se quedan sin fichas, se recargan solos en la mano siguiente.
-- En práctica en solitario, si el humano se queda sin fichas, ofrecer "Recargar" o "Nueva partida".
+- Si se quedan sin fichas, usan su única recompra casi siempre; si no, quedan eliminados.
+- En práctica en solitario, si el humano se queda sin fichas, ofrecer "Recomprar" (si le queda) o quedar fuera y ver cómo termina; al final, "Volver al inicio" para una nueva partida.
 
 ## Reglas de implementación
 
@@ -212,7 +218,7 @@ npm test
 
 - Dinero real, pagos o cualquier tipo de apuesta con valor monetario
 - Cuentas de usuario y contraseñas
-- Torneos y ciegas que suben
+- Varias mesas en un mismo torneo, premios o antes (ante)
 
 ## Publicación con dominio propio (cuando funcione en local)
 
