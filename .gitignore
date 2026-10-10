@@ -1,0 +1,24 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno y secretos
+.env
+.env.*
+
+# Builds
+dist/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Sistema y editores
+.DS_Store
+Icon?
+.vscode/
+.idea/
+
+# Cobertura
+coverage/
