@@ -129,8 +129,8 @@ export function drawTable(g, v, line) {
   g.beginPath(); poly(g, outline); g.clip();
   g.translate(c0.x, c0.y); g.scale(1, ry / rx);
   let gr = g.createRadialGradient(0, 0, 0, 0, 0, rx);
-  gr.addColorStop(0, 'rgba(255,206,120,0.34)'); gr.addColorStop(0.45, 'rgba(255,200,110,0.28)');
-  gr.addColorStop(0.75, 'rgba(255,190,100,0.1)'); gr.addColorStop(1, 'rgba(255,190,100,0)');
+  gr.addColorStop(0, 'rgba(255,206,120,0.46)'); gr.addColorStop(0.45, 'rgba(255,200,110,0.36)');
+  gr.addColorStop(0.75, 'rgba(255,190,100,0.14)'); gr.addColorStop(1, 'rgba(255,190,100,0)');
   g.globalCompositeOperation = 'screen';
   g.fillStyle = gr; g.fillRect(-rx * 1.5, -rx * 1.5, rx * 3, rx * 3);
   gr = g.createRadialGradient(0, 0, rx * 0.7, 0, 0, rx * 1.35);

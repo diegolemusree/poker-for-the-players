@@ -165,7 +165,7 @@ export function createTableScene(container, ui) {
     const amt = (at, y, text, cls) => amts.push({ at, y, text, cls });
 
     drawn = []; ring = null;
-    const live = new Set();
+    const live = new Set(), fresh = new Set();
     for (const s of seats) {
       const p = v.players.find(q => q.seat === s.seat);
       const mine = !!me && s.seat === base;
@@ -179,7 +179,7 @@ export function createTableScene(container, ui) {
         live.add(p.id);
         const charId = characterFor(p);
         let a = anims.get(p.id);
-        if (!a || a.charId !== charId) { a = new RivalAnim(charId, now); anims.set(p.id, a); }
+        if (!a || a.charId !== charId) { a = new RivalAnim(charId, now); anims.set(p.id, a); fresh.add(p.id); }
         // reparto nuevo: espía sus cartas (escalonado, como si fueran repartiendo)
         if (a.hand !== undefined && a.hand !== v.handNo && p.inHand) a.play('espia', 1700, now, 350 + rel(s.seat) * 220);
         a.hand = v.handNo;
@@ -220,6 +220,13 @@ export function createTableScene(container, ui) {
       s.label.style.display = s.show ? '' : 'none';
     }
     for (const id of anims.keys()) if (!live.has(id)) anims.delete(id);
+    // Al cerrar una ronda, el servidor borra la jugada de cada quien en el mismo instante: la última
+    // igualada solo se ve en la última jugada de la mesa (v.lastAction), que no se borra.
+    const ga = v.lastAction, last = ga && anims.get(ga.id);
+    if (last && !fresh.has(ga.id) && last.lastN !== ga.n) {
+      if (BET_POSE.includes(ga.type)) last.play('apuesta', 2000, now);
+      last.lastN = ga.n;
+    }
 
     // bote en el centro (las apuestas de la ronda siguen frente a cada quien)
     const pot = v.players.reduce((a, p) => a + (p.total || 0), 0) - (betting ? betSum : 0);
