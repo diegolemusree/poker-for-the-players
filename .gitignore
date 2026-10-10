@@ -22,3 +22,6 @@ Icon?
 
 # Cobertura
 coverage/
+
+# Originales de arte (pesados): se quedan en la Mac; las versiones optimizadas van en public/assets/
+arte/
