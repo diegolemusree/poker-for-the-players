@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export const INK = '#1d1611';
-export const LAMP = new THREE.Vector3(0, 1.4, 0);
+export const LAMP = new THREE.Vector3(0, 1.82, 0);
 
 let ramp = null;
 export function gradientMap() {
@@ -31,12 +31,13 @@ export function addFlatLights(scene) {
   scene.add(sun);
 }
 
-// Charco de luz (multiplicador en espacio lineal): la mesa y quien está sentado quedan bajo la lámpara;
-// el resto del cuarto queda un tono más oscuro y cálido, con un borde duro como en un fondo pintado.
+// Luz de la lámpara (multiplicador en espacio lineal): la mesa y quienes están sentados quedan bajo la
+// lámpara y el cuarto se va oscureciendo y entibiando con la distancia, como en una ilustración.
 const POOL = `
 uniform vec3 inkLamp;
 vec3 lampPool(vec3 p) {
-  return distance(p, inkLamp) < 1.32 ? vec3(1.0) : vec3(0.62, 0.52, 0.48);
+  float k = smoothstep(1.05, 2.9, distance(p, inkLamp));
+  return mix(vec3(1.08, 1.03, 0.95), vec3(0.4, 0.33, 0.3), k);
 }
 `;
 

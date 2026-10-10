@@ -16,7 +16,7 @@ const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
 const DEG = Math.PI / 180;
 const RING = TABLE_R + 0.44;
-const CUT_R = TABLE_R + 0.3, CUT_Y = FELT_Y - 0.06; // los rivales recortados, recargados en la mesa
+const CUT_R = TABLE_R + 0.28, CUT_Y = FELT_Y - 0.12; // los rivales recortados, recargados en la mesa
 const HEAD_TOP = CUT_Y + CUT_H * 0.94; // altura de la etiqueta sobre cada rival
 const LOOK = { yaw: 40 * DEG, pitch: 15 * DEG };
 let labelTop = 74; // debajo de la franja de arriba (se mide en cada actualización)
@@ -32,7 +32,7 @@ const ACTION_CLS = { check: 'a-check', call: 'a-call', bet: 'a-raise', raise: 'a
 
 // Mi asiento queda enfrente de la cámara; los otros 5 se reparten en el arco lejano (de 200° a 340°)
 // para que los vecinos de al lado se vean a los costados y no queden detrás de mí.
-export function seatAngle(rel) { return rel === 0 ? Math.PI / 2 : (200 + (rel - 1) * 35) * DEG; }
+export function seatAngle(rel) { return rel === 0 ? Math.PI / 2 : (198 + (rel - 1) * 36) * DEG; }
 const ringPoint = t => new THREE.Vector3(RING * Math.cos(t), 0, RING * Math.sin(t));
 
 const store = {
@@ -80,7 +80,7 @@ export function createTableScene(container, ui) {
     // en vertical la barra de acciones ocupa casi media pantalla: las cartas suben
     const portrait = camera.aspect < 1;
     handGroup.position.set(-tx * d * (portrait ? 0.42 : 0.52), -ty * d * (portrait ? -0.02 : 0.22), -d);
-    handGroup.scale.setScalar(portrait ? 0.6 : 0.72);
+    handGroup.scale.setScalar(portrait ? 0.55 : 0.6);
   }
 
   // humo en espiral del cigarro de quien fuma: bolitas planas que suben, crecen y se desvanecen
@@ -135,8 +135,9 @@ export function createTableScene(container, ui) {
   function placeRig() {
     const portrait = rig.aspect < 1;
     // sentado: ojos a la altura de alguien en silla, mirando apenas hacia abajo
-    const pos = rig.spectator ? new THREE.Vector3(0, 1.62, TABLE_R + 1.3) : new THREE.Vector3(0, 1.2, TABLE_R + 0.5);
-    const target = rig.spectator ? new THREE.Vector3(0, 0.78, -0.1) : new THREE.Vector3(0, 0.82, -0.3);
+    // como en la referencia: un poco más alto y atrás, viendo la mesa desde arriba con los rivales alrededor
+    const pos = rig.spectator ? new THREE.Vector3(0, 1.62, TABLE_R + 1.3) : new THREE.Vector3(0, 1.4, TABLE_R + 0.78);
+    const target = rig.spectator ? new THREE.Vector3(0, 0.78, -0.1) : new THREE.Vector3(0, 0.8, -0.35);
     // en vertical se sube un poco la cámara y mira más hacia abajo, para que la mesa llene la pantalla
     if (portrait) { pos.z += 0.2; pos.y += 0.32; target.set(0, 0.72, -0.05); }
     rig.pos.copy(pos);
@@ -164,7 +165,7 @@ export function createTableScene(container, ui) {
     rig.aspect = w / h;
     camera.aspect = rig.aspect;
     // lente de toma de serie (perspectiva plana, sin gran angular); en pantallas angostas se abre para que quepa la mesa
-    camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(40 * DEG) / rig.aspect)) / DEG, 54, 88);
+    camera.fov = THREE.MathUtils.clamp((2 * Math.atan(Math.tan(44 * DEG) / rig.aspect)) / DEG, 58, 90);
     camera.updateProjectionMatrix();
     placeRig();
     placeHand();
@@ -325,6 +326,7 @@ export function createTableScene(container, ui) {
       // cartas
       const holding = p && p.inHand && p.cards.length && !p.folded;
       if (mine) handGroup.visible = !!holding;
+      if (s.cut) s.cut.cards.visible = !!holding && !shown.includes(p && p.id);
       s.cards.forEach((c, i) => {
         c.visible = !!holding;
         if (!holding) return;
@@ -340,6 +342,8 @@ export function createTableScene(container, ui) {
           c.scale.setScalar(0.85);
         } else {
           if (c.parent !== scene) scene.add(c);
+          // las cartas de un rival se ven en su mano; sobre la mesa solo cuando las enseña
+          c.visible = shown.includes(p.id) || !s.cut;
           c.rotation.order = 'XYZ';
           c.scale.setScalar(1);
           c.position.copy(feltPoint(t, 0.7, FELT_Y + 0.002 + i * 0.003)).addScaledVector(tan, (i - 0.5) * 0.07);

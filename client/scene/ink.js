@@ -54,7 +54,11 @@ void main() {
     if (i % 2 == 1) outer = max(outer, edge(uv + d * (w + 0.9) * texel));
   }
   float e = max(inner, outer * 0.5);
-  gl_FragColor = vec4(mix(texture2D(tColor, vUv).rgb, ink, e), 1.0);
+  vec3 col = mix(texture2D(tColor, vUv).rgb, ink, e);
+  // esquinas oscuras y suaves, como en la ilustración de referencia
+  vec2 q = (vUv - 0.5) * vec2(1.05, 1.25);
+  col *= mix(0.42, 1.0, smoothstep(0.85, 0.3, length(q)));
+  gl_FragColor = vec4(col, 1.0);
   gl_FragDepth = texture2D(tDepth, vUv).x;
   #include <colorspace_fragment>
 }`;

@@ -44,8 +44,8 @@ export function makeTable() {
   rail.scale.z = 0.75;
 
   // centro más oscuro con su línea crema; el desgaste comparte trazo con el fieltro (sin línea)
-  put(g, mesh(new THREE.CircleGeometry(0.44, 8).rotateX(-Math.PI / 2), toon('#3f6e2a', { edge: 'felt', ...decal })), 0, FELT_Y + 0.0006, 0, 0, OCT);
-  put(g, mesh(new THREE.TorusGeometry(0.44, 0.005, 4, 8), toon('#e3d6b8', decal)), 0, FELT_Y + 0.001, 0, Math.PI / 2, 0, OCT);
+  put(g, mesh(new THREE.CircleGeometry(0.56, 8).rotateX(-Math.PI / 2), toon('#2e4630', { edge: 'felt', ...decal })), 0, FELT_Y + 0.0006, 0, 0, OCT);
+  put(g, mesh(new THREE.TorusGeometry(0.56, 0.005, 4, 8), toon('#e3d6b8', decal)), 0, FELT_Y + 0.001, 0, Math.PI / 2, 0, OCT);
   [[-0.5, 0.25, 0.07, 2], [0.42, -0.44, 0.05, 5], [0.55, 0.3, 0.04, 8], [-0.2, -0.6, 0.05, 11]].forEach(([x, z, r, s]) => {
     put(g, mesh(blob(r, s), toon('#53873a', { edge: 'felt', ...decal })), x, FELT_Y + 0.0009, z);
   });
@@ -68,6 +68,35 @@ export function makeTableProps() {
   put(tray, mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.055, 6), '#e3d6b8'), 0.02, 0.03, 0.01, 0, 0, Math.PI / 2 - 0.2);
   tray.add(flatShadow(0.08, 0.07, 0.001));
   put(g, tray, -0.47, FELT_Y, 0.33);
+
+  // vasos con algo ámbar, dados y la baraja: la mesa se ve usada, como en la referencia
+  const glass = (x, z, liquid) => {
+    const v = new THREE.Group();
+    put(v, mesh(wobble(new THREE.CylinderGeometry(0.035, 0.03, 0.09, 12, 1, true), 0.002, x * 9), toon('#c9dde3', { side: THREE.DoubleSide })), 0, 0.045, 0);
+    put(v, mesh(new THREE.CylinderGeometry(0.031, 0.028, 0.05, 12), liquid), 0, 0.026, 0);
+    put(v, mesh(roundBox(0.022, 0.022, 0.022, 0.3), '#e9f2f4'), 0.006, 0.05, 0.004, 0.3, 0.5, 0);
+    v.add(flatShadow(0.045, 0.04, 0.001));
+    put(g, v, x, FELT_Y, z);
+  };
+  glass(-0.62, 0.14, '#c98a35');
+  glass(0.64, 0.06, '#a4452f');
+  const pip = (n) => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'); x.fillStyle = '#fbf6e6'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#1d1611';
+    const at = { 1: [[32, 32]], 2: [[18, 18], [46, 46]], 3: [[16, 16], [32, 32], [48, 48]], 4: [[18, 18], [46, 18], [18, 46], [46, 46]], 5: [[16, 16], [48, 16], [32, 32], [16, 48], [48, 48]], 6: [[18, 14], [46, 14], [18, 32], [46, 32], [18, 50], [46, 50]] }[n];
+    for (const [a, b] of at) { x.beginPath(); x.arc(a, b, 6, 0, Math.PI * 2); x.fill(); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return toon('#ffffff', { map: t });
+  };
+  const dieMats = [pip(1), pip(6), pip(5), pip(2), pip(3), pip(4)];
+  for (const [x, z, r] of [[-0.24, 0.5, 0.4], [-0.18, 0.47, 1.1]]) {
+    const d = new THREE.Mesh(roundBox(0.03, 0.03, 0.03, 0.2), dieMats);
+    put(g, d, x, FELT_Y + 0.015, z, 0, r, 0);
+  }
+  const deck = new THREE.Group();
+  put(deck, mesh(roundBox(0.12, 0.04, 0.17, 0.25), '#efe4c8'), 0, 0.02, 0);
+  put(deck, mesh(new THREE.PlaneGeometry(0.11, 0.16).rotateX(-Math.PI / 2), '#2f3f5c'), 0, 0.0405, 0);
+  deck.add(flatShadow(0.09, 0.11, 0.001));
+  put(g, deck, 0.5, FELT_Y, -0.32, 0, 0.5, 0);
   return g;
 }
 

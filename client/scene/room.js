@@ -171,6 +171,11 @@ function wall(parent, along, pos, ry, seed, glowAt) {
   return g;
 }
 
+let halo = null;
+function haloTex() {
+  if (!halo) halo = canvasTex(64, 64, (g) => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,0.55)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); });
+  return halo;
+}
 // Frasco de laboratorio: perfil torneado con su líquido; los que "brillan" no se oscurecen con la luz.
 function flask(parent, x, y, z, kind, liquid, glowing) {
   const g = new THREE.Group();
@@ -183,6 +188,11 @@ function flask(parent, x, y, z, kind, liquid, glowing) {
   }[kind].map(([a, b]) => new THREE.Vector2(a, b));
   const glass = mesh(wobble(new THREE.LatheGeometry(prof, 14), 0.002, x * 9), '#b9cfd6');
   g.add(glass);
+  if (glowing) { // halo suave alrededor del líquido que brilla
+    const halo = glow(new THREE.Mesh(new THREE.CircleGeometry(0.16, 20), new THREE.MeshBasicMaterial({ map: haloTex(), color: liquid, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })));
+    halo.position.set(0, 0.08, 0.06);
+    g.add(halo);
+  }
   const fill = mesh(new THREE.LatheGeometry(prof.slice(0, kind === 'frasco' ? 3 : 3).map(v => new THREE.Vector2(v.x * 0.93, v.y * 0.7)).concat([new THREE.Vector2(0, prof[2].y * 0.7)]), 14),
     glowing ? toon('#000000', { emissive: liquid, pool: false }) : liquid);
   fill.position.y = 0.004;
