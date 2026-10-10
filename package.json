@@ -1,0 +1,13 @@
+{
+  "name": "poker-for-the-players",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Texas Hold'em No Limit privado para un grupo de amigos, con fichas virtuales.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
