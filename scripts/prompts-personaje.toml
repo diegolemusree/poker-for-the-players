@@ -1,0 +1,93 @@
+# Prompts para scripts/generar-personaje.py
+#
+# Cada imagen se arma así (en este orden):
+#   [referencia] + [angulos.<ángulo>] + [poses.<pose>] + [comun.estilo] + [comun.encuadre] + [comun.fondo]
+# y los parpadeos se hacen editando su pose base con [ediciones.parpadeo].
+#
+# Puedes cambiar cualquier texto entre las comillas triples ("""). Los textos van en inglés porque
+# el modelo los sigue mejor. Después de editar, prueba con:
+#   .venv-rembg/bin/python scripts/generar-personaje.py generar <personaje> <referencia> --simular
+
+[config]
+modelo = "gemini-nano-banana-2.1"   # ver precios en ai.google.dev/gemini-api/docs/pricing
+aspect_ratio = "16:9"               # mismo cuadro que el arte que ya existe
+image_size = "2K"                   # "1K", "2K" o "4K" (2K = 2752x1536 en 16:9)
+
+[comun]
+# Va en todas las poses base (no en los parpadeos, que son ediciones de una imagen ya hecha).
+referencia = """
+The attached reference image shows the character. Use it ONLY for the character design (body shape, \
+skin color, face, number and shape of eyes, earrings, clothes, folding chair) and for the drawing \
+style (line weight, coloring, shading, level of detail). Do not copy its pose or camera angle unless \
+asked to. Keep the character exactly the same individual, with the same proportions and colors.
+"""
+
+estilo = """
+Hand-drawn 2D cartoon illustration in the style of an adult animated sci-fi TV series: thick dark \
+ink outlines, flat colors with soft cel shading, subtle rim light, small grime and wrinkle details. \
+Same rendering as the reference.
+"""
+
+encuadre = """
+Framing: full figure seated on the folding chair, centered horizontally, same camera distance and \
+same character size as the reference. The top of the head sits about 6% below the top edge of the \
+image, and the chair legs reach the bottom edge. Straight-on camera at chest height. Nothing else \
+in the scene: no table, no other characters, no props other than the ones described.
+"""
+
+fondo = """
+Background: a perfectly flat, uniform, solid neutral light gray (#C2C2C2) filling the whole image. \
+No gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background.
+"""
+
+# Cuando la pose usa también la pose "espera" del mismo ángulo como segunda imagen
+# (para que el ángulo, el tamaño y la silla queden idénticos).
+segunda_imagen = """
+The second attached image shows this same character already drawn in the target camera angle and \
+framing. Match it exactly: same camera angle, same position in the frame, same size, same chair. \
+Change only the pose and expression described here.
+"""
+
+[angulos.frente]
+texto = """
+Camera angle: front view. The character faces the viewer directly, body and chair symmetrical and \
+square to the camera, both knees pointing toward the viewer.
+"""
+
+[angulos.lado]
+texto = """
+Camera angle: three-quarter view. The chair and the body are rotated about 35 degrees so that the \
+knees point toward the lower right of the image and the back of the chair is visible on the left \
+side of the image. The head is turned slightly toward the viewer so both sides of the face are \
+still visible.
+"""
+
+[poses.espera]
+texto = """
+Pose: waiting for their turn. Sitting back in the chair, relaxed and slightly slouched, holding two \
+face-down playing cards close to the chest with both hands. Eyes open with heavy, droopy eyelids, \
+a dry, bored, unimpressed expression.
+"""
+
+[poses.espia]
+texto = """
+Pose: peeking at their cards. Holding two face-down playing cards in both hands at chest height, \
+bending one corner up with the thumb to peek at them. Head tilted down, eyes looking down at the \
+cards, suspicious expression.
+"""
+
+[poses.apuesta]
+texto = """
+Pose: betting. Holding two face-down playing cards in one hand near the chest, and with the other \
+hand extended forward, palm up, holding a small stack of poker chips. Confident, smug half-smile, \
+eyes half-closed and looking at the viewer.
+"""
+
+[ediciones]
+# Se manda solo la pose base (por ejemplo lado-espera) y se pide cambiar únicamente los ojos.
+parpadeo = """
+Edit the attached image: reproduce it exactly, keeping every pixel the same (same pose, same \
+framing, same size, same position, same colors, same flat gray background), and change only one \
+thing: all of the character's eyes are fully closed, as in the middle of a blink, with the eyelids \
+drawn down and relaxed. Do not move, resize or redraw anything else.
+"""

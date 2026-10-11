@@ -76,6 +76,8 @@ poker-for-the-players/
   referencia/
     poker-referencia.html
   scripts/
+    generar-personaje.py      # genera las poses con Gemini (arte/generadas/<personaje>/), luego las recorta e iguala
+    prompts-personaje.toml    # prompts en inglés de cada ángulo y pose, editables
     recortar.py       # quita el fondo gris de las poses (arte/ -> arte/recortes/)
     optimizar-arte.py # arte/ -> public/assets/arte/*.webp, con las poses alineadas
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
@@ -178,7 +180,7 @@ Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `publi
 
 **Receta para agregar un personaje** (todos los bots usan a Madame Blorp por ahora):
 
-1. Generar sus poses sentado de frente sobre fondo gris liso, en el mismo cuadro: `<nombre>-espera`, `-espera-parpadeo`, `-espia`, `-apuesta`, `-apuesta-parpadeo` (`.png` en `arte/`).
+1. Generar sus poses sentado de frente sobre fondo gris liso, en el mismo cuadro: `<nombre>-espera`, `-espera-parpadeo`, `-espia`, `-apuesta`, `-apuesta-parpadeo` (`.png` en `arte/`). Se pueden generar con `scripts/generar-personaje.py` a partir de una ilustración de referencia (ángulos `frente` y `lado`; API key de Gemini en `.env`; ver el uso al inicio del script).
 2. Quitar el fondo: `.venv-rembg/bin/python scripts/recortar.py arte/<nombre>-*.png`.
 3. Optimizar: `.venv-rembg/bin/python scripts/optimizar-arte.py`. Escala todas las poses al mismo lienzo, las recorta con una sola caja común (para que al cambiar de pose nada brinque) y las exporta en WebP.
 4. Agregar su entrada en `CHARACTERS` de `client/stage/characters.js`: tamaño, punto de la cintura (debajo de la mano más baja con cartas o fichas: ahí lo tapa la mesa), ancho de lo de abajo (silla incluida) y alto en unidades de mesa.
