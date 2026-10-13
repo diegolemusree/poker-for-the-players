@@ -141,7 +141,10 @@ def quitar_magenta(img, nombre):
 
     # orilla: el alfa sale de cuánto magenta tiene el píxel (min(R, B) - G, comparado con el del fondo)
     spill = np.clip((np.minimum(a[..., 0], a[..., 2]) - a[..., 1]) / max(1.0, min(K[0], K[2]) - K[1]), 0, 1)
-    banda = ndi.binary_dilation(fondo, iterations=BANDA) & ~fondo
+    # la banda llega hasta la tinta del contorno pero no la atraviesa: con línea delgada, si no, se metería
+    # al relleno y un morado o un malva quedarían medio transparentes junto a la línea
+    tinta = a @ np.array([0.3, 0.59, 0.11], np.float32) < 60
+    banda = ndi.binary_dilation(ndi.binary_dilation(fondo, iterations=BANDA, mask=~tinta)) & ~fondo
     alfa = np.ones((h, w), np.float32)
     alfa[fondo] = 0
     alfa[banda] = 1 - spill[banda]
