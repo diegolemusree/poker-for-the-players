@@ -254,7 +254,7 @@ export function createTableScene(container, ui) {
           items.push({ kind: 'stack', amount: p.bet, at, across: mine || isFront ? { x: 1, z: 0 } : tan, back: mine || isFront ? { x: 0, z: -1 } : { x: -d.x, z: -d.z }, seed: s.seat + 11 });
           amt(at, 0.05, ui.fmt(p.bet), mine ? 'mine' : '');
         }
-        if (started && v.dealerSeat === s.seat) items.push({ kind: 'dealer', at: mine || isFront ? { x: xCards + 0.42, z: zMe - 0.04 } : on(0.66, -0.2) });
+        if (started && v.dealerSeat === s.seat) items.push({ kind: 'dealer', at: mine || isFront ? { x: xCards + 0.3, z: zMe - 0.03 } : on(0.66, -0.2) });
         const holding = p.inHand && p.cards.length && !p.folded;
         if (holding && mine) p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: { x: xCards + i * 0.11, z: zMe + (i ? 0.004 : 0) }, tilt: 0.75, yaw: i ? -0.07 : 0.06, scale: 1.05 }));
         else if (holding && shown.includes(p.id)) {

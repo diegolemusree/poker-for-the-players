@@ -80,7 +80,13 @@ export function fit(v, headWorld, cam) {
     v.cy = wantNear - v.F * nearY;
     const room = Math.min(...backs.map(p => { const q = v.project(p.x, RAIL_Y, p.z); return (q.y - wantHead) / (q.s * headWorld); }));
     if (room >= 1) { v.grow = Math.min(room, cam.maxGrow || 1); return v; }
-  } else v.F = Math.max(byWidth, byHeight);
+  } else {
+    // en pantallas muy bajitas (celular acostado) se aleja lo necesario para que el centro de la mesa
+    // quede arriba de la barra de acciones, aunque la mesa ya no se salga por los lados
+    const centerY = v.project(0, 0, 0).y;
+    const byCenter = (H - reserve - 30 - wantHead) / (centerY - headY);
+    v.F = Math.max(1, Math.min(Math.max(byWidth, byHeight), byCenter));
+  }
   v.cy = wantHead - v.F * headY;
   return v;
 }
