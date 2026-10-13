@@ -1,28 +1,27 @@
-// Personajes ilustrados (recortes con fondo transparente en public/assets/arte/, generados con
-// scripts/optimizar-arte.py). Para agregar uno: poner sus poses en arte/, recortarlas, optimizarlas,
-// agregar su entrada aquí y asignarlo en characterFor().
+// Personajes ilustrados (recortes con fondo transparente en public/assets/arte/). Sus datos viven en
+// personajes.json, que escribe scripts/optimizar-arte.py (comando `registrar`): tamaño y cuadros los pone
+// el script; cintura (`waist`), cabeza (`face`) y alto (`height`) se miden a mano en ese archivo.
+// Especificación del arte: docs/ESPEC-PERSONAJES.md.
 //
 // Cada personaje tiene sus ángulos: `frente` (los del fondo) y `lado` (tres cuartos, para los de los lados;
 // el de la derecha se dibuja en espejo). Si un personaje todavía no tiene `lado`, se usa `frente`.
+//   size    tamaño de la imagen grande (la chica es la mitad)
+//   waist   punto de la cintura, en fracción de la imagen: de ahí para abajo la tapa la mesa
+//   face    caja de la cabeza (izquierda, arriba, derecha, abajo): nadie la tapa
+//   height  alto de la imagen en unidades de la mesa (radio de la mesa = 1)
+//   frames  cuadros que existen; archivo <id>-<ángulo>-<cuadro>.webp
 
-export const POSES = ['espera', 'espera-parpadeo', 'espia', 'apuesta', 'apuesta-parpadeo'];
-const posesOf = prefix => Object.fromEntries(POSES.map(p => [p, `${prefix}-${p}`]));
+import DATA from './personajes.json' with { type: 'json' };
 
-export const CHARACTERS = {
-  blorp: {
-    name: 'Madame Blorp',
-    angles: {
-      frente: {
-        size: [935, 1395],      // tamaño de la imagen grande (la chica es la mitad)
-        waist: [0.52, 0.835],   // punto de la cintura, en fracción de la imagen: de ahí para abajo la tapa la mesa
-        face: [0.25, 0, 0.82, 0.38], // caja de la cabeza (izquierda, arriba, derecha, abajo): nadie la tapa
-        height: 0.54,           // alto de la imagen en unidades de la mesa (radio de la mesa = 1)
-        poses: posesOf('blorp'),
-      },
-      // lado: { size, waist, face, height, poses: posesOf('blorp-lado') },  // cuando existan sus poses
-    },
-  },
-};
+// La misma lista que scripts/optimizar-arte.py. Obligatorios: espera, parpadeo, apuesta, retirarse.
+export const POSES = ['espera', 'parpadeo', 'espia', 'apuesta', 'retirarse'];
+
+export const CHARACTERS = Object.fromEntries(Object.entries(DATA).map(([id, c]) => [id, {
+  name: c.name,
+  angles: Object.fromEntries(Object.entries(c.angles).map(([angle, a]) => [angle, {
+    ...a, poses: Object.fromEntries(a.frames.map(f => [f, `${id}-${angle}-${f}`])),
+  }])),
+}]));
 
 // Ángulo que se dibuja: el que se pide, o `frente` si el personaje no lo tiene.
 export function angleOf(charId, angle) {
@@ -30,6 +29,9 @@ export function angleOf(charId, angle) {
   return a[angle] ? angle : 'frente';
 }
 export const artOf = (charId, angle) => CHARACTERS[charId].angles[angleOf(charId, angle)];
+// Si al personaje le falta un cuadro (p. ej. espia, que es opcional), se usa espera.
+export const hasPose = (charId, angle, pose) => !!artOf(charId, angle).poses[pose];
+export const poseFile = (charId, angle, pose) => { const p = artOf(charId, angle).poses; return p[pose] || p.espera; };
 
 // Qué personaje usa cada jugador. Por ahora todos son Madame Blorp; después se puede asignar por
 // bot (p. ej. por su apodo) o dejar que cada humano elija el suyo.
@@ -60,9 +62,9 @@ export function loadImage(url) {
 }
 export const loadedImage = url => loaded.get(url) || null;
 
-// Todas las poses de todos los ángulos de todos los personajes (son pocos) más el fondo.
+// Todos los cuadros que existen de todos los ángulos de todos los personajes (son pocos) más el fondo.
 export function preloadArt({ small = false, h = innerHeight, dpr = devicePixelRatio || 1 } = {}) {
   const urls = [backgroundUrl(h, dpr)];
-  for (const c of Object.values(CHARACTERS)) for (const a of Object.values(c.angles)) for (const p of POSES) urls.push(artUrl(a.poses[p], small));
+  for (const c of Object.values(CHARACTERS)) for (const a of Object.values(c.angles)) for (const f of Object.values(a.poses)) urls.push(artUrl(f, small));
   return Promise.all(urls.map(loadImage));
 }

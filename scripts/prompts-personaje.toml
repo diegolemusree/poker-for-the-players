@@ -1,8 +1,8 @@
-# Prompts para scripts/generar-personaje.py
+# Prompts para scripts/generar-personaje.py (siguen docs/ESPEC-PERSONAJES.md)
 #
 # Cada imagen se arma así (en este orden):
-#   [referencia] + [angulos.<ángulo>] + [poses.<pose>] + [comun.estilo] + [comun.encuadre] + [comun.fondo]
-# y los parpadeos se hacen editando su pose base con [ediciones.parpadeo].
+#   [referencia] + [angulos.<ángulo>] + [poses.<cuadro>] + [comun.estilo] + [comun.encuadre] + [comun.fondo]
+# y el parpadeo se hace editando el cuadro espera con [ediciones.parpadeo].
 #
 # Puedes cambiar cualquier texto entre las comillas triples ("""). Los textos van en inglés porque
 # el modelo los sigue mejor. Después de editar, prueba con:
@@ -10,84 +10,96 @@
 
 [config]
 modelo = "gemini-nano-banana-2.1"   # ver precios en ai.google.dev/gemini-api/docs/pricing
-aspect_ratio = "16:9"               # mismo cuadro que el arte que ya existe
-image_size = "2K"                   # "1K", "2K" o "4K" (2K = 2752x1536 en 16:9)
+aspect_ratio = "1:1"                # medio cuerpo: cabe en un cuadro; el optimizador recorta lo que sobra
+image_size = "2K"                   # "1K", "2K" o "4K"; lado se usa hasta 1200 px de alto, así que 2K
 
 [comun]
-# Va en todas las poses base (no en los parpadeos, que son ediciones de una imagen ya hecha).
+# Va en todos los cuadros base (no en el parpadeo, que es una edición de una imagen ya hecha).
 referencia = """
 The attached reference image shows the character. Use it ONLY for the character design (body shape, \
-skin color, face, number and shape of eyes, earrings, clothes, folding chair) and for the drawing \
-style (line weight, coloring, shading, level of detail). Do not copy its pose or camera angle unless \
-asked to. Keep the character exactly the same individual, with the same proportions and colors.
+skin color, face, number and shape of eyes, accessories, clothes). Do not copy its pose, camera angle, \
+framing, background or drawing style: those are described below. Keep the character exactly the same \
+individual, with the same proportions and colors.
 """
 
 estilo = """
-Hand-drawn 2D cartoon illustration in the style of an adult animated sci-fi TV series: thick dark \
-ink outlines, flat colors with soft cel shading, subtle rim light, small grime and wrinkle details. \
-Same rendering as the reference.
+Style: original hand-drawn 2D animation for adults. Thin, uniform dark brown-black ink outline \
+(#1D1611) around every shape, the same line weight everywhere. Flat colors with exactly one flat, \
+hard-edged shadow tone per color: no gradients, no highlights, no glow, no rim light. Muted, earthy \
+colors. Dirty textures: small grime spots, stains, worn and wrinkled fabric. An original design that \
+does not imitate any existing TV show, character or franchise. No text, letters, numbers or logos \
+anywhere, and no one-sided details (badges, patches, a watch on one wrist, a parted hairstyle), \
+because the image is also shown mirrored.
 """
 
 encuadre = """
-Framing: full figure seated on the folding chair, centered horizontally, same camera distance and \
-same character size as the reference. The top of the head sits about 6% below the top edge of the \
-image, and the chair legs reach the bottom edge. Straight-on camera at chest height. Nothing else \
-in the scene: no table, no other characters, no props other than the ones described.
+Framing: half body, from the top of the head down to just below the waist, centered horizontally, \
+the top of the head about 6% below the top edge of the image. The forearms, hands and cards are held \
+low in front of the body, at the height of an invisible table edge near the waist: nothing is held \
+above the chest. Nothing else in the scene: no table, no chair back visible above the shoulders, no \
+other characters, no props other than the ones described.
 """
 
 fondo = """
-Background: a perfectly flat, uniform, solid neutral light gray (#C2C2C2) filling the whole image. \
-No gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background.
+Background: a perfectly flat, uniform, solid pure magenta (#FF00FF) filling the whole image. No \
+gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background. \
+Do not use magenta or pink anywhere on the character.
 """
 
-# Cuando la pose usa también la pose "espera" del mismo ángulo como segunda imagen
-# (para que el ángulo, el tamaño y la silla queden idénticos).
+# Cuando el cuadro usa también el cuadro "espera" del mismo ángulo como segunda imagen
+# (para que el ángulo, el tamaño y el encuadre queden idénticos).
 segunda_imagen = """
 The second attached image shows this same character already drawn in the target camera angle and \
-framing. Match it exactly: same camera angle, same position in the frame, same size, same chair. \
-Change only the pose and expression described here.
+framing. Match it exactly: same camera angle, same position in the frame, same size, same waist \
+height. Change only the pose and expression described here.
 """
 
 [angulos.frente]
 texto = """
-Camera angle: front view. The character faces the viewer directly, body and chair symmetrical and \
-square to the camera, both knees pointing toward the viewer.
+Camera angle: front view. The character faces the viewer directly, body symmetrical and square to the \
+camera, seen slightly from above, as from across a poker table.
 """
 
 [angulos.lado]
 texto = """
-Camera angle: three-quarter view. The chair and the body are rotated about 35 degrees so that the \
-knees point toward the lower right of the image and the back of the chair is visible on the left \
-side of the image. The head is turned slightly toward the viewer so both sides of the face are \
-still visible.
+Camera angle: three-quarter view facing right. The body is rotated about 35 degrees so the character \
+faces toward the right side of the image, with the near shoulder on the left. The head is turned \
+slightly toward the viewer so both eyes are still visible. Arms and hands reach toward the right.
 """
 
 [poses.espera]
 texto = """
-Pose: waiting for their turn. Sitting back in the chair, relaxed and slightly slouched, holding two \
-face-down playing cards close to the chest with both hands. Eyes open with heavy, droopy eyelids, \
-a dry, bored, unimpressed expression.
+Pose: waiting for their turn. Relaxed and slightly slouched, holding two face-down playing cards low \
+in front of the body with both hands, at table height. Eyes open with heavy, droopy eyelids, a dry, \
+bored, unimpressed expression.
 """
 
 [poses.espia]
 texto = """
-Pose: peeking at their cards. Holding two face-down playing cards in both hands at chest height, \
+Pose: peeking at their cards. Holding two face-down playing cards in both hands at table height, \
 bending one corner up with the thumb to peek at them. Head tilted down, eyes looking down at the \
 cards, suspicious expression.
 """
 
 [poses.apuesta]
 texto = """
-Pose: betting. Holding two face-down playing cards in one hand near the chest, and with the other \
-hand extended forward, palm up, holding a small stack of poker chips. Confident, smug half-smile, \
-eyes half-closed and looking at the viewer.
+Pose: betting. Holding two face-down playing cards in one hand at table height, and with the other \
+hand reaching forward at the same height, palm up, holding a small stack of poker chips. Confident, \
+smug half-smile, eyes half-closed and looking at the viewer.
+"""
+
+[poses.retirarse]
+texto = """
+Pose: folding. Both hands at table height, lazily tossing the two face-down cards forward and down \
+with a flick of the fingers, hands open. Annoyed, sour expression, eyes rolling, lips pressed in a \
+grimace.
 """
 
 [ediciones]
-# Se manda solo la pose base (por ejemplo lado-espera) y se pide cambiar únicamente los ojos.
+# Se manda solo el cuadro espera del mismo ángulo y se pide cambiar únicamente los ojos.
 parpadeo = """
 Edit the attached image: reproduce it exactly, keeping every pixel the same (same pose, same \
-framing, same size, same position, same colors, same flat gray background), and change only one \
+framing, same size, same position, same colors, same flat magenta background), and change only one \
 thing: all of the character's eyes are fully closed, as in the middle of a blink, with the eyelids \
 drawn down and relaxed. Do not move, resize or redraw anything else.
 """

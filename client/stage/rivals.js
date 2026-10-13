@@ -2,12 +2,14 @@
 //   espera   por omisión, parpadea cada 3 a 6 s (150 ms con la imagen de parpadeo)
 //   espia    justo después de que le reparten y de vez en cuando mientras espera
 //   apuesta  unos 2 s cuando iguala, apuesta o sube; luego regresa a espera
+//   retirarse  al retirarse, antes de apagarse (si el personaje tiene ese cuadro)
 // Más una respiración muy sutil (escala vertical desde la cintura) para que no se vea congelado.
 
-import { artOf, angleOf, artUrl, loadedImage } from './characters.js';
+import { angleOf, artUrl, loadedImage, poseFile, hasPose } from './characters.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const BLINK_MS = 150;
+const BET_POSE = ['call', 'bet', 'raise'];
 
 export class RivalAnim {
   constructor(charId, now) {
@@ -29,6 +31,12 @@ export class RivalAnim {
     this.pose = pose;
     this.poseUntil = now + ms;
   }
+  // Reacción a su jugada: apuesta al igualar, apostar o subir; retirarse al retirarse, si tiene ese cuadro
+  // y no está ausente (ausente se retira solo cada mano y ya se ve apagado).
+  react(type, angle, away, now) {
+    if (BET_POSE.includes(type)) this.play('apuesta', 2000, now);
+    else if (type === 'fold' && !away && hasPose(this.charId, angle, 'retirarse')) this.play('retirarse', 1400, now);
+  }
   // Imagen que toca en este momento. `idle`: puede espiar sus cartas por su cuenta.
   frame(now, idle) {
     if (this.pending && now >= this.pending.at) this.play(this.pending.pose, this.pending.ms, now);
@@ -38,10 +46,11 @@ export class RivalAnim {
       if (idle && this.pose === 'espera') this.play('espia', rand(1200, 2000), now);
     }
     if (now >= this.blinkAt) { this.blinkUntil = now + BLINK_MS; this.blinkAt = now + rand(3000, 6000); }
-    // espiar no tiene cuadro de parpadeo
-    const blink = now < this.blinkUntil && this.pose !== 'espia';
-    return blink ? `${this.pose}-parpadeo` : this.pose;
+    // solo espera tiene cuadro de parpadeo
+    return now < this.blinkUntil && this.pose === 'espera' ? 'parpadeo' : this.pose;
   }
+  // ¿Sigue en la pose de retirarse? Mientras tanto no se apaga.
+  folding(now) { return this.pose === 'retirarse' && now < this.poseUntil; }
   breath(t) { return 0.0075 * (1 - Math.cos((t / this.period) * Math.PI * 2 + this.phase)); } // 0 a 1.5 %
 }
 
@@ -54,7 +63,7 @@ export function poseCanvas(charId, angle, pose, small, pxH, dim = false) {
   angle = angleOf(charId, angle);
   const key = `${charId}|${angle}|${pose}|${small ? 1 : 0}|${pxH}|${dim ? 1 : 0}`;
   if (scaled.has(key)) return scaled.get(key);
-  const img = loadedImage(artUrl(artOf(charId, angle).poses[pose], small));
+  const img = loadedImage(artUrl(poseFile(charId, angle, pose), small));
   if (!img) return null; // todavía no carga (solo pasa si se cambió la calidad hace un momento)
   const c = downscale(img, pxH);
   if (dim) darken(c);

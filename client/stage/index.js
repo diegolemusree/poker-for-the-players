@@ -25,7 +25,6 @@ const ACTION = {
   fold: () => 'Se retira', sb: a => `Ciega ${a}`, bb: a => `Ciega ${a}`,
 };
 const ACTION_CLS = { check: 'a-check', call: 'a-call', bet: 'a-raise', raise: 'a-raise', fold: 'a-fold', sb: 'a-blind', bb: 'a-blind' };
-const BET_POSE = ['call', 'bet', 'raise'];
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -272,7 +271,7 @@ export function createTableScene(container, ui) {
         if (a.hand !== undefined && a.hand !== v.handNo && p.inHand) a.play('espia', 1700, now, 350 + rel(s.seat) * 220);
         a.hand = v.handNo;
         const la = p.lastAction;
-        if (la && a.lastN !== undefined && la.n !== a.lastN && BET_POSE.includes(la.type)) a.play('apuesta', 2000, now);
+        if (la && a.lastN !== undefined && la.n !== a.lastN) a.react(la.type, spot.angle, p.sittingOut, now);
         a.lastN = la ? la.n : a.lastN ?? null;
         const dim = (p.inHand && p.folded) || p.sittingOut;
         drawn.push({ id: p.id, charId, ...spot, dim, idle: p.inHand && !p.folded });
@@ -320,7 +319,8 @@ export function createTableScene(container, ui) {
     // igualada solo se ve en la última jugada de la mesa (v.lastAction), que no se borra.
     const ga = v.lastAction, last = ga && anims.get(ga.id);
     if (last && !fresh.has(ga.id) && last.lastN !== ga.n) {
-      if (BET_POSE.includes(ga.type)) last.play('apuesta', 2000, now);
+      const gd = drawn.find(d => d.id === ga.id), gp = v.players.find(q => q.id === ga.id);
+      if (gd) last.react(ga.type, gd.angle, gp && gp.sittingOut, now);
       last.lastN = ga.n;
     }
 
@@ -511,8 +511,9 @@ export function createTableScene(container, ui) {
     for (const r of drawn) {
       const a = anims.get(r.id);
       const pose = a ? a.frame(now, r.idle) : 'espera';
+      const dim = r.dim && !(a && a.folding(now)); // se apaga cuando termina de retirarse
       const pxH = Math.round(r.hpx * L.dpr);
-      const img = poseCanvas(r.charId, r.angle, pose, small(), pxH, r.dim) || poseCanvas(r.charId, r.angle, 'espera', small(), pxH, r.dim);
+      const img = poseCanvas(r.charId, r.angle, pose, small(), pxH, dim) || poseCanvas(r.charId, r.angle, 'espera', small(), pxH, dim);
       if (!img) continue;
       g.save();
       g.beginPath(); polyPath(g, L.outline); g.clip();
@@ -533,7 +534,7 @@ export function createTableScene(container, ui) {
       // la mesa tapa al rival de la cintura para abajo: se recorta lo que cae sobre la mesa debajo de su cintura
       g.beginPath(); g.rect(0, 0, L.W, L.H); polyPath(g, r.hidden); g.clip('evenodd');
       // retirado o ausente: apagado y un poco transparente
-      if (r.dim) g.globalAlpha = 0.9;
+      if (dim) g.globalAlpha = 0.9;
       const b = still || !a ? 0 : a.breath(now / 1000);
       g.translate(r.x, r.y); g.scale(1, 1 + b); g.translate(-r.x, -r.y);
       if (r.mirror) { g.translate(r.left * 2 + r.wpx, 0); g.scale(-1, 1); } // espejo sobre su propia caja

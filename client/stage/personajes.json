@@ -1,0 +1,14 @@
+{
+  "blorp": {
+    "name": "Madame Blorp",
+    "angles": {
+      "frente": {
+        "size": [467, 700],
+        "waist": [0.52, 0.835],
+        "face": [0.25, 0, 0.82, 0.38],
+        "height": 0.54,
+        "frames": ["espera", "parpadeo", "espia", "apuesta"]
+      }
+    }
+  }
+}
