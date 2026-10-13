@@ -91,6 +91,12 @@ export function fit(v, headWorld, cam) {
   return v;
 }
 
+// Lo más alto (en px) que llega la cabeza de un rival del fondo, con cualquier acomodo.
+export function headTop(v, headWorld) {
+  const backs = LAYOUTS.flat().filter(s => s.row === 'back').map(s => rimPoint(s.ang));
+  return Math.min(...backs.map(p => { const q = v.project(p.x, RAIL_Y, p.z); return q.y - q.s * headWorld * v.grow; }));
+}
+
 // Polígono convexo de la silueta de la mesa en pantalla (riel arriba + canto abajo).
 export function tableOutline(v) {
   const top = edgeRing(1, RAIL_Y).map(p => v.project(p.x, p.y, p.z));

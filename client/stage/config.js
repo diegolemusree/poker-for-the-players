@@ -30,6 +30,12 @@ export const CAMERAS = {
   portrait: { pitch: 64, dist: 2.1, width: 1.18, headGap: 118, maxGrow: 2.6 },
 };
 
+// Fondo del garaje: dónde está la lámpara en la imagen (`lamp`: centro del domo y su orilla de abajo, en
+// fracción del ancho y del alto de la imagen) y cuántos px quedan libres entre ella y la cabeza más alta de
+// los rivales del fondo (`gap`). El fondo cubre la pantalla con la lámpara al centro; si la lámpara quedaría
+// detrás de una cabeza, el fondo se sube y, si hace falta para seguir cubriendo, se agranda.
+export const BACKDROP = { lamp: [0.5, 0.23], gap: 10 };
+
 // Lugares para los rivales, por el ángulo desde el centro de la mesa (90° = mi lado, 270° = el fondo).
 // Cada rival se sienta con la cintura en la orilla, en ese ángulo.
 //   row    'back' (fila del fondo, de frente) o 'side' (los de los lados, más cerca y más grandes)

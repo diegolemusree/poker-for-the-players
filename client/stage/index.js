@@ -7,8 +7,8 @@
 // Recibe la misma vista filtrada del servidor que la vista 2D simple.
 
 import { CHARACTERS, characterFor, artOf, angleOf, backgroundUrl, preloadArt, BACKGROUND } from './characters.js';
-import { makeView, fit, tableOutline, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z } from './projection.js';
-import { CAMERAS, LAYOUTS } from './config.js';
+import { makeView, fit, headTop, tableOutline, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z } from './projection.js';
+import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
 import { drawTable } from './table.js';
 import { drawItems, CARD_W } from './items.js';
 import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
@@ -91,8 +91,9 @@ export function createTableScene(container, ui) {
     const reserve = portrait ? clamp(H * 0.45, 250, 420) : clamp(H * 0.21, 130, 210);
     const cam = CAMERAS[portrait ? 'portrait' : 'landscape'];
     const v = fit(makeView({ W, H, top: topMax, reserve, portrait, cam }), headWorld, cam);
+    const back = placeBackdrop(W, H, headTop(v, headWorld));
     // la línea de tinta es tan gruesa como la del fondo ilustrado al tamaño en que se ve
-    const line = Math.max(1.2, Math.max(W, (H * BG_W) / BG_H) * 0.0011);
+    const line = Math.max(1.2, BG_W * back * 0.0011);
     const dpr = dprOf();
     for (const c of [tableCv, itemsCv, rivalsCv]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
     const g = tableCv.getContext('2d');
@@ -103,6 +104,17 @@ export function createTableScene(container, ui) {
     L = { W, H, v, line, dpr, portrait, reserve, outline, front: frontRegion(outline) };
     clearPoseCache();
     place();
+  }
+  // Fondo: cubre la pantalla con la lámpara al centro y la orilla de abajo de su domo arriba de las cabezas
+  // (config.js: BACKDROP). Devuelve la escala a la que se ve.
+  function placeBackdrop(W, H, head) {
+    const [lx, ly] = BACKDROP.lamp, want = head - BACKDROP.gap;
+    const s = Math.max(W / BG_W, H / BG_H, ly < 1 ? (H - want) / ((1 - ly) * BG_H) : 0);
+    const x = clamp(W / 2 - lx * BG_W * s, W - BG_W * s, 0);
+    const y = clamp(want - ly * BG_H * s, H - BG_H * s, 0);
+    bg.style.backgroundSize = `${BG_W * s}px ${BG_H * s}px`;
+    bg.style.backgroundPosition = `${x}px ${y}px`;
+    return s;
   }
   const ro = new ResizeObserver(() => { topMax = 0; layout(); });
   ro.observe(container);

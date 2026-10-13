@@ -4,7 +4,6 @@
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel } from './ui/hand.js';
-import { SUIT_PATH } from './ui/suits.js';
 
 const MAXP = 7;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -491,21 +490,6 @@ function drawStage() {
 }
 
 const QUALITY_NAME = { auto: 'Auto', alta: 'Alta', media: 'Media', baja: 'Baja' };
-// palo dibujado (el mismo trazo que en las cartas de la mesa)
-function suitSvg(s) {
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '-8 -8 116 116'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('class', 'suit');
-  const path = document.createElementNS(ns, 'path');
-  path.setAttribute('d', SUIT_PATH[s]);
-  svg.append(path);
-  return svg;
-}
-function miniCard(c) {
-  if (!c) return h('span', { class: 'mc empty', 'aria-hidden': 'true' });
-  const rank = c[0] === 'T' ? '10' : c[0];
-  return h('span', { class: 'mc' + ('hd'.includes(c[1]) ? ' red' : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` }, h('b', {}, rank), suitSvg(c[1]));
-}
 function drawHud() {
   const v = snap.view, mine = me();
   document.title = (mine && v.toAct === snap.you ? '¡Te toca! ' : '') + 'Poker for the Players';
@@ -529,17 +513,16 @@ function drawHud() {
       ...options(sound, 'opt'),
       tool('Salir', '✕', exitRoom)));
 
-  // cartas de la mesa siempre legibles, y el nombre de tu mano
+  // el nombre de tu mano (las cartas de la mesa ya se ven en la mesa)
   const myCards = mine && mine.inHand && !mine.folded && mine.cards.length === 2 ? mine.cards : null;
   const hand = myCards && handLabel(myCards, v.board);
-  const info = started() && h('div', { class: 'tableinfo' },
-    h('div', { class: 'minib', 'aria-label': 'Cartas de la mesa' }, Array.from({ length: 5 }, (_, i) => miniCard(v.board[i]))),
-    hand && h('div', { class: 'myhand' }, h('span', {}, 'Tu mano'), h('b', {}, hand)));
+  const info = started() && hand && h('div', { class: 'tableinfo' },
+    h('div', { class: 'myhand' }, h('span', {}, 'Tu mano'), h('b', {}, hand)));
 
-  // lo que acaba de pasar, en palabras
+  // lo que acaba de pasar, en palabras (abajo a la izquierda, junto a la barra; lo más nuevo hasta abajo)
   const recent = v.log.slice(-4).reverse();
   const ticker = started() && recent.length > 0 && h('div', { class: 'ticker', 'aria-live': 'polite' },
-    recent.map((t, i) => h('p', { class: i ? 'old' : 'new' }, t)));
+    recent.slice(0, 3).reverse().map((t, i, all) => h('p', { class: i === all.length - 1 ? 'new' : 'old' }, t)));
 
   const notice = (error || toast) && h('div', { class: 'hud-notice' },
     error && h('p', { class: 'err', role: 'alert' }, error),
@@ -547,7 +530,7 @@ function drawHud() {
   // el aviso del centro (turno, ganadores) va arriba de la barra de acciones para no tapar a los rivales
   const msg = centerMessage();
   const bar = actionBar();
-  // en el celular la última jugada va dentro de la barra (el historial flotante no cabe)
+  // en pantallas angostas la última jugada va dentro de la barra (el historial no cabe junto a ella)
   if (started() && recent.length) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));
   if (msg && (!Array.isArray(msg) || msg.length)) bar.firstChild.prepend(h('div', { class: 'hud-banner', 'aria-live': 'polite' }, msg));
   const side = showSide && h('aside', { class: 'hud-side' },

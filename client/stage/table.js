@@ -3,7 +3,7 @@
 // una línea dorada en forma de pista, línea tinta delgada y uniforme, una sola sombra plana, mugre y el
 // charco de luz cálida de la lámpara. Se dibuja solo al cambiar el tamaño. Después será una ilustración.
 
-import { edgeRing, tableOutline, RAIL_Y, APRON, FELT_R, TRACK_R, CENTER_R, mulberry } from './projection.js';
+import { edgeRing, tableOutline, RAIL_Y, APRON, FELT_R, TRACK_R, CENTER_R, NEAR_Z, FAR_Z, mulberry } from './projection.js';
 
 export const INK = '#1d1611';
 const WOOD = '#6e4026', GRAIN = 'rgba(38,18,8,0.32)', WOOD_WALL = '#4f2c18', APRON_C = '#41241a';
@@ -122,22 +122,25 @@ export function drawTable(g, v, line) {
   }
   g.restore();
 
-  // luz de la lámpara: charco cálido en el centro y las orillas más oscuras
-  const c0 = P({ x: 0, y: 0, z: -0.05 });
-  const rx = (P({ x: 0.95, y: 0, z: -0.05 }).x - c0.x);
-  const ry = (P({ x: 0, y: 0, z: 0.9 }).y - P({ x: 0, y: 0, z: -1 }).y) / 2;
+  // luz de la lámpara (cuelga sobre el centro): brillo cálido suave en el centro del fieltro y las orillas
+  // más oscuras. Va en la capa de la mesa, debajo de cartas y fichas, así que no cambia sus colores.
+  // El charco es una elipse en pantalla que cubre de la orilla lejana a la cercana del fieltro (la mitad
+  // cercana se ve más grande por la perspectiva, por eso su centro no es el centro proyectado).
+  const yFar = P({ x: 0, y: 0, z: FAR_Z * FELT_R }).y, yNear = P({ x: 0, y: 0, z: NEAR_Z * FELT_R }).y;
+  const cy = (yFar + yNear) / 2, ry = (yNear - yFar) / 2;
+  const mid = P({ x: 0, y: 0, z: 0 }), rx = P({ x: FELT_R, y: 0, z: 0 }).x - mid.x;
   g.save();
   g.beginPath(); poly(g, outline); g.clip();
-  g.translate(c0.x, c0.y); g.scale(1, ry / rx);
+  g.translate(mid.x, cy); g.scale(1, ry / rx);
   let gr = g.createRadialGradient(0, 0, 0, 0, 0, rx);
-  gr.addColorStop(0, 'rgba(255,206,120,0.46)'); gr.addColorStop(0.45, 'rgba(255,200,110,0.36)');
-  gr.addColorStop(0.75, 'rgba(255,190,100,0.14)'); gr.addColorStop(1, 'rgba(255,190,100,0)');
+  gr.addColorStop(0, 'rgba(255,208,125,0.42)'); gr.addColorStop(0.4, 'rgba(255,200,110,0.3)');
+  gr.addColorStop(0.75, 'rgba(255,190,100,0.1)'); gr.addColorStop(1, 'rgba(255,190,100,0)');
   g.globalCompositeOperation = 'screen';
   g.fillStyle = gr; g.fillRect(-rx * 1.5, -rx * 1.5, rx * 3, rx * 3);
-  gr = g.createRadialGradient(0, 0, rx * 0.7, 0, 0, rx * 1.35);
-  gr.addColorStop(0, 'rgba(70,45,25,0)'); gr.addColorStop(1, 'rgba(70,45,25,0.55)');
+  gr = g.createRadialGradient(0, 0, rx * 0.62, 0, 0, rx * 1.3);
+  gr.addColorStop(0, 'rgba(60,38,20,0)'); gr.addColorStop(1, 'rgba(60,38,20,0.6)');
   g.globalCompositeOperation = 'multiply';
-  g.fillStyle = gr; g.fillRect(-rx * 2, -rx * 2, rx * 4, rx * 4);
+  g.fillStyle = gr; g.fillRect(-rx * 2.5, -rx * 2.5, rx * 5, rx * 5);
   g.restore();
 
   // tinta: orilla de afuera, orilla de adentro del riel, fieltro contra la pared y octágono central
