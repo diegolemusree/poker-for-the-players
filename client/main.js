@@ -4,6 +4,7 @@
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel } from './ui/hand.js';
+import { isPhone, phoneQuery } from './ui/phone.js';
 
 const MAXP = 7;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -59,6 +60,15 @@ let nick = store.get('ppt-nick') || '';
 let raise = { key: '', value: 0 };
 let prevBoard = { hand: 0, len: 0 };
 let showSide = false;
+let raiseOpen = false;        // celular: el panel de Subir está abierto en lugar de los tres botones
+// celular: un solo aviso a la vez (la última jugada, un error), que se borra solo
+let note = null, noteTimer = 0, lastLogKey = null;
+const NOTE_MS = 4500;
+function notify(text, kind) {
+  note = { text, kind, until: performance.now() + NOTE_MS };
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { if (screen === 'table') draw(); }, NOTE_MS + 50);
+}
 
 /* ---------- mesa ilustrada ---------- */
 // Se usa salvo que el jugador elija la vista 2D simple. Si algo falla al cargarla o crearla, queda la 2D.
@@ -96,6 +106,7 @@ const send = (ev, data) => new Promise(res => socket.emit(ev, data || {}, res));
 async function run(ev, data) {
   const r = await send(ev, data);
   error = r && r.error ? r.error : '';
+  if (error && isPhone()) notify(error, 'err');
   if (error) draw();
   return r;
 }
@@ -111,6 +122,7 @@ async function joinRoom(code, silent) {
 }
 
 /* ---------- cartas ---------- */
+const cardName = c => `${c[0] === 'T' ? '10' : c[0]} de ${SUIT_NAME[c[1]]}`;
 function cardEl(c, o = {}) {
   if (!c) return h('div', { class: 'card ' + (o.back ? 'back' : 'slot') });
   const rank = c[0] === 'T' ? '10' : c[0];
@@ -345,7 +357,7 @@ function actionBar() {
     return h('div', { class: 'bar' }, inner);
   }
 
-  if (betting() && v.toAct === snap.you) { turnControls(inner, mine); return h('div', { class: 'bar myturn' }, inner); }
+  if (betting() && v.toAct === snap.you) { turnControls(inner, mine); return h('div', { class: 'bar myturn' + (raiseOpen && isPhone() ? ' raising' : '') }, inner); }
 
   // mientras otro piensa: lo de arriba ya dice de quién es el turno; aquí solo queda ausentarse
   const wait = betting() ? (mine.inHand && !mine.folded ? 'Cuando te toque, aquí aparecen tus botones.' : 'Te retiraste de esta mano. Espera la siguiente.')
@@ -379,27 +391,55 @@ function turnControls(inner, mine) {
   // las apuestas van en múltiplos de 5 (se forman con fichas de 10 y 25); el all-in puede ser cualquier monto
   const minT = Math.min(maxT, Math.ceil((v.currentBet === 0 ? v.bb : v.currentBet + v.minRaise) / 5) * 5);
   const pot = potOf(v);
-  const r1 = h('div', { class: 'row' },
-    h('button', { class: 'btn fold', onclick: () => run('act', { type: 'fold' }) }, 'Retirarse'),
-    toCall <= 0
-      ? h('button', { class: 'btn go', onclick: () => run('act', { type: 'check' }) }, 'Pasar')
-      : h('button', { class: 'btn go', onclick: () => run('act', { type: 'call' }) }, toCall >= mine.stack ? `All-in ${fmt(mine.stack)}` : `Igualar ${fmt(toCall)}`),
-    snap.turnLeftMs != null && h('span', { class: 'hint clock' }, '⏱ ', deadline(snap.turnLeftMs, 'low')));
-  inner.append(r1);
-  if (!(maxT > v.currentBet && mine.stack > toCall)) return;
-
+  const phone = isPhone();
+  const canRaise = maxT > v.currentBet && mine.stack > toCall;
   const key = `${v.handNo}:${v.phase}:${v.toAct}`;
-  if (raise.key !== key) raise = { key, value: minT };
+  if (raise.key !== key) { raise = { key, value: minT }; raiseOpen = false; }
+  // retirarse cuando se puede pasar gratis casi siempre es un error de dedo: se pide confirmación
+  const fold = () => (toCall > 0 || confirm('Puedes pasar gratis, ¿seguro que te retiras?')) && run('act', { type: 'fold' });
+  const clock = snap.turnLeftMs != null && h('span', { class: 'hint clock' }, '⏱ ', deadline(snap.turnLeftMs, 'low'));
+  const callBtn = toCall <= 0
+    ? h('button', { class: 'btn go', onclick: () => run('act', { type: 'check' }) }, 'Pasar')
+    : h('button', { class: 'btn go', onclick: () => run('act', { type: 'call' }) }, toCall >= mine.stack ? `All-in ${fmt(mine.stack)}` : `Igualar ${fmt(toCall)}`);
+  const verb = v.currentBet === 0 ? 'Apostar' : 'Subir a';
+
+  // celular: una fila con tres botones; Subir cambia la fila por el panel de la cantidad
+  if (phone && !raiseOpen) {
+    inner.append(h('p', { class: 'hint turnhint' }, toCall > 0 ? ['¡Te toca! Para seguir, iguala ', h('b', {}, fmt(Math.min(toCall, mine.stack))), '.'] : '¡Te toca! Puedes pasar gratis.'),
+      h('div', { class: 'row acts' },
+      h('button', { class: 'btn fold', onclick: fold }, 'Retirarse'), callBtn,
+      canRaise && h('button', { class: 'btn hot', onclick: () => { raiseOpen = true; draw(); } }, v.currentBet === 0 ? 'Apostar' : 'Subir')), clock);
+    return;
+  }
+  if (!phone) inner.append(h('div', { class: 'row' }, h('button', { class: 'btn fold', onclick: fold }, 'Retirarse'), callBtn, clock));
+  if (!canRaise) return;
+
   const clamp = x => { x = Math.round((x || minT) / 5) * 5; return x >= maxT ? maxT : Math.max(minT, x); };
   const rng = h('input', { type: 'range', min: minT, max: maxT, step: 5, value: clamp(raise.value), 'aria-label': 'Cantidad' });
   const num = h('input', { type: 'number', min: minT, max: maxT, step: 5, value: clamp(raise.value), 'aria-label': 'Cantidad' });
-  const verb = v.currentBet === 0 ? 'Apostar' : 'Subir a';
   const go = h('button', { class: 'btn hot', onclick: () => run('act', { type: 'raise', amount: clamp(+num.value) }) });
-  const setV = x => { x = clamp(x); raise.value = x; rng.value = x; num.value = x; go.textContent = x >= maxT ? `All-in ${fmt(x)}` : `${verb} ${fmt(x)}`; };
+  // celular: − y + mueven la cantidad de una ciega grande en una ciega grande (el slider con el dedo es impreciso)
+  const less = h('button', { class: 'btn small step', 'aria-label': 'Una ciega grande menos', onclick: () => setV(raise.value - v.bb) }, '−');
+  const more = h('button', { class: 'btn small step', 'aria-label': 'Una ciega grande más', onclick: () => setV(raise.value + v.bb) }, '+');
+  const setV = x => {
+    x = clamp(x); raise.value = x; rng.value = x; num.value = x;
+    go.textContent = x >= maxT ? `All-in ${fmt(x)}` : `${verb} ${fmt(x)}`;
+    less.disabled = x <= minT; more.disabled = x >= maxT;
+  };
   rng.addEventListener('input', () => setV(+rng.value));
   num.addEventListener('change', () => setV(+num.value));
   const potBet = f => v.currentBet + Math.round((pot + toCall) * f / v.sb) * v.sb;
   setV(raise.value);
+  if (phone) {
+    inner.append(
+      h('div', { class: 'row quick' },
+        h('button', { class: 'btn small', onclick: () => setV(potBet(.5)) }, '½ bote'),
+        h('button', { class: 'btn small', onclick: () => setV(potBet(1)) }, 'Bote'),
+        h('button', { class: 'btn small', onclick: () => setV(maxT) }, 'Todo'),
+        h('button', { class: 'btn small cancel', 'aria-label': 'Cerrar sin subir', onclick: () => { raiseOpen = false; draw(); } }, '✕')),
+      h('div', { class: 'row amount' }, less, rng, more, go), clock);
+    return;
+  }
   inner.append(h('div', { class: 'raise' },
     h('button', { class: 'btn small', onclick: () => setV(potBet(.5)) }, '½ bote'),
     h('button', { class: 'btn small', onclick: () => setV(potBet(1)) }, 'Bote'),
@@ -455,6 +495,7 @@ function draw() {
   scrollTo(0, y);
 }
 addEventListener('resize', () => { if (screen === 'table' && !(scene && $app.firstChild === shell)) draw(); });
+phoneQuery.addEventListener('change', () => { raiseOpen = false; if (screen === 'table') draw(); });
 
 // Mesa ilustrada: las capas se crean una vez y se quedan; solo la interfaz de encima se vuelve a pintar.
 function drawStage() {
@@ -497,6 +538,7 @@ function drawHud() {
   const inPlay = mine && betting() && mine.inHand && !mine.folded;
   const toCall = inPlay ? Math.min(Math.max(0, v.currentBet - mine.bet), mine.stack) : 0;
   const cell = (label, value, cls, extra) => h('div', { class: 'cell ' + (cls || '') }, h('span', {}, label), h('b', {}, value), extra && h('small', {}, extra));
+  const phone = isPhone();
 
   // una sola franja: bote, lo que te toca, tus fichas, ciegas y ronda
   const sound = store.get('ppt-sound') === 'on';
@@ -509,7 +551,8 @@ function drawHud() {
       started() && cell('Ronda', PHASE[v.phase] || '—', 'wide')),
     h('div', { class: 'tools' },
       h('span', { class: 'hud-code' }, 'Mesa ', h('b', {}, snap.code)),
-      tool('Posiciones', '☰', () => { showSide = !showSide; draw(); }, { 'aria-expanded': String(showSide) }),
+      phone ? tool('Menú', '≡', () => { showSide = !showSide; draw(); }, { 'aria-expanded': String(showSide), class: 'tool menu' })
+        : tool('Posiciones', '☰', () => { showSide = !showSide; draw(); }, { 'aria-expanded': String(showSide) }),
       ...options(sound, 'opt'),
       tool('Salir', '✕', exitRoom)));
 
@@ -524,22 +567,47 @@ function drawHud() {
   const ticker = started() && recent.length > 0 && h('div', { class: 'ticker', 'aria-live': 'polite' },
     recent.slice(0, 3).reverse().map((t, i, all) => h('p', { class: i === all.length - 1 ? 'new' : 'old' }, t)));
 
-  const notice = (error || toast) && h('div', { class: 'hud-notice' },
+  // celular: la última jugada (o un error) en una sola línea junto a mis cartas, y se borra sola
+  if (phone) {
+    const logKey = `${v.handNo}:${v.log.length}:${v.log[v.log.length - 1] || ''}`;
+    if (logKey !== lastLogKey) { lastLogKey = logKey; if (v.log.length) notify(v.log[v.log.length - 1], 'log'); }
+  }
+  const lost = toast && socket && !socket.connected; // sin conexión: el aviso se queda hasta que vuelva
+  const noteLine = lost ? h('p', { class: 'note-line err' }, toast)
+    : note && note.until > performance.now() && h('p', { class: 'note-line ' + note.kind, role: note.kind === 'err' ? 'alert' : null, 'aria-live': 'polite' }, note.text);
+
+  const notice = (error || toast) && !(phone && started()) && h('div', { class: 'hud-notice' },
     error && h('p', { class: 'err', role: 'alert' }, error),
     toast && h('p', { class: 'note' }, toast));
   // el aviso del centro (turno, ganadores) va arriba de la barra de acciones para no tapar a los rivales
   const msg = centerMessage();
   const bar = actionBar();
   // en pantallas angostas la última jugada va dentro de la barra (el historial no cabe junto a ella)
-  if (started() && recent.length) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));
-  if (msg && (!Array.isArray(msg) || msg.length)) bar.firstChild.prepend(h('div', { class: 'hud-banner', 'aria-live': 'polite' }, msg));
+  // (en el celular no: ahí el turno lo dicen el aro y la barra en mostaza, y las jugadas van junto a mis cartas)
+  if (!phone && started() && recent.length) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));
+  if (!phone && msg && (!Array.isArray(msg) || msg.length)) bar.firstChild.prepend(h('div', { class: 'hud-banner', 'aria-live': 'polite' }, msg));
+  // celular: mis dos cartas grandes van en esta franja entre la mesa y la barra (las dibuja la escena dentro
+  // de .mc-cards); a un lado el nombre de mi mano y el aviso
+  const mycards = phone && h('div', { class: 'mycards' + (started() ? '' : ' idle') },
+    h('div', { class: 'mc-cards', 'aria-label': myCards ? myCards.map(cardName).join(' y ') : null, role: myCards ? 'img' : null }),
+    h('div', { class: 'mc-side' },
+      started() && hand && h('div', { class: 'myhand' }, h('span', {}, 'Tu mano'), h('b', {}, hand)),
+      started() && noteLine));
+  const li = (label, ...value) => h('li', {}, h('span', {}, label), h('b', {}, ...value));
   const side = showSide && h('aside', { class: 'hud-side' },
+    phone && h('div', { class: 'side-info' }, h('h2', {}, 'Mesa'), h('ul', {},
+      li('Código', snap.code),
+      li('Ciegas', `${fmt(v.sb)}/${fmt(v.bb)}`),
+      snap.levelLeftMs != null && li('Suben a', `${fmt(snap.nextBlinds[0])}/${fmt(snap.nextBlinds[1])} en `, deadline(snap.levelLeftMs)),
+      started() && li('Ronda', PHASE[v.phase] || '—'),
+      started() && li('Mano', String(v.handNo)))),
     h('div', { class: 'side-opts' }, h('h2', {}, 'Opciones'), h('div', { class: 'row' }, options(sound, ''))),
     h('div', {}, h('h2', {}, 'Posiciones'), h('ol', {}, standings(v))),
     h('div', {}, h('h2', {}, 'Valor de las fichas'), h('ul', { class: 'legend' }, CHIPS.slice().reverse().map(c => h('li', {}, h('span', { class: 'dot', style: `background:${c.color};` }), h('span', {}, fmt(c.value)))))),
-    h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-12).reverse().map(t => h('li', {}, t)))));
-  if (info) strip.insertBefore(info, strip.lastChild);
-  return [strip, ticker, notice, side, bar, v.finished && finishOverlay()].filter(Boolean);
+    h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-12).reverse().map(t => h('li', {}, t)))),
+    phone && h('button', { class: 'btn small side-exit', onclick: exitRoom }, 'Salir de la mesa'));
+  if (info && !phone) strip.insertBefore(info, strip.lastChild);
+  return [strip, ticker, notice, side, mycards, bar, v.finished && finishOverlay()].filter(Boolean);
 }
 // Calidad, sonido y vista 2D: en la franja en pantallas anchas, dentro del panel en el celular.
 function options(sound, cls) {

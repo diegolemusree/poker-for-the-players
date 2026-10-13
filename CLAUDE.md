@@ -65,11 +65,12 @@ poker-for-the-players/
       cards.js        # caras y reversos de las cartas (canvas)
       rivals.js       # poses, parpadeo, respiración de los rivales
       characters.js   # registro de personajes y precarga del arte
-    ui/             # palos dibujados, nombre de la mano
+    ui/             # palos dibujados, nombre de la mano, regla de "celular" (phone.js)
     audio/
   public/
     assets/         # logo, sonidos, íconos, imagen para compartir
       arte/         # ilustraciones optimizadas (WebP), generadas con scripts/optimizar-arte.py
+      iconos/       # ícono de la app (icono.svg -> PNG con scripts/generar-iconos.mjs) y favicon
     manifest.json
     robots.txt
   test/
@@ -81,6 +82,7 @@ poker-for-the-players/
     prompts-personaje.toml    # prompts en inglés de cada ángulo y pose, editables
     recortar.py       # quita el fondo gris de las poses (arte/ -> arte/recortes/)
     optimizar-arte.py # arte/ -> public/assets/arte/*.webp, con las poses alineadas
+    generar-iconos.mjs # PNG del ícono de la app (32, 180, 192, 512) a partir de icono.svg, con Chrome sin ventana
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
 ```
 
@@ -227,8 +229,8 @@ Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la car
   - **apuesta** unos 2 s cuando iguala, apuesta o sube (no con ciegas, pasar ni retirarse), y luego regresa a espera;
   - respiración muy sutil (escala vertical de 1 a 1.5 % desde la cintura), a un ritmo distinto para cada uno;
   - si se retira o está ausente, se ve apagado (desaturado y oscuro) y un poco transparente;
-  - aro mostaza en el fieltro frente a quien está pensando.
-- **Manos del jugador**: por ahora mis dos cartas van boca arriba sobre la mesa, abajo a la izquierda. Después: ilustraciones de mis manos sosteniendo las cartas (el jugador podrá elegir color de piel o mano alienígena).
+  - aro mostaza en el fieltro frente a quien está pensando, entre sus fichas y la orilla; nunca pisa las cartas comunitarias (si las tocaría se recorre hacia el rival).
+- **Manos del jugador**: por ahora mis dos cartas van boca arriba sobre la mesa, abajo a la izquierda (en el celular vertical van fuera de la mesa: ver "Celular"). Después: ilustraciones de mis manos sosteniendo las cartas (el jugador podrá elegir color de piel o mano alienígena).
 
 ### Cámara
 
@@ -281,6 +283,22 @@ Los rivales tienen sus propias animaciones de pose (ver "Animación de los rival
   - Las cartas comunitarias van grandes e inclinadas hacia el jugador.
   - Cuando es tu turno, la barra se marca en mostaza y el aviso dice qué opciones tienes ("¡Te toca! Para seguir tienes que igualar 50").
 - Botón para silenciar y botón de calidad gráfica (alta, media, baja).
+- Retirarse cuando se puede pasar gratis pide confirmación ("Puedes pasar gratis, ¿seguro que te retiras?").
+
+### Celular
+
+"Celular" es una pantalla táctil de 640 px de ancho o menos (`client/ui/phone.js`, la misma regla en `style.css`); una ventana angosta en la computadora no cuenta. En la computadora todo se queda como arriba.
+
+- **El juego es vertical.** Con el celular acostado (táctil y de 500 px de alto o menos) un aviso tapa todo y pide girarlo.
+- La regla principal: cuando es mi turno siguen viéndose la mesa, el flop y mis cartas. De arriba hacia abajo:
+  1. **Franja de una línea**: Bote, Para igualar y Tus fichas, y el menú ≡ con todo lo demás (código de mesa, ciegas y cuándo suben, ronda, mano, opciones, posiciones, valor de las fichas, últimas jugadas y Salir de la mesa).
+  2. **La mesa** con los rivales y las comunitarias (más grandes que en la computadora).
+  3. **Mis dos cartas grandes y derechas**, entre la mesa y el panel (`.mycards`; las dibuja la escena en esa caja, es la excepción a "una sola perspectiva"). Junto a ellas, "Tu mano" y un solo aviso de una línea (la última jugada o un error) que se borra a los 4.5 s.
+  4. **Panel de acciones**, nunca más de un cuarto de la pantalla: "¡Te toca!…" y una fila con Retirarse, Pasar o Igualar, y Subir (Apostar si nadie ha apostado). Subir cambia esa fila por ½ bote, Bote, Todo, ✕ y abajo − slider + y el botón que confirma; − y + mueven una ciega grande.
+- La escena mide `.mycards` para acomodar la mesa arriba (mi orilla queda detrás de mis cartas), así la mesa no brinca al abrir Subir.
+- Sin el aviso "Turno de…": lo dicen el aro y el "Pensando…" de la etiqueta, y mi turno, el panel en mostaza.
+- Etiquetas de los rivales: si no caben justo encima de su rival, todas pasan a la versión compacta (nombre arriba, fichas y jugada abajo) y cada una busca el lugar libre más cercano arriba o abajo de la cara. Nunca tapan caras (en ninguna pantalla).
+- **Agregar a pantalla de inicio** (`manifest.json`, `apple-touch-icon` y etiquetas `apple-mobile-web-app-*`): se abre como app sin la barra de Safari, con la barra de estado translúcida (todo respeta las orillas seguras). En iPhone la app guarda sus datos aparte de Safari: la primera vez pide de nuevo el código de acceso y el apodo.
 
 ### Sonido
 

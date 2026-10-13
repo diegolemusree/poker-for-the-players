@@ -35,11 +35,11 @@ export function rimPoint(deg) {
 }
 
 // Cámara de toma de serie, alta y cerca, mirando hacia abajo al centro de la mesa (config.js: CAMERAS).
-export function makeView({ W, H, top, reserve, portrait, cam }) {
+export function makeView({ W, H, top, reserve, near, portrait, cam }) {
   const pitch = cam.pitch * DEG, dist = cam.dist;
   const sp = Math.sin(pitch), cp = Math.cos(pitch);
   const C = { y: dist * sp, z: dist * cp };
-  const v = { W, H, F: 1, cx: 0, cy: 0, pitch, portrait, reserve, top, cam: { x: 0, y: C.y, z: C.z } };
+  const v = { W, H, F: 1, cx: 0, cy: 0, pitch, portrait, reserve, near, top, cam: { x: 0, y: C.y, z: C.z } };
   v.project = (x, y, z) => {
     const dy = y - C.y, dz = z - C.z;
     const depth = -dy * sp - dz * cp;
@@ -70,7 +70,8 @@ export function fit(v, headWorld, cam) {
   const nearY = v.project(0, RAIL_Y, NEAR_Z).y;
   const wantHead = top + cam.headGap;
   // en horizontal mi orilla queda debajo de la pantalla; en vertical, escondida detrás de la barra
-  const wantNear = portrait ? H - reserve * 0.62 : H + 8;
+  // (en el celular, detrás de mis cartas: `near`)
+  const wantNear = v.near ?? (portrait ? H - reserve * 0.62 : H + 8);
   const byWidth = (cam.width * W) / 2 / halfWidth;
   const byHeight = (wantNear - wantHead) / (nearY - headY);
   v.cx = W / 2;

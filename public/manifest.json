@@ -1,0 +1,17 @@
+{
+  "name": "Poker for the Players",
+  "short_name": "Poker",
+  "description": "Torneo privado de Texas Hold'em entre amigos.",
+  "lang": "es-MX",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#2a1a12",
+  "theme_color": "#2a1a12",
+  "icons": [
+    { "src": "/assets/iconos/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/iconos/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/iconos/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

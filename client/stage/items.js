@@ -101,7 +101,7 @@ function chipColumn(g, v, col, line) {
 
 // Esquinas de una carta en el mundo: `at` es la mitad de su orilla de abajo (la más cercana a mí),
 // `tilt` la levanta hacia mí (0 = acostada) y `yaw` la gira sobre la mesa.
-function cardCorners(at, w, h, tilt, yaw, lift = 0) {
+export function cardCorners(at, w, h, tilt, yaw, lift = 0) {
   const r = { x: Math.cos(yaw), z: -Math.sin(yaw) }, f = { x: -Math.sin(yaw), z: -Math.cos(yaw) };
   const up = { x: f.x * Math.cos(tilt), y: Math.sin(tilt), z: f.z * Math.cos(tilt) };
   const pt = (u, t) => ({ x: at.x + r.x * u + up.x * t, y: lift + up.y * t, z: at.z + r.z * u + up.z * t });

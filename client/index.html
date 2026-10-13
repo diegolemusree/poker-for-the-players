@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#2a1a12">
+<!-- "Agregar a pantalla de inicio": se abre como app, sin la barra de Safari -->
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/assets/iconos/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/iconos/icono-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/assets/iconos/icono-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Poker">
 <title>Poker for the Players</title>
 <meta property="og:title" content="Poker for the Players">
 <meta property="og:description" content="Torneo privado de Texas Hold'em entre amigos.">
@@ -15,6 +24,14 @@
 </head>
 <body>
 <div id="app"></div>
+<!-- en el celular el juego es vertical: acostado se tapa todo con este aviso (style.css) -->
+<div class="rotate">
+  <div class="card-panel">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="20" y="6" width="24" height="42" rx="6" fill="#efe4c8" stroke="#1d1611" stroke-width="3.5"/><path d="M14 44 A20 20 0 0 0 50 46" fill="none" stroke="#a4452f" stroke-width="3.5" stroke-linecap="round"/><path d="M44 40 L50 46 L43 50" fill="none" stroke="#a4452f" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <h2>Gira tu celular</h2>
+    <p class="note">Poker for the Players se juega en vertical.</p>
+  </div>
+</div>
 <noscript><p style="padding:16px">Necesitas activar JavaScript para jugar.</p></noscript>
 <script type="module" src="./main.js"></script>
 </body>

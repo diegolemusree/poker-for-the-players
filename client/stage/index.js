@@ -10,8 +10,10 @@ import { CHARACTERS, characterFor, artOf, angleOf, backgroundUrl, preloadArt, BA
 import { makeView, fit, headTop, tableOutline, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z } from './projection.js';
 import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
 import { drawTable } from './table.js';
-import { drawItems, CARD_W } from './items.js';
+import { drawItems, cardCorners, CARD_W, CARD_H } from './items.js';
+import { cardImage, roundRect, CARD_PX } from './cards.js';
 import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
+import { isPhone } from '../ui/phone.js';
 
 const MAXP = 7;
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
@@ -75,6 +77,7 @@ export function createTableScene(container, ui) {
   const anims = new Map();      // animación de cada rival, por id de jugador
   let snap = null, L = null, topMax = 0;
   let drawn = [], ring = null;  // rivales y aro de turno que dibuja el ciclo de animación
+  let boardQuads = [];          // dónde quedan en pantalla las cartas comunitarias (el aro nunca las pisa)
 
   /* ---------- acomodo: perspectiva, mesa y fondo ---------- */
   const headWorld = Math.max(...Object.values(CHARACTERS).map(c => c.angles.frente.height * c.angles.frente.waist[1]));
@@ -82,15 +85,26 @@ export function createTableScene(container, ui) {
     const strip = container.parentElement && container.parentElement.querySelector('.strip');
     return strip ? strip.getBoundingClientRect().bottom - container.getBoundingClientRect().top : 70;
   }
+  // Celular vertical: abajo van mis cartas (.mycards) y encima de ellas la barra; la mesa usa lo de arriba.
+  // Devuelve cuánto ocupa eso desde la orilla de abajo y el alto de la franja de mis cartas.
+  function measureBottom(H) {
+    const slot = container.parentElement && container.parentElement.querySelector('.mycards');
+    if (!slot) return { reserve: clamp(H * 0.36, 200, 320), cards: 100 };
+    const r = slot.getBoundingClientRect();
+    return { reserve: H - (r.top - container.getBoundingClientRect().top), cards: r.height };
+  }
   function layout() {
     const W = container.clientWidth || innerWidth, H = container.clientHeight || innerHeight;
     if (!W || !H) return;
-    const portrait = W / H < 0.9;
+    const portrait = W / H < 0.9, phone = portrait && isPhone();
     topMax = Math.max(topMax, measureTop());
-    // lo que ocupa la barra de acciones abajo (fijo, para que la mesa no brinque cuando cambia la barra)
-    const reserve = portrait ? clamp(H * 0.45, 250, 420) : clamp(H * 0.21, 130, 210);
+    // lo que ocupa la barra de acciones abajo (fijo, para que la mesa no brinque cuando cambia la barra);
+    // en el celular, la barra y mis cartas: mi orilla de la mesa queda detrás de mis cartas
+    const bottom = phone ? measureBottom(H) : null;
+    const reserve = phone ? bottom.reserve : portrait ? clamp(H * 0.45, 250, 420) : clamp(H * 0.21, 130, 210);
+    const near = phone ? H - reserve + bottom.cards * 0.45 : undefined;
     const cam = CAMERAS[portrait ? 'portrait' : 'landscape'];
-    const v = fit(makeView({ W, H, top: topMax, reserve, portrait, cam }), headWorld, cam);
+    const v = fit(makeView({ W, H, top: topMax, reserve, near, portrait, cam }), headWorld, cam);
     const back = placeBackdrop(W, H, headTop(v, headWorld));
     // la línea de tinta es tan gruesa como la del fondo ilustrado al tamaño en que se ve
     const line = Math.max(1.2, BG_W * back * 0.0011);
@@ -101,7 +115,7 @@ export function createTableScene(container, ui) {
     drawTable(g, v, line);
     bg.style.backgroundImage = `url("${backgroundUrl(H, small() ? 1 : dpr)}")`;
     const outline = tableOutline(v);
-    L = { W, H, v, line, dpr, portrait, reserve, outline, front: frontRegion(outline) };
+    L = { W, H, v, line, dpr, portrait, phone, reserve, outline, front: frontRegion(outline) };
     clearPoseCache();
     place();
   }
@@ -195,7 +209,9 @@ export function createTableScene(container, ui) {
   /* ---------- acomodar la vista del servidor ---------- */
   function update(s) {
     snap = s;
+    const H = container.clientHeight || innerHeight;
     if (!L || Math.abs(measureTop() - topMax) > 0.5 && measureTop() > topMax) layout();
+    else if (L.phone !== (L.portrait && isPhone()) || L.phone && Math.abs(measureBottom(H).reserve - L.reserve) > 1) layout();
     else place();
   }
 
@@ -230,7 +246,11 @@ export function createTableScene(container, ui) {
     // cartas comunitarias en fila al centro de la mesa; el bote, un montón cerca de mí abajo al centro
     const zBoard = clamp(zMe - 0.27, -0.3, 0), zPot = Math.max(zBoard + 0.2, zMe - 0.09);
     const items = [], amts = [];
-    let betSum = 0;
+    let betSum = 0, myCards = null;
+    // cartas comunitarias (mismas medidas que dibuja items.js) y dónde caen en pantalla
+    const boardScale = L.phone ? 1.4 : 1.08;
+    const boardAt = i => ({ x: (i - 2) * (CARD_W * boardScale + 0.014), z: zBoard });
+    boardQuads = v.board.map((_, i) => { const c = cardCorners(boardAt(i), CARD_W * boardScale, CARD_H * boardScale, 0.62, 0); return [c.tl, c.tr, c.br, c.bl].map(q => view.project(q.x, q.y, q.z)); });
     const amt = (at, y, text, cls) => amts.push({ at, y, text, cls });
 
     drawn = []; ring = null;
@@ -272,13 +292,16 @@ export function createTableScene(container, ui) {
           items.push({ kind: 'stack', amount: p.bet, at, across: mine || isFront ? { x: 1, z: 0 } : tan, back: mine || isFront ? { x: 0, z: -1 } : { x: -d.x, z: -d.z }, seed: s.seat + 11 });
           amt(at, 0.05, ui.fmt(p.bet), mine ? 'mine' : '');
         }
-        if (started && v.dealerSeat === s.seat) items.push({ kind: 'dealer', at: mine || isFront ? { x: xCards + 0.3, z: zMe - 0.03 } : on(0.66, -0.2) });
+        // en el celular mis cartas van fuera de la mesa: el botón del dealer se pasa junto a mi pila
+        const myDealer = L.phone ? { x: xStack - 0.2, z: zMe - 0.03 } : { x: xCards + 0.3, z: zMe - 0.03 };
+        if (started && v.dealerSeat === s.seat) items.push({ kind: 'dealer', at: mine || isFront ? myDealer : on(0.66, -0.2) });
         const holding = p.inHand && p.cards.length && !p.folded;
-        if (holding && mine) p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: { x: xCards + i * 0.11, z: zMe + (i ? 0.004 : 0) }, tilt: 0.75, yaw: i ? -0.07 : 0.06, scale: 1.05 }));
+        if (holding && mine && L.phone) myCards = p.cards;
+        else if (holding && mine) p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: { x: xCards + i * 0.11, z: zMe + (i ? 0.004 : 0) }, tilt: 0.75, yaw: i ? -0.07 : 0.06, scale: 1.05 }));
         else if (holding && shown.includes(p.id)) {
           p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: mine || isFront ? { x: xCards + i * 0.11, z: zMe } : on(0.6, (i - 0.5) * (CARD_W + 0.012)), tilt: 0.35, yaw: 0, scale: 0.95 }));
         }
-        if (p && v.toAct === p.id && betting && spot && !mine) ring = on(0.8, -0.14);
+        if (p && v.toAct === p.id && betting && spot && !mine) ring = ringSpot(on);
       }
 
       // etiqueta sobre la cabeza (o donde iría la cabeza en un asiento libre)
@@ -304,13 +327,14 @@ export function createTableScene(container, ui) {
       items.push({ kind: 'stack', amount: pot, at, across: { x: 1, z: 0 }, back: { x: 0, z: -1 }, seed: 99, messy: true });
       amt(at, 0.06, `Bote ${ui.fmt(pot)}`, 'pot');
     }
-    v.board.forEach((code, i) => items.push({ kind: 'card', code, at: { x: (i - 2) * (CARD_W * 1.08 + 0.014), z: zBoard }, tilt: 0.62, yaw: 0, scale: 1.08 }));
+    v.board.forEach((code, i) => items.push({ kind: 'card', code, at: boardAt(i), tilt: 0.62, yaw: 0, scale: boardScale }));
 
     // capa de fichas y cartas
     const g = itemsCv.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
     g.clearRect(0, 0, L.W, L.H);
     drawItems(g, view, items, L.line);
+    if (myCards) drawMyCards(g, myCards);
 
     // montos encima de cada apuesta y del bote
     amts.forEach((m, i) => {
@@ -324,31 +348,81 @@ export function createTableScene(container, ui) {
     wake();
   }
 
+  // Aro de turno frente al rival, entre sus fichas y la orilla. Las cartas comunitarias se ven más altas de
+  // lo que miden sobre la mesa (van inclinadas): se revisa en pantalla y, si el aro las tocaría, se recorre
+  // hacia el rival.
+  const RING_R = 0.1;
+  function ringSpot(on) {
+    const boxes = boardQuads.map(q => ({ x0: Math.min(...q.map(p => p.x)) - 4, x1: Math.max(...q.map(p => p.x)) + 4, y0: Math.min(...q.map(p => p.y)) - 4, y1: Math.max(...q.map(p => p.y)) + 4 }));
+    let at = null;
+    for (let r = 0.8; r <= 1.001; r += 0.04) {
+      at = on(r, -0.14);
+      const pts = ringPoints(at, RING_R * 1.07);
+      const box = { x0: Math.min(...pts.map(p => p.x)), x1: Math.max(...pts.map(p => p.x)), y0: Math.min(...pts.map(p => p.y)), y1: Math.max(...pts.map(p => p.y)) };
+      if (!boxes.some(b => hit(b, box))) break;
+    }
+    return at;
+  }
+  const ringPoints = (at, r) => Array.from({ length: 32 }, (_, i) => L.v.project(at.x + Math.cos((i / 32) * Math.PI * 2) * r, 0, at.z + Math.sin((i / 32) * Math.PI * 2) * r));
+
+  // Celular: mis dos cartas grandes y derechas, en la franja entre la mesa y la barra (.mc-cards).
+  function drawMyCards(g, cards) {
+    const box = container.parentElement && container.parentElement.querySelector('.mc-cards');
+    if (!box) return;
+    const r = box.getBoundingClientRect(), c0 = container.getBoundingClientRect();
+    const hgt = r.height * 0.92, w = (hgt * CARD_PX[0]) / CARD_PX[1];
+    const x0 = r.left - c0.left + w * 0.08, y0 = r.top - c0.top + r.height * 0.06;
+    cards.forEach((code, i) => {
+      const cx = x0 + w / 2 + i * w * 0.86, cy = y0 + hgt / 2, a = (i ? 4 : -4) * Math.PI / 180;
+      g.save();
+      g.translate(cx, cy); g.rotate(a);
+      g.fillStyle = 'rgba(14,8,4,0.45)'; // sombra plana
+      roundRect(g, -w / 2 + 4, -hgt / 2 + 5, w, hgt, w * 0.1); g.fill();
+      g.drawImage(cardImage(code), -w / 2, -hgt / 2, w, hgt);
+      g.restore();
+    });
+  }
+
+  // Etiquetas encima de cada rival. No se enciman entre sí ni tapan caras (los ojos: se permite pisar la
+  // coronilla), no se salen de la pantalla ni se meten debajo de la franja de arriba. Cada una prueba
+  // lugares en orden: sobre su rival, un poco de lado, más arriba (al espacio del garaje) y al final más
+  // abajo. En el celular, si alguna no cabe justo encima de su rival, todas pasan a la versión compacta, y
+  // se busca el lugar libre más cercano arriba o abajo de la cara (sobre el pecho, que sí se puede tapar).
+  // Primero las de los del fondo y luego las de los lados (que van más cerca de las orillas).
   function placeLabels() {
     const labelTop = topMax + 8;
-    const placed = [];
-    // de abajo hacia arriba: si una etiqueta choca con otra ya puesta, sube encima de ella (al espacio del
-    // garaje, nunca sobre una cara); solo si ya no cabe arriba se acomoda debajo (y es la orilla de abajo)
-    // primero las de los del fondo y luego las de los lados (que van más cerca de las orillas)
-    for (const s of seats.slice().sort((a, b) => a.layer - b.layer || b.ay - a.ay)) {
-      if (!s.show) continue;
-      // las etiquetas no se salen de la pantalla ni se meten debajo de la franja de arriba
-      const lw = s.label.offsetWidth, lh = s.label.offsetHeight, half = lw / 2 + 4;
-      const inside = x => clamp(x, half, Math.max(half, L.W - half));
-      let x = inside(s.ax), y = Math.max(labelTop + lh, s.ay - 2), down = false;
-      for (let k = 0, guard = 0; k < placed.length && guard < 40; k++, guard++) {
-        const o = placed[k], need = (o.w + lw) / 2 + 4;
-        if (Math.abs(o.x - x) < need && y - lh < o.y + 4 && o.y - o.h < y + 4) {
-          // si apenas se enciman, se recorre de lado (sin alejarse mucho de su rival)
-          const side = inside(o.x + Math.sign(x - o.x || 1) * need);
-          if (Math.abs(side - o.x) >= need && Math.abs(side - s.ax) < lw * 0.3 && !placed.some(q => q !== o && Math.abs(q.x - side) < (q.w + lw) / 2 + 4 && y - lh < q.y + 4 && q.y - q.h < y + 4)) { x = side; continue; }
-          if (!down && o.y - o.h - 5 >= labelTop + lh) y = o.y - o.h - 5;
-          else { down = true; y = o.y + lh + 5; }
-          k = -1;
+    const faces = drawn.map(r => { const f = faceBox(r); return { ...f, y0: f.y0 + (f.y1 - f.y0) * 0.25 }; });
+    const order = seats.slice().sort((a, b) => a.layer - b.layer || b.ay - a.ay);
+    const overlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+    for (const compact of L.phone ? [false, true] : [false]) {
+      labelLayer.classList.toggle('compact', compact);
+      const placed = [];
+      let clean = true;
+      for (const s of order) {
+        if (!s.show) continue;
+        const lw = s.label.offsetWidth, lh = s.label.offsetHeight, half = lw / 2 + 4;
+        const inside = x => clamp(x, half, Math.max(half, L.W - half));
+        const y0 = Math.max(labelTop + lh, s.ay - 2), step = lh + 5;
+        const ups = [], downs = [1, 2, 3, 4].map(k => y0 + k * step);
+        for (let y = y0 - step; y - lh >= labelTop; y -= step) ups.push(y);
+        const ys = [y0, ...(compact ? ups.flatMap((y, i) => [y, downs[i]]).concat(downs.slice(ups.length)).filter(y => y != null) : [...ups, ...downs.slice(0, 3)])];
+        const dxs = compact ? [0, -0.15, 0.15, -0.3, 0.3, -0.5, 0.5] : [0, -0.15, 0.15, -0.3, 0.3];
+        let best = null;
+        for (const y of ys) {
+          for (const dx of dxs) {
+            const x = inside(s.ax + dx * lw);
+            const box = { x0: x - lw / 2 - 2, x1: x + lw / 2 + 2, y0: y - lh - 2, y1: y + 2 };
+            const cost = placed.reduce((a, o) => a + overlap(o, box), 0) + faces.reduce((a, f) => a + 3 * overlap(f, box), 0);
+            if (!best || cost < best.cost) best = { x, y, box, cost };
+            if (cost === 0) break;
+          }
+          if (best.cost === 0) break;
         }
+        if (best.cost > 0 || (L.phone && !compact && best.y !== y0)) clean = false;
+        placed.push(best.box);
+        s.label.style.transform = `translate(${best.x}px,${best.y}px) translate(-50%,-100%)`;
       }
-      placed.push({ x, y, w: lw, h: lh });
-      s.label.style.transform = `translate(${x}px,${y}px) translate(-50%,-100%)`;
+      if (clean) break;
     }
   }
 
@@ -441,12 +515,16 @@ export function createTableScene(container, ui) {
       g.restore();
     }
     if (ring) { // aro mostaza en el fieltro frente a quien está pensando (encima de todo, para que siempre se vea)
-      const k = 1 + (still ? 0 : Math.sin(now / 200) * 0.06), r = 0.1 * k;
-      const pts = Array.from({ length: 32 }, (_, i) => L.v.project(ring.x + Math.cos((i / 32) * Math.PI * 2) * r, 0, ring.z + Math.sin((i / 32) * Math.PI * 2) * r));
+      const k = 1 + (still ? 0 : Math.sin(now / 200) * 0.06);
+      const pts = ringPoints(ring, RING_R * k);
+      // por si acaso nunca se dibuja encima de una carta comunitaria
+      g.save();
+      g.beginPath(); g.rect(0, 0, L.W, L.H); boardQuads.forEach(q => polyPath(g, q)); g.clip('evenodd');
       g.beginPath(); polyPath(g, pts);
       g.lineJoin = 'round';
       g.lineWidth = L.line * 4; g.strokeStyle = '#1d1611'; g.stroke();
       g.lineWidth = L.line * 2.2; g.strokeStyle = '#d9a441'; g.stroke();
+      g.restore();
     }
   }
   function sync() {
