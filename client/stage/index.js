@@ -122,16 +122,21 @@ export function createTableScene(container, ui) {
   // Dónde y de qué tamaño va un rival sentado en el lugar `seat` (config.js): con la cintura en la orilla
   // de la mesa y del tamaño que le toca por su distancia a la cámara (`shrink` lo achica si hace falta).
   function seatPlace(seat, charId, shrink = 1) {
+    if (L.portrait && seat.portrait) seat = { ...seat, ...seat.portrait, portrait: undefined };
     const want = seat.row === 'side' ? 'lado' : 'frente';
     const angle = angleOf(charId, want), art = artOf(charId, want);
     // el rival de la derecha va en espejo (la imagen de lado ve hacia la derecha; mientras se usa la de
     // frente, el espejo deja a los dos de los lados simétricos)
     const mirror = seat.side === 'right';
-    const rim = rimPoint(seat.ang), p = L.v.project(rim.x, RAIL_Y, rim.z);
+    // `rim`: su lugar en la orilla (de ahí salen sus fichas); `at`: donde se sienta, `out` detrás de la orilla
+    const rim = rimPoint(seat.ang), k = 1 + (seat.out || 0) / Math.hypot(rim.x, rim.z);
+    const p = L.v.project(rim.x * k, RAIL_Y, rim.z * k);
+    // recortado en la orilla: la cintura va justo en la línea de la orilla, en su columna
+    const y = seat.cut === 'edge' ? edgeYAt(L.front, p.x) ?? p.y : p.y;
     const hpx = p.s * art.height * (seat.scale || 1) * L.v.grow * shrink, wpx = (hpx * art.size[0]) / art.size[1];
     const f = art.face;
     return placeAt({
-      seat, rim, angle, mirror, hpx, wpx, x: p.x, y: p.y, depth: p.depth, waist: art.waist[1],
+      seat, rim, angle, mirror, hpx, wpx, x: p.x, y, depth: p.depth, waist: art.waist[1],
       wx: mirror ? 1 - art.waist[0] : art.waist[0],
       face: mirror ? [1 - f[2], f[1], 1 - f[0], f[3]] : f,
     });
@@ -140,7 +145,8 @@ export function createTableScene(container, ui) {
   function placeAt(s) {
     s.left = s.x - s.wx * s.wpx;
     s.top = s.y - s.waist * s.hpx;
-    s.hidden = belowRow(L.front, s.y); // la mesa lo tapa de la cintura para abajo
+    // la mesa lo tapa de la cintura para abajo, o todo lo que cae debajo de la línea de la orilla (cut: 'edge')
+    s.hidden = s.seat.cut === 'edge' ? L.front : belowRow(L.front, s.y);
     return s;
   }
   const faceBox = s => ({ x0: s.left + s.face[0] * s.wpx, x1: s.left + s.face[2] * s.wpx, y0: s.top + s.face[1] * s.hpx, y1: s.top + s.face[3] * s.hpx });
@@ -335,7 +341,7 @@ export function createTableScene(container, ui) {
         if (Math.abs(o.x - x) < need && y - lh < o.y + 4 && o.y - o.h < y + 4) {
           // si apenas se enciman, se recorre de lado (sin alejarse mucho de su rival)
           const side = inside(o.x + Math.sign(x - o.x || 1) * need);
-          if (Math.abs(side - s.ax) < lw * 0.3 && !placed.some(q => q !== o && Math.abs(q.x - side) < (q.w + lw) / 2 + 4 && y - lh < q.y + 4 && q.y - q.h < y + 4)) { x = side; continue; }
+          if (Math.abs(side - o.x) >= need && Math.abs(side - s.ax) < lw * 0.3 && !placed.some(q => q !== o && Math.abs(q.x - side) < (q.w + lw) / 2 + 4 && y - lh < q.y + 4 && q.y - q.h < y + 4)) { x = side; continue; }
           if (!down && o.y - o.h - 5 >= labelTop + lh) y = o.y - o.h - 5;
           else { down = true; y = o.y + lh + 5; }
           k = -1;
@@ -409,10 +415,19 @@ export function createTableScene(container, ui) {
       const img = poseCanvas(r.charId, r.angle, pose, small(), pxH, r.dim) || poseCanvas(r.charId, r.angle, 'espera', small(), pxH, r.dim);
       if (!img) continue;
       g.save();
-      // sombra plana de contacto sobre la mesa, justo debajo de la cintura: se ve recargado en la mesa
       g.beginPath(); polyPath(g, L.outline); g.clip();
-      g.beginPath(); g.ellipse(r.x, r.y + r.hpx * 0.012, r.wpx * 0.3, r.hpx * 0.035, 0, 0, Math.PI * 2);
-      g.fillStyle = 'rgba(12,16,6,0.3)'; g.fill();
+      if (r.seat.cut === 'edge') {
+        // sombra suave sobre el riel donde "toca" la mesa, inclinada como la orilla, para que no flote
+        const d = r.wpx * 0.25, a = Math.atan2((edgeYAt(L.front, r.x + d) ?? r.y) - (edgeYAt(L.front, r.x - d) ?? r.y), 2 * d);
+        g.translate(r.x, r.y); g.rotate(a); g.scale(1, 0.2);
+        const rad = r.wpx * 0.5, sh = g.createRadialGradient(0, 0, 0, 0, 0, rad);
+        sh.addColorStop(0, 'rgba(14,8,4,0.6)'); sh.addColorStop(0.6, 'rgba(14,8,4,0.28)'); sh.addColorStop(1, 'rgba(14,8,4,0)');
+        g.fillStyle = sh; g.fillRect(-rad, -rad, rad * 2, rad * 2);
+      } else {
+        // sombra plana de contacto sobre la mesa, justo debajo de la cintura: se ve recargado en la mesa
+        g.beginPath(); g.ellipse(r.x, r.y + r.hpx * 0.012, r.wpx * 0.3, r.hpx * 0.035, 0, 0, Math.PI * 2);
+        g.fillStyle = 'rgba(12,16,6,0.3)'; g.fill();
+      }
       g.restore();
       g.save();
       // la mesa tapa al rival de la cintura para abajo: se recorta lo que cae sobre la mesa debajo de su cintura

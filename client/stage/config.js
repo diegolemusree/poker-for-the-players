@@ -41,9 +41,16 @@ export const BACKDROP = { lamp: [0.5, 0.23], gap: 10 };
 //   row    'back' (fila del fondo, de frente) o 'side' (los de los lados, más cerca y más grandes)
 //   side   'left' o 'right': usan la imagen de lado (tres cuartos); la de la derecha va en espejo
 //   scale  cuánto más grandes se dibujan (los de los lados están más cerca de la cámara que la mesa)
+//   out    cuánto se sientan detrás de la orilla, en unidades de la mesa, hacia afuera en la dirección `ang`
+//   cut    'edge': se recortan justo en la línea de la orilla de afuera del riel, con la cintura en esa
+//          línea (la mesa los tapa hasta la cintura) y una sombra suave sobre el riel donde la tocan.
+//          Sin `cut`, la mesa solo tapa lo que queda debajo de su cintura.
+//   portrait  valores que cambian en el celular vertical (la pantalla es angosta: van menos afuera)
+// Los de los lados: `ang` más hacia el fondo (mayor a 180 a la izquierda, menor a 360 a la derecha) los
+// pasa detrás de la diagonal lejana; `out` los saca hacia la orilla de la pantalla.
 const back = ang => ({ ang, row: 'back' });
-const LEFT = { ang: 189, row: 'side', side: 'left', scale: 1.35 };
-const RIGHT = { ang: 351, row: 'side', side: 'right', scale: 1.35 };
+const LEFT = { ang: 197, out: 0.34, row: 'side', side: 'left', scale: 1.15, cut: 'edge', portrait: { ang: 205, out: 0.02 } };
+const RIGHT = { ang: 343, out: 0.34, row: 'side', side: 'right', scale: 1.15, cut: 'edge', portrait: { ang: 335, out: 0.02 } };
 
 // Acomodo según cuántos rivales hay, en el orden real de juego: el que habla después de mí es el
 // primero (a mi izquierda) y sigue el reloj por el fondo hasta el de mi derecha. Se llena primero el
