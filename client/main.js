@@ -62,7 +62,7 @@ let prevBoard = { hand: 0, len: 0 };
 let showSide = false;
 let raiseOpen = false;        // celular: el panel de Subir está abierto en lugar de los tres botones
 // celular: un solo aviso a la vez (la última jugada, un error), que se borra solo
-let note = null, noteTimer = 0, lastLogKey = null;
+let note = null, noteTimer = 0, lastLogKey = null, lastLog = [];
 const NOTE_MS = 4500;
 function notify(text, kind) {
   note = { text, kind, until: performance.now() + NOTE_MS };
@@ -316,7 +316,8 @@ function seatContent(el, p, v) {
 }
 
 /* ---------- barra de acciones ---------- */
-function actionBar() {
+// `phone`: panel compacto del celular (solo en la mesa ilustrada; la vista 2D simple se queda como está)
+function actionBar(phone = false) {
   const v = snap.view, mine = me();
   const inner = h('div', { class: 'in' });
   const hint = t => inner.append(h('p', { class: 'hint' }, t));
@@ -357,7 +358,7 @@ function actionBar() {
     return h('div', { class: 'bar' }, inner);
   }
 
-  if (betting() && v.toAct === snap.you) { turnControls(inner, mine); return h('div', { class: 'bar myturn' + (raiseOpen && isPhone() ? ' raising' : '') }, inner); }
+  if (betting() && v.toAct === snap.you) { turnControls(inner, mine, phone); return h('div', { class: 'bar myturn' + (raiseOpen && phone ? ' raising' : '') }, inner); }
 
   // mientras otro piensa: lo de arriba ya dice de quién es el turno; aquí solo queda ausentarse
   const wait = betting() ? (mine.inHand && !mine.folded ? 'Cuando te toque, aquí aparecen tus botones.' : 'Te retiraste de esta mano. Espera la siguiente.')
@@ -384,14 +385,13 @@ function lobbyControls(inner) {
     h('button', { class: 'btn go', disabled: v.players.length < 2, onclick: () => run('start') }, 'Empezar torneo')));
 }
 
-function turnControls(inner, mine) {
+function turnControls(inner, mine, phone) {
   const v = snap.view;
   const toCall = v.currentBet - mine.bet;
   const maxT = mine.bet + mine.stack;
   // las apuestas van en múltiplos de 5 (se forman con fichas de 10 y 25); el all-in puede ser cualquier monto
   const minT = Math.min(maxT, Math.ceil((v.currentBet === 0 ? v.bb : v.currentBet + v.minRaise) / 5) * 5);
   const pot = potOf(v);
-  const phone = isPhone();
   const canRaise = maxT > v.currentBet && mine.stack > toCall;
   const key = `${v.handNo}:${v.phase}:${v.toAct}`;
   if (raise.key !== key) { raise = { key, value: minT }; raiseOpen = false; }
@@ -570,7 +570,15 @@ function drawHud() {
   // celular: la última jugada (o un error) en una sola línea junto a mis cartas, y se borra sola
   if (phone) {
     const logKey = `${v.handNo}:${v.log.length}:${v.log[v.log.length - 1] || ''}`;
-    if (logKey !== lastLogKey) { lastLogKey = logKey; if (v.log.length) notify(v.log[v.log.length - 1], 'log'); }
+    if (logKey !== lastLogKey && v.log.length) {
+      // lo nuevo desde la vez pasada (el historial guarda solo las últimas 40); con varios ganadores
+      // (bote dividido o botes secundarios) se dicen todos
+      const at = lastLog.length ? v.log.lastIndexOf(lastLog[lastLog.length - 1]) : -1;
+      const fresh = v.log.slice(at + 1);
+      const wins = fresh.filter(t => / gana /.test(t));
+      notify(wins.length > 1 ? wins.join(' · ') : fresh[fresh.length - 1] || v.log[v.log.length - 1], 'log');
+    }
+    lastLogKey = logKey; lastLog = v.log;
   }
   const lost = toast && socket && !socket.connected; // sin conexión: el aviso se queda hasta que vuelva
   const noteLine = lost ? h('p', { class: 'note-line err' }, toast)
@@ -581,7 +589,7 @@ function drawHud() {
     toast && h('p', { class: 'note' }, toast));
   // el aviso del centro (turno, ganadores) va arriba de la barra de acciones para no tapar a los rivales
   const msg = centerMessage();
-  const bar = actionBar();
+  const bar = actionBar(phone);
   // en pantallas angostas la última jugada va dentro de la barra (el historial no cabe junto a ella)
   // (en el celular no: ahí el turno lo dicen el aro y la barra en mostaza, y las jugadas van junto a mis cartas)
   if (!phone && started() && recent.length) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));

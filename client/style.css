@@ -372,9 +372,10 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
   .labels.compact .seat-tag .dl{width:20px;height:20px;font-size:12px;top:-9px;right:-9px}
 }
 
-/* celular acostado: el juego es vertical */
+/* celular acostado: el juego es vertical. Por proporción y no por orientación: en Android el teclado
+   achica la pantalla vertical y la dejaría "acostada" mientras se escribe el apodo o el código. */
 .rotate{display:none}
-@media (pointer:coarse) and (orientation:landscape) and (max-height:500px){
+@media (pointer:coarse) and (min-aspect-ratio:4/3) and (max-height:500px){
   .rotate{display:grid;place-items:center;position:fixed;inset:0;z-index:1000;background:inherit;background-color:var(--bg);
     padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
   .rotate .card-panel{align-items:center;text-align:center;max-width:420px;transform:rotate(-.6deg)}

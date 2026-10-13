@@ -289,7 +289,7 @@ Los rivales tienen sus propias animaciones de pose (ver "Animación de los rival
 
 "Celular" es una pantalla táctil de 640 px de ancho o menos (`client/ui/phone.js`, la misma regla en `style.css`); una ventana angosta en la computadora no cuenta. En la computadora todo se queda como arriba.
 
-- **El juego es vertical.** Con el celular acostado (táctil y de 500 px de alto o menos) un aviso tapa todo y pide girarlo.
+- **El juego es vertical.** Con el celular acostado (táctil, de 500 px de alto o menos y al menos 4:3 de ancho; no se usa la orientación porque en Android el teclado abierto deja la pantalla vertical "acostada") un aviso tapa todo y pide girarlo.
 - La regla principal: cuando es mi turno siguen viéndose la mesa, el flop y mis cartas. De arriba hacia abajo:
   1. **Franja de una línea**: Bote, Para igualar y Tus fichas, y el menú ≡ con todo lo demás (código de mesa, ciegas y cuándo suben, ronda, mano, opciones, posiciones, valor de las fichas, últimas jugadas y Salir de la mesa).
   2. **La mesa** con los rivales y las comunitarias (más grandes que en la computadora).
