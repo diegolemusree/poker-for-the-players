@@ -10,7 +10,7 @@ import { CHARACTERS, characterFor, artOf, angleOf, backgroundUrl, preloadArt, BA
 import { makeView, fit, headTop, tableOutline, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z } from './projection.js';
 import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
 import { drawTable } from './table.js';
-import { drawItems, cardCorners, CARD_W, CARD_H } from './items.js';
+import { drawItems, cardCorners, stackFootprint, CARD_W, CARD_H, CHIP_R, CHIP_H } from './items.js';
 import { cardImage, roundRect, CARD_PX } from './cards.js';
 import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
 import { isPhone } from '../ui/phone.js';
@@ -78,6 +78,7 @@ export function createTableScene(container, ui) {
   let snap = null, L = null, topMax = 0;
   let drawn = [], ring = null;  // rivales y aro de turno que dibuja el ciclo de animación
   let boardQuads = [];          // dónde quedan en pantalla las cartas comunitarias (el aro nunca las pisa)
+  const ringCv = document.createElement('canvas'); // el aro se pinta aparte para borrarle lo que tapan fichas y cartas
 
   /* ---------- acomodo: perspectiva, mesa y fondo ---------- */
   const headWorld = Math.max(...Object.values(CHARACTERS).map(c => c.angles.frente.height * c.angles.frente.waist[1]));
@@ -285,7 +286,11 @@ export function createTableScene(container, ui) {
         const on = (r, t = 0) => ({ x: rim.x * r + tan.x * t, z: rim.z * r + tan.z * t });
         const myStack = { x: xStack, z: zMe - 0.03 };
         if (mine || isFront) items.push({ kind: 'stack', amount: p.stack, at: myStack, across: { x: 1, z: 0 }, back: { x: 0, z: -1 }, seed: s.seat + 1 });
-        else if (spot) items.push({ kind: 'stack', amount: p.stack, at: on(0.74), across: tan, back: d, seed: s.seat + 1 });
+        else if (spot) {
+          const st = { kind: 'stack', amount: p.stack, at: on(0.74), across: tan, back: d, seed: s.seat + 1 };
+          items.push(st);
+          if (v.toAct === p.id && betting) ring = L.phone ? ringBeside(on) : ringAround(st);
+        }
         if (betting && p.bet > 0 && (spot || mine || isFront)) {
           betSum += p.bet;
           const at = mine || isFront ? { x: 0.06, z: zMe - 0.24 } : on(0.5);
@@ -301,7 +306,6 @@ export function createTableScene(container, ui) {
         else if (holding && shown.includes(p.id)) {
           p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: mine || isFront ? { x: xCards + i * 0.11, z: zMe } : on(0.6, (i - 0.5) * (CARD_W + 0.012)), tilt: 0.35, yaw: 0, scale: 0.95 }));
         }
-        if (p && v.toAct === p.id && betting && spot && !mine) ring = ringSpot(on);
       }
 
       // etiqueta sobre la cabeza (o donde iría la cabeza en un asiento libre)
@@ -348,11 +352,34 @@ export function createTableScene(container, ui) {
     wake();
   }
 
-  // Aro de turno frente al rival, entre sus fichas y la orilla. Las cartas comunitarias se ven más altas de
-  // lo que miden sobre la mesa (van inclinadas): se revisa en pantalla y, si el aro las tocaría, se recorre
-  // hacia el rival.
+  // Aro de turno: rodea la pila del rival que tiene el turno, centrado en ella (frente a él), como si
+  // estuviera pintado en el fieltro: las fichas y las cartas comunitarias quedan encima.
+  function ringAround(st) {
+    const u = st.across, w = st.back, cols = stackFootprint(st);
+    const loc = c => ({ u: (c.x - st.at.x) * u.x + (c.z - st.at.z) * u.z, w: (c.x - st.at.x) * w.x + (c.z - st.at.z) * w.z });
+    const ls = cols.length ? cols.map(loc) : [{ u: 0, w: 0 }];
+    const span = k => [Math.min(...ls.map(q => q[k])), Math.max(...ls.map(q => q[k]))];
+    const [u0, u1] = span('u'), [w0, w1] = span('w'), pad = CHIP_R + 0.035;
+    const c = { u: (u0 + u1) / 2, w: (w0 + w1) / 2 }, hu = (u1 - u0) / 2 + pad, hw = (w1 - w0) / 2 + pad;
+    const at = { x: st.at.x + u.x * c.u + w.x * c.w, z: st.at.z + u.z * c.u + w.z * c.w };
+    // lo que tapan las columnas de fichas: de la cara de arriba a la base
+    const holes = cols.map(col => {
+      const b = L.v.project(col.x, 0, col.z), t = L.v.project(col.x, col.n * CHIP_H, col.z), rx = CHIP_R * b.s;
+      const ry = Math.abs(L.v.project(col.x, 0, col.z + CHIP_R).y - L.v.project(col.x, 0, col.z - CHIP_R).y) / 2;
+      return { x: b.x - rx, y: t.y - ry, w: rx * 2, h: b.y - t.y + ry };
+    });
+    const points = k => Array.from({ length: 40 }, (_, i) => {
+      const a = (i / 40) * Math.PI * 2, cu = Math.cos(a) * hu * k, cw = Math.sin(a) * hw * k;
+      return L.v.project(at.x + u.x * cu + w.x * cw, 0, at.z + u.z * cu + w.z * cw);
+    });
+    return { points, holes };
+  }
+
+  // En el celular el aro sigue como antes: a un lado de la pila, entre ella y la orilla; si tocaría las
+  // cartas comunitarias (se ven más altas de lo que miden porque van inclinadas), se recorre hacia el rival.
   const RING_R = 0.1;
-  function ringSpot(on) {
+  const ringPoints = (at, r) => Array.from({ length: 32 }, (_, i) => L.v.project(at.x + Math.cos((i / 32) * Math.PI * 2) * r, 0, at.z + Math.sin((i / 32) * Math.PI * 2) * r));
+  function ringBeside(on) {
     const boxes = boardQuads.map(q => ({ x0: Math.min(...q.map(p => p.x)) - 4, x1: Math.max(...q.map(p => p.x)) + 4, y0: Math.min(...q.map(p => p.y)) - 4, y1: Math.max(...q.map(p => p.y)) + 4 }));
     let at = null;
     for (let r = 0.8; r <= 1.001; r += 0.04) {
@@ -361,9 +388,8 @@ export function createTableScene(container, ui) {
       const box = { x0: Math.min(...pts.map(p => p.x)), x1: Math.max(...pts.map(p => p.x)), y0: Math.min(...pts.map(p => p.y)), y1: Math.max(...pts.map(p => p.y)) };
       if (!boxes.some(b => hit(b, box))) break;
     }
-    return at;
+    return { points: k => ringPoints(at, RING_R * k), holes: [] };
   }
-  const ringPoints = (at, r) => Array.from({ length: 32 }, (_, i) => L.v.project(at.x + Math.cos((i / 32) * Math.PI * 2) * r, 0, at.z + Math.sin((i / 32) * Math.PI * 2) * r));
 
   // Celular: mis dos cartas grandes y derechas, en la franja entre la mesa y la barra (.mc-cards).
   function drawMyCards(g, cards) {
@@ -514,17 +540,26 @@ export function createTableScene(container, ui) {
       g.drawImage(img, r.left, r.top, r.wpx, r.hpx);
       g.restore();
     }
-    if (ring) { // aro mostaza en el fieltro frente a quien está pensando (encima de todo, para que siempre se vea)
+    if (ring) { // aro mostaza alrededor de la pila de quien está pensando (late, salvo con movimiento reducido)
       const k = 1 + (still ? 0 : Math.sin(now / 200) * 0.06);
-      const pts = ringPoints(ring, RING_R * k);
-      // por si acaso nunca se dibuja encima de una carta comunitaria
-      g.save();
-      g.beginPath(); g.rect(0, 0, L.W, L.H); boardQuads.forEach(q => polyPath(g, q)); g.clip('evenodd');
-      g.beginPath(); polyPath(g, pts);
-      g.lineJoin = 'round';
-      g.lineWidth = L.line * 4; g.strokeStyle = '#1d1611'; g.stroke();
-      g.lineWidth = L.line * 2.2; g.strokeStyle = '#d9a441'; g.stroke();
-      g.restore();
+      const pts = ring.points(k), pad = L.line * 3;
+      const x0 = Math.floor(Math.min(...pts.map(p => p.x)) - pad), y0 = Math.floor(Math.min(...pts.map(p => p.y)) - pad);
+      const w = Math.ceil(Math.max(...pts.map(p => p.x)) + pad) - x0, h = Math.ceil(Math.max(...pts.map(p => p.y)) + pad) - y0;
+      const cw = Math.max(1, Math.round(w * L.dpr)), ch = Math.max(1, Math.round(h * L.dpr));
+      if (ringCv.width < cw || ringCv.height < ch) { ringCv.width = Math.max(ringCv.width, cw); ringCv.height = Math.max(ringCv.height, ch); }
+      const o = ringCv.getContext('2d');
+      o.setTransform(1, 0, 0, 1, 0, 0); o.clearRect(0, 0, ringCv.width, ringCv.height);
+      o.setTransform(L.dpr, 0, 0, L.dpr, -x0 * L.dpr, -y0 * L.dpr);
+      o.beginPath(); polyPath(o, pts);
+      o.lineJoin = 'round';
+      o.lineWidth = L.line * 4; o.strokeStyle = '#1d1611'; o.stroke();
+      o.lineWidth = L.line * 2.2; o.strokeStyle = '#d9a441'; o.stroke();
+      // lo que queda detrás de las fichas de la pila y de las cartas comunitarias no se ve
+      o.globalCompositeOperation = 'destination-out';
+      ring.holes.forEach(r => o.fillRect(r.x, r.y, r.w, r.h));
+      boardQuads.forEach(q => { o.beginPath(); polyPath(o, q); o.fill(); });
+      o.globalCompositeOperation = 'source-over';
+      g.drawImage(ringCv, 0, 0, cw, ch, x0, y0, w, h);
     }
   }
   function sync() {

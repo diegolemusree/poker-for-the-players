@@ -48,6 +48,9 @@ function stackColumns(amount, at, across, back, seed, messy) {
   return cols;
 }
 
+// Dónde caen sobre la mesa las columnas de una pila (el aro de turno la rodea).
+export const stackFootprint = it => stackColumns(it.amount, it.at, it.across, it.back, it.seed, it.messy);
+
 function chipColumn(g, v, col, line) {
   const info = chipInfo(col.value);
   const b = v.project(col.x, 0, col.z), t = v.project(col.x, col.n * CHIP_H, col.z);
