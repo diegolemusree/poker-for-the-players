@@ -1,12 +1,13 @@
-// La mesa dibujada con canvas imitando las ilustraciones: octágono en perspectiva, riel de madera café
-// oscuro, fieltro verde apagado con un octágono central más oscuro, línea tinta delgada y uniforme,
-// una sola sombra plana, mugre y el charco de luz cálida de la lámpara. Se dibuja solo al cambiar el tamaño.
+// La mesa provisional dibujada con canvas imitando las ilustraciones: la orilla de config.js en
+// perspectiva, riel de madera café oscuro, fieltro verde apagado con un octágono central más oscuro y
+// una línea dorada en forma de pista, línea tinta delgada y uniforme, una sola sombra plana, mugre y el
+// charco de luz cálida de la lámpara. Se dibuja solo al cambiar el tamaño. Después será una ilustración.
 
-import { octagon, tableOutline, RAIL_Y, APRON, FELT_R, CENTER_R, mulberry } from './projection.js';
+import { edgeRing, tableOutline, RAIL_Y, APRON, FELT_R, TRACK_R, CENTER_R, mulberry } from './projection.js';
 
 export const INK = '#1d1611';
 const WOOD = '#6e4026', GRAIN = 'rgba(38,18,8,0.32)', WOOD_WALL = '#4f2c18', APRON_C = '#41241a';
-const FELT = '#577a3d', FELT_CENTER = '#4b6b35', FELT_SHADE = 'rgba(24,36,12,0.34)';
+const FELT = '#577a3d', FELT_CENTER = '#4b6b35', FELT_SHADE = 'rgba(24,36,12,0.34)', GOLD = '#c9a03a';
 
 function poly(g, pts, close = true) {
   g.moveTo(pts[0].x, pts[0].y);
@@ -46,14 +47,14 @@ function dirtTile() {
 // Dibuja la mesa completa. `line` es el grueso de la línea de tinta en px de pantalla.
 export function drawTable(g, v, line) {
   const P = p => v.project(p.x, p.y, p.z);
-  const top = octagon(1, RAIL_Y), bottom = octagon(1, RAIL_Y - APRON);
+  const top = edgeRing(1, RAIL_Y), bottom = edgeRing(1, RAIL_Y - APRON), N = top.length;
   const rimTop = top.map(P), rimBottom = bottom.map(P);
-  const railIn = octagon(FELT_R, RAIL_Y).map(P), feltIn = octagon(FELT_R, 0).map(P);
-  const center = octagon(CENTER_R, 0).map(P);
-  const shade = octagon(FELT_R - 0.05, 0).map(P);
+  const railIn = edgeRing(FELT_R, RAIL_Y).map(P), feltIn = edgeRing(FELT_R, 0).map(P);
+  const center = edgeRing(CENTER_R, 0).map(P), track = edgeRing(TRACK_R, 0).map(P);
+  const shade = edgeRing(FELT_R - 0.05, 0).map(P);
   const outline = tableOutline(v);
   const faces = k => { // el lado k (entre las esquinas k y k+1) mira hacia la cámara?
-    const a = top[k], b = top[(k + 1) % 8];
+    const a = top[k], b = top[(k + 1) % N];
     const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2, n = Math.hypot(mx, mz);
     return (-mx * mx / n) + ((v.cam.z - mz) * mz / n) > 0;
   };
@@ -61,12 +62,12 @@ export function drawTable(g, v, line) {
 
   // sombra plana de la mesa sobre el piso, un poco corrida hacia abajo
   g.fillStyle = 'rgba(14,8,4,0.42)';
-  g.beginPath(); poly(g, octagon(1.04, -0.32).map(p => P({ ...p, z: p.z + 0.04 }))); g.fill();
+  g.beginPath(); poly(g, edgeRing(1.04, -0.32).map(p => P({ ...p, z: p.z + 0.04 }))); g.fill();
 
   // canto de la mesa en los lados que dan hacia mí
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < N; k++) {
     if (!faces(k)) continue;
-    const j = (k + 1) % 8;
+    const j = (k + 1) % N;
     g.beginPath(); poly(g, [rimTop[k], rimTop[j], rimBottom[j], rimBottom[k]]);
     g.fillStyle = APRON_C; g.fill();
     g.lineWidth = line; g.strokeStyle = INK; g.stroke();
@@ -79,8 +80,8 @@ export function drawTable(g, v, line) {
   g.beginPath(); poly(g, rimTop); poly(g, railIn); g.clip('evenodd');
   const r = mulberry(11);
   g.strokeStyle = GRAIN;
-  for (let k = 0; k < 8; k++) { // vetas a lo largo de cada tabla del riel
-    const a = top[k], b = top[(k + 1) % 8];
+  for (let k = 0; k < N; k++) { // vetas a lo largo de cada tabla del riel
+    const a = top[k], b = top[(k + 1) % N];
     for (let i = 0; i < 4; i++) {
       const f = 0.88 + r() * 0.11, t0 = r() * 0.3, t1 = 0.6 + r() * 0.4;
       const p0 = P({ x: (a.x + (b.x - a.x) * t0) * f, y: RAIL_Y, z: (a.z + (b.z - a.z) * t0) * f });
@@ -92,12 +93,12 @@ export function drawTable(g, v, line) {
   g.restore();
   // juntas entre las tablas del riel
   g.lineWidth = line * 0.7; g.strokeStyle = INK;
-  for (let k = 0; k < 8; k++) { g.beginPath(); g.moveTo(rimTop[k].x, rimTop[k].y); g.lineTo(railIn[k].x, railIn[k].y); g.stroke(); }
+  for (let k = 0; k < N; k++) { g.beginPath(); g.moveTo(rimTop[k].x, rimTop[k].y); g.lineTo(railIn[k].x, railIn[k].y); g.stroke(); }
 
   // pared interior del riel (se ve del lado lejano)
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < N; k++) {
     if (faces(k)) continue;
-    const j = (k + 1) % 8;
+    const j = (k + 1) % N;
     g.beginPath(); poly(g, [railIn[k], railIn[j], feltIn[j], feltIn[k]]);
     g.fillStyle = WOOD_WALL; g.fill();
   }
@@ -143,11 +144,15 @@ export function drawTable(g, v, line) {
   g.strokeStyle = INK;
   g.lineWidth = line; g.beginPath(); poly(g, rimTop); g.stroke();
   g.beginPath(); poly(g, railIn); g.stroke();
-  for (let k = 0; k < 8; k++) {
+  for (let k = 0; k < N; k++) {
     if (faces(k)) continue;
-    const j = (k + 1) % 8;
+    const j = (k + 1) % N;
     g.beginPath(); g.moveTo(feltIn[k].x, feltIn[k].y); g.lineTo(feltIn[j].x, feltIn[j].y); g.stroke();
   }
   g.lineWidth = line * 0.8; g.beginPath(); poly(g, center); g.stroke();
+  // línea dorada en forma de pista, delgada, siguiendo la forma de la mesa
+  g.lineWidth = line * 1.5; g.strokeStyle = GOLD; g.globalAlpha = 0.85;
+  g.beginPath(); poly(g, track); g.stroke();
+  g.globalAlpha = 1;
   return outline;
 }

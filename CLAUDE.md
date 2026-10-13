@@ -58,8 +58,9 @@ poker-for-the-players/
     main.js         # arranque, conexión con Socket.IO
     stage/          # mesa ilustrada por capas (ver "Estilo visual")
       index.js        # arma las capas, acomoda la vista del servidor, etiquetas y ciclo de animación
-      projection.js   # cámara: convierte puntos de la mesa a pantalla; asientos y ajuste a la pantalla
-      table.js        # la mesa dibujada en canvas
+      config.js       # orilla de la mesa (lista de puntos), cámaras y acomodo de los rivales
+      projection.js   # cámara: convierte puntos de la mesa a pantalla y al revés; ajuste a la pantalla
+      table.js        # la mesa provisional dibujada en canvas (después será una ilustración)
       items.js        # fichas, cartas y botón del dealer en perspectiva
       cards.js        # caras y reversos de las cartas (canvas)
       rivals.js       # poses, parpadeo, respiración de los rivales
@@ -87,7 +88,7 @@ poker-for-the-players/
 
 1. **Mesas con código**: pantalla inicial con "Crear mesa" (genera un código de 5 letras) y "Unirme" (escribir código). El link `/?mesa=ABCDE` entra directo.
 2. **Apodo**: el jugador escribe su apodo antes de sentarse. Se guarda en `localStorage` para la próxima vez.
-3. **Asientos**: hasta 6 (`MAXP` en `server/engine.js`; la mesa redonda chica está pensada para 6). Click en un asiento libre para sentarse antes de que empiece el torneo.
+3. **Asientos**: hasta 7, yo más 6 rivales (`MAXP` en `server/engine.js`, y la misma constante en `client/main.js` y `client/stage/index.js`). Click en un asiento libre para sentarse antes de que empiece el torneo.
 4. **Formato torneo** (decisión del dueño, para una noche de póker a distancia de ~4 horas):
    - Todos empiezan con **5,000 fichas**.
    - Ciegas que suben por reloj: niveles de 15 minutos por omisión (configurable al crear la mesa: 2, 5, 10, 15, 20 o 30), empezando en 25/50 y subiendo hasta 3000/6000 (lista `BLINDS` en `server/engine.js`). El nivel nuevo aplica al repartir la siguiente mano.
@@ -109,7 +110,7 @@ poker-for-the-players/
 
 Dos formas de jugar con bots:
 
-1. **Práctica en solitario**: desde "Jugar contra la compu", el jugador elige cuántos rivales (1 a 5) y la dificultad, y empieza de inmediato. Es una mesa privada que nadie más puede ver ni unirse.
+1. **Práctica en solitario**: desde "Jugar contra la compu", el jugador elige cuántos rivales (1 a 6) y la dificultad, y empieza de inmediato. Es una mesa privada que nadie más puede ver ni unirse.
 2. **Rellenar asientos en una mesa con amigos**: en una mesa normal, cualquier jugador sentado puede agregar o quitar bots en los asientos libres entre manos. Útil cuando son pocos.
 
 ### Dificultades
@@ -140,11 +141,11 @@ Dos formas de jugar con bots:
 
 ## Estilo visual: primera persona en un cuarto de juego de animación 2D
 
-La experiencia es en **primera persona**: la cámara son los ojos del jugador sentado en su silla. Frente a él ve el borde de la mesa, sus dos cartas sobre el fieltro, su pila de fichas al alcance de la mano y, al otro lado de la mesa chica, a los rivales enmarcados por el cuarto.
+La experiencia es en **primera persona**: la cámara son los ojos del jugador sentado en su silla. Frente a él ve la mesa grande, sus dos cartas abajo a la izquierda, su pila de fichas a la derecha, el bote cerca de él y, alrededor de la mesa, a los rivales enmarcados por el cuarto.
 
 **Todo debe parecer un cuadro dibujado a mano de un capítulo de una serie animada de televisión para adultos de ciencia ficción, no un videojuego.** Todo es **original**: no usar personajes, objetos, lugares, logos, frases ni diseños reconocibles de ninguna serie o franquicia existente. Si algo se parece demasiado a algo conocido, cambiarlo. Lo absurdo está en los personajes y los objetos, no en luces de neón.
 
-**Referencia oficial del dueño:** una ilustración de una mesa de póker en un garaje con seis rivales grandes alrededor y tu mano sosteniendo tus cartas abajo a la izquierda. Manda el *tipo de dibujo* de esa imagen: personajes ilustrados con luz de borde, sombras y detalles (arrugas, ojeras, manchas), brazos y manos sobre la mesa sosteniendo cartas, cámara algo alta viendo la mesa desde arriba, luz cálida de la lámpara que se apaga suave hacia las orillas, esquinas oscuras y colores vivos de personaje (blob azul cielo, pulpo morado, alien verde). Esto sustituye las reglas anteriores de "paleta apagada" y "sin degradados" para personajes y luz; lo prohibido sigue siendo el neón chillón en la interfaz y cualquier elemento de series existentes.
+**Referencia oficial del dueño:** una ilustración de una mesa de póker en un garaje con seis rivales grandes alrededor y tu mano sosteniendo tus cartas abajo a la izquierda. `referencia/composicion.png` (fuera de git: tiene textos y diseños de una serie existente) es la referencia de **composición, cámara y acomodo**; de ella no se copia ningún texto, marca ni diseño. Manda el *tipo de dibujo* de esa imagen: personajes ilustrados con luz de borde, sombras y detalles (arrugas, ojeras, manchas), brazos y manos sobre la mesa sosteniendo cartas, cámara algo alta viendo la mesa desde arriba, luz cálida de la lámpara que se apaga suave hacia las orillas, esquinas oscuras y colores vivos de personaje (blob azul cielo, pulpo morado, alien verde). Esto sustituye las reglas anteriores de "paleta apagada" y "sin degradados" para personajes y luz; lo prohibido sigue siendo el neón chillón en la interfaz y cualquier elemento de series existentes.
 
 Lo que NO queremos (así se veía la versión anterior y se descartó): colores neón saturados, materiales brillantes, casi sin contornos, un casino gigante y vacío, personajes hechos de bloques.
 
@@ -153,14 +154,14 @@ Lo que NO queremos (así se veía la versión anterior y se descartó): colores 
 La mesa NO es 3D. Es una pila de capas 2D, de atrás hacia adelante (`client/stage/`):
 
 1. **Fondo**: la ilustración del garaje (`fondo-garaje`) como imagen que cubre la pantalla, centrada en horizontal para que la lámpara quede al centro; en pantallas verticales se recortan los lados. Un viñeteado CSS oscurece las esquinas.
-2. **Mesa** (`table.js`, canvas, se redibuja solo al cambiar el tamaño): octágono en perspectiva visto desde mi asiento, riel de madera café oscuro con vetas y juntas, canto visible en los lados que dan hacia mí, fieltro verde apagado con un octágono central un poco más oscuro, una sola sombra plana (la del riel sobre el fieltro y la de la mesa sobre el piso), mugre (baldosa de motas, manchas y rayones hecha una vez, más aros de vaso) y el charco de luz cálida de la lámpara en el centro, con las orillas más oscuras.
-3. **Cartas, bote y fichas** (`items.js`, canvas, se redibuja con cada jugada): en perspectiva sobre el fieltro, con una sombra plana debajo y contorno de tinta. Las comunitarias van grandes e inclinadas hacia el jugador; mis dos cartas boca arriba frente a mí, justo arriba de la barra de acciones, y mi pila a la derecha.
-4. **Rivales** (`rivals.js`, canvas animado a 30 cuadros, 20 en calidad baja): recortes ilustrados en sus asientos, más chicos mientras más lejos. La mesa los tapa de la cintura para abajo: a cada rival se le recorta la parte de la mesa que queda debajo de su cintura (la mesa que está delante de él), con una sombra plana de contacto sobre el fieltro. Se dibujan después de la mesa (no antes) para que la parte lejana del fieltro no tape el pecho de los de los lados.
+2. **Mesa** (`table.js`, canvas, se redibuja solo al cambiar el tamaño): provisional, dibujada a partir de la orilla de `config.js` (`TABLE_EDGE`). Octágono más ancho que profundo en perspectiva, riel de madera café oscuro con vetas y juntas, canto visible en los lados que dan hacia mí, fieltro verde apagado con un octágono central un poco más oscuro y una línea dorada delgada en forma de pista, una sola sombra plana (la del riel sobre el fieltro y la de la mesa sobre el piso), mugre (baldosa de motas, manchas y rayones hecha una vez, más aros de vaso) y el charco de luz cálida de la lámpara en el centro, con las orillas más oscuras. Sin objetos decorativos por ahora. Después la mesa será una ilustración dibujada con la misma cámara: se calca su orilla, se pasa a coordenadas de la mesa con `view.unproject()` y se pegan los puntos en `TABLE_EDGE`.
+3. **Cartas, bote y fichas** (`items.js`, canvas, se redibuja con cada jugada): en perspectiva sobre el fieltro, con una sombra plana debajo y contorno de tinta. Las comunitarias en fila al centro de la mesa; el bote, un montón desordenado de fichas cerca de mí abajo al centro; la pila de cada rival frente a él y su apuesta un poco más hacia el centro; mis dos cartas abajo a la izquierda (ahí irá la ilustración de mi mano) y mi pila a la derecha, justo arriba de la barra de acciones.
+4. **Rivales** (`rivals.js`, canvas animado a 30 cuadros, 20 en calidad baja): recortes ilustrados en sus asientos, del tamaño que les toca por su distancia a la cámara. Cada uno se sienta con la cintura en la orilla de la mesa y se le recorta en la línea de esa orilla: se esconde lo que queda debajo de la línea de arriba de la silueta de la mesa (alargada más allá de las orillas de la pantalla) y debajo de su cintura, así la mesa lo tapa de la cintura para abajo y sus brazos y cartas quedan sobre la mesa. Lleva una sombra plana de contacto sobre el fieltro. Orden de dibujo: primero los del fondo (del más lejano al más cercano) y al final los de los lados.
 5. **Etiquetas y montos** en HTML, y encima la interfaz.
 
 Reglas:
 
-- **Una sola perspectiva** (`projection.js`): todo (mesa, cartas, fichas, asientos, etiquetas) usa la misma función que convierte un punto de la mesa a pantalla. La escala se ajusta para que la mesa y los rivales quepan entre la franja de arriba y la barra de acciones; el borde cercano de la mesa ocupa la parte de abajo. En vertical la cámara ve más desde arriba, la mesa ocupa casi todo el ancho y los personajes se agrandan para llenar el espacio de arriba.
+- **Una sola perspectiva** (`projection.js`): todo (mesa, cartas, fichas, asientos, etiquetas, recorte de los rivales) usa la misma función que convierte un punto de la mesa a pantalla, y los datos de la escena (orilla, cámaras, asientos) viven en `config.js`. En horizontal la mesa es más ancha que la pantalla y se sale por los dos lados, la cabeza del rival más alto del fondo queda justo debajo de la franja de arriba y el lado cercano de la mesa se sale por abajo. En vertical la cámara ve más desde arriba y un poco más lejos, mi orilla se esconde detrás de la barra y los rivales se agrandan para llenar el espacio de arriba.
 - **Línea de tinta `#1d1611` delgada y uniforme**, igual que la de las ilustraciones: su grueso se calcula con el tamaño al que se ve el fondo, así coincide a cualquier tamaño de pantalla.
 - **Formas planas**: color base y una sola sombra plana; nada de brillos ni reflejos. La luz se pinta.
 - Lo que se dibuja con código (mesa, fichas, cartas) imita el estilo de las ilustraciones; las ilustraciones nunca se re-dibujan con código.
@@ -183,12 +184,19 @@ Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `publi
 1. Generar sus poses sentado de frente sobre fondo gris liso, en el mismo cuadro: `<nombre>-espera`, `-espera-parpadeo`, `-espia`, `-apuesta`, `-apuesta-parpadeo` (`.png` en `arte/`). Se pueden generar con `scripts/generar-personaje.py` a partir de una ilustración de referencia (ángulos `frente` y `lado`; API key de Gemini en `.env`; ver el uso al inicio del script).
 2. Quitar el fondo: `.venv-rembg/bin/python scripts/recortar.py arte/<nombre>-*.png`.
 3. Optimizar: `.venv-rembg/bin/python scripts/optimizar-arte.py`. Escala todas las poses al mismo lienzo, las recorta con una sola caja común (para que al cambiar de pose nada brinque) y las exporta en WebP.
-4. Agregar su entrada en `CHARACTERS` de `client/stage/characters.js`: tamaño, punto de la cintura (debajo de la mano más baja con cartas o fichas: ahí lo tapa la mesa), ancho de lo de abajo (silla incluida) y alto en unidades de mesa.
+4. Agregar su entrada en `CHARACTERS` de `client/stage/characters.js`, con un bloque por ángulo (`frente` para los del fondo; `lado`, tres cuartos viendo a la derecha, para los de los lados): tamaño, punto de la cintura (debajo de la mano más baja con cartas o fichas: ahí lo tapa la mesa), caja de la cabeza (que nadie tapa) y alto en unidades de mesa. Si un personaje no tiene `lado`, se usa `frente`. El rival de la derecha se dibuja en espejo.
 5. Asignarlo en `characterFor(jugador)`.
 
 ### Asientos
 
-Mi lugar es el lado cercano del octágono. Los 5 rivales se sientan en el lado izquierdo, la diagonal lejana izquierda, el lado lejano, la diagonal lejana derecha y el lado derecho (las dos diagonales cercanas quedan vacías). Con pocos rivales se reparten: 1 enfrente; 2 en las diagonales lejanas; 3 en diagonal, enfrente y diagonal; 4 en los lados y las diagonales. Los lugares no cambian durante el torneo aunque alguien quede eliminado. Sin asiento y antes de empezar, cada asiento queda en su lugar fijo con su botón "Sentarme aquí". En vertical los rivales de los lados quedan cortados por la orilla de la pantalla y los de enfrente se enciman un poco.
+Mi lugar es el lado cercano del octágono. Hasta 6 rivales, acomodados como en la composición de referencia (`LAYOUTS` en `config.js`):
+
+- **Fondo**: hasta 4 en fila detrás del borde lejano, de frente.
+- **Lados**: uno a la izquierda y otro a la derecha, más cerca de la cámara y más grandes, cortados por la orilla de la pantalla y girados hacia el centro (imagen `lado`; el de la derecha en espejo).
+
+El orden visual respeta el orden real de juego: el primero es el que habla después de mí (a mi izquierda) y sigue el reloj por el fondo hasta el de mi derecha. Con menos rivales se llena primero el fondo desde el centro (1 al centro, 2, 3 y 4 en fila) y luego los dos lados a la vez (5: 3 al fondo y los dos lados; 6: 4 al fondo y los dos lados), para que nunca quede un lado vacío y el otro lleno. Los lugares no cambian durante el torneo aunque alguien quede eliminado. Sin asiento y antes de empezar, los 6 lugares quedan fijos con su botón "Sentarme aquí".
+
+Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la cara: si la tapan, el del fondo se recorre hacia el centro sobre la orilla, y si aun así alguno le tapa la cara a otro (pantallas angostas), se achican todos un poco. Las etiquetas de nombre van compactas encima de cada rival; si chocan, se recorren de lado o suben, sin taparle la cara a nadie.
 
 ### Paleta (apagada y terrosa)
 
@@ -208,7 +216,7 @@ Mi lugar es el lado cercano del octágono. Los 5 rivales se sientan en el lado i
 ### Dirección de arte
 
 - **Escenario**: un garaje-taller chico, sucio y acogedor, no un casino. Es la ilustración `fondo-garaje`: tablero perforado con herramientas, bobinas que echan chispas, osciloscopio, repisa con frascos raros, lavadora vieja con un frasco que brilla, cables por el piso y la lámpara mostaza colgando al centro. Nada de elementos de series existentes. Ideas para después: humo de algún rival, un mesero que pasa al fondo, botella y cenicero sobre la mesa.
-- **Mesa**: octagonal, pequeña, de madera, para máximo 6 jugadores. Fieltro verde apagado con un octágono central más oscuro, riel de madera café oscuro (ver "Técnica").
+- **Mesa**: octagonal, muy grande (ocupa casi toda la pantalla y se sale por los lados), de madera, para máximo 7 jugadores. Fieltro verde apagado con un octágono central más oscuro y una línea dorada en forma de pista, riel de madera café oscuro (ver "Técnica"). Objetos decorativos (vasos, mazo, dados, cenicero) para después, sin estorbar a las cartas ni al bote.
 - **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
 - **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto y el valor impreso en la ficha de arriba de cada columna (10, 25, 50, 100, 500, 1K), de cara al jugador. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
 - **Cartas**: tarjetas de esquinas redondas dibujadas en canvas (`client/stage/cards.js`) y puestas en perspectiva sobre la mesa, papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en la mesa y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
@@ -220,11 +228,11 @@ Mi lugar es el lado cercano del octágono. Los 5 rivales se sientan en el lado i
   - respiración muy sutil (escala vertical de 1 a 1.5 % desde la cintura), a un ritmo distinto para cada uno;
   - si se retira o está ausente, se ve apagado (desaturado y oscuro) y un poco transparente;
   - aro mostaza en el fieltro frente a quien está pensando.
-- **Manos del jugador**: por ahora mis dos cartas van boca arriba sobre la mesa frente a mí. Después: ilustraciones de mis manos sosteniendo las cartas (el jugador podrá elegir color de piel o mano alienígena).
+- **Manos del jugador**: por ahora mis dos cartas van boca arriba sobre la mesa, abajo a la izquierda. Después: ilustraciones de mis manos sosteniendo las cartas (el jugador podrá elegir color de piel o mano alienígena).
 
 ### Cámara
 
-- Fija en el asiento del jugador, algo alta, viendo la mesa desde arriba como en una toma de la serie (`projection.js`). No se puede arrastrar para mirar alrededor.
+- Fija en el asiento del jugador, sin girar, cerca de mi orilla y viendo la mesa en ángulo desde arriba como en la composición de referencia: la mitad lejana de la mesa se ve comprimida y la cercana amplia (`CAMERAS` en `config.js`). No se puede arrastrar para mirar alrededor.
 - Ideas para después (eran de la versión 3D): voltear levemente hacia quien habla, bajar la mirada al salir el flop.
 
 ### Animaciones de las jugadas propias
@@ -289,7 +297,7 @@ Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la 
 
 ## Pruebas
 
-`test/engine.test.js` con `node --test`: simular al menos 3,000 partidas aleatorias de 2 a 6 jugadores y verificar que las fichas totales nunca cambian y que ninguna mano se queda atorada. Incluir bots en esas simulaciones (mesas solo de bots en las 3 dificultades) y verificar que nunca hagan jugadas ilegales ni reciban cartas ajenas. Probar el evaluador con casos conocidos (escalera real, escalera baja A-2-3-4-5, full contra color, empates).
+`test/engine.test.js` con `node --test`: simular al menos 3,000 partidas aleatorias de 2 a 7 jugadores y verificar que las fichas totales nunca cambian y que ninguna mano se queda atorada. Incluir bots en esas simulaciones (mesas solo de bots en las 3 dificultades) y verificar que nunca hagan jugadas ilegales ni reciban cartas ajenas. Probar el evaluador con casos conocidos (escalera real, escalera baja A-2-3-4-5, full contra color, empates).
 
 ## Comandos esperados
 

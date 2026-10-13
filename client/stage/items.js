@@ -7,9 +7,10 @@ import { cardImage, CARD_PX } from './cards.js';
 import { INK } from './table.js';
 import { mulberry } from './projection.js';
 
-export const CHIP_R = 0.042, CHIP_H = 0.0125;
-export const CARD_W = 0.15, CARD_H = 0.215;
-const PER_COLUMN = 12, GAP = CHIP_R * 2 + 0.008;
+// medidas en unidades de la mesa (la mesa es grande: radio 1 hasta los lados)
+export const CHIP_R = 0.027, CHIP_H = 0.008;
+export const CARD_W = 0.1, CARD_H = 0.143;
+const PER_COLUMN = 12, GAP = CHIP_R * 2 + 0.005;
 const INLAY = { 1000: '#ddb760', 500: '#4d5d78', 100: '#4a423b', 50: '#bd6a52', 25: '#8b955a', 10: '#cbbd9c' };
 const STRIPE = { 10: '#a4452f' };
 const SHADOW = 'rgba(14,20,8,0.34)';
@@ -22,17 +23,25 @@ const shade = (hex, k) => { // mismo color un poco más oscuro (la sombra plana 
 const SIDE = Object.fromEntries(CHIPS.map(c => [c.value, shade(c.color, 0.78)]));
 
 // Columnas de una pila: `amount` sobre `at`, columnas a lo largo de `across`, filas hacia `back`.
-function stackColumns(amount, at, across, back, seed) {
+// `messy`: un montón desordenado (el bote), con las columnas regadas y de distintas alturas.
+function stackColumns(amount, at, across, back, seed, messy) {
   const cols = [];
   for (const c of stackBreakdown(amount).chips) {
     for (let left = c.count; left > 0; left -= PER_COLUMN) cols.push({ value: c.value, n: Math.min(PER_COLUMN, left) });
   }
-  const perRow = Math.min(5, cols.length);
   const rnd = mulberry(seed * 9973 + Math.round(amount));
+  if (messy) { // se parten las columnas altas y se riegan alrededor de `at`, como fichas aventadas
+    const loose = [];
+    for (const c of cols) for (let left = c.n; left > 0;) { const k = Math.min(left, 2 + Math.floor(rnd() * 6)); loose.push({ value: c.value, n: k }); left -= k; }
+    cols.length = 0; cols.push(...loose);
+  }
+  const perRow = Math.min(messy ? 6 : 5, cols.length);
   cols.forEach((col, i) => {
     const row = Math.floor(i / perRow), k = i % perRow;
     const inRow = Math.min(perRow, cols.length - row * perRow);
-    const u = (k - (inRow - 1) / 2) * GAP + (rnd() - 0.5) * 0.006, w = row * GAP * 0.95 + (rnd() - 0.5) * 0.006;
+    const j = messy ? 0.03 : 0.004, rows = Math.ceil(cols.length / perRow);
+    const u = (k - (inRow - 1) / 2) * GAP * (messy ? 0.85 : 1) + (rnd() - 0.5) * j;
+    const w = (messy ? (row - (rows - 1) / 2) * GAP * 0.8 : row * GAP * 0.95) + (rnd() - 0.5) * j;
     col.x = at.x + across.x * u + back.x * w;
     col.z = at.z + across.z * u + back.z * w;
   });
@@ -117,7 +126,7 @@ function drawCard(g, v, it, line) {
 }
 
 function drawDealer(g, v, it, line) {
-  const r = 0.05, hgt = 0.018;
+  const r = 0.032, hgt = 0.012;
   const b = v.project(it.at.x, 0, it.at.z), t = v.project(it.at.x, hgt, it.at.z);
   const rx = r * b.s, ry = Math.abs(v.project(it.at.x, 0, it.at.z + r).y - v.project(it.at.x, 0, it.at.z - r).y) / 2;
   g.beginPath(); g.ellipse(b.x + rx * 0.25, b.y + ry * 0.35, rx, ry, 0, 0, Math.PI * 2); g.fillStyle = SHADOW; g.fill();
@@ -135,14 +144,14 @@ function drawDealer(g, v, it, line) {
   g.lineWidth = line; g.strokeStyle = INK; g.stroke();
 }
 
-// items: [{ kind: 'stack', amount, at, across, back, seed } | { kind: 'card', code, at, tilt, yaw, scale } | { kind: 'dealer', at }]
+// items: [{ kind: 'stack', amount, at, across, back, seed, messy } | { kind: 'card', code, at, tilt, yaw, scale } | { kind: 'dealer', at }]
 export function drawItems(g, v, items, line) {
   g.lineJoin = 'round'; g.lineCap = 'round';
   const parts = [];
   for (const it of items) {
     if (it.kind === 'stack') {
       if (!(it.amount > 0)) continue;
-      const cols = stackColumns(it.amount, it.at, it.across, it.back, it.seed);
+      const cols = stackColumns(it.amount, it.at, it.across, it.back, it.seed, it.messy);
       // una sola sombra plana bajo toda la pila
       g.beginPath();
       for (const c of cols) {

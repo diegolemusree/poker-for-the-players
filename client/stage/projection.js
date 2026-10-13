@@ -2,41 +2,43 @@
 // a pixeles de pantalla: la mesa, las cartas, las fichas, los asientos y las etiquetas la usan todos,
 // así que todo comparte la misma perspectiva aunque se dibuje en 2D.
 //
-// Mundo: la mesa es un octágono de radio 1 (a las esquinas) centrado en el origen, con el fieltro en y = 0.
+// Mundo: la mesa está centrada en el origen con el fieltro en y = 0 y su orilla en TABLE_EDGE (config.js).
 // x crece a la derecha, z hacia mí (mi lado es z > 0), y hacia arriba.
 
+import { TABLE_EDGE, LAYOUTS } from './config.js';
+
 export const DEG = Math.PI / 180;
-export const APOTHEM = Math.cos(22.5 * DEG); // del centro a la mitad de cada lado
 export const RAIL_Y = 0.03;    // el riel de madera queda un poco más alto que el fieltro
 export const APRON = 0.1;      // grueso del canto de la mesa
-export const FELT_R = 0.85;    // donde termina la madera y empieza el fieltro
+export const FELT_R = 0.85;    // donde termina la madera y empieza el fieltro (fracción de la orilla)
+export const TRACK_R = 0.66;   // línea dorada en forma de pista
 export const CENTER_R = 0.5;   // octágono central más oscuro
+export const NEAR_Z = Math.max(...TABLE_EDGE.map(p => p.z)); // mi orilla
+export const FAR_Z = Math.min(...TABLE_EDGE.map(p => p.z));  // la orilla del fondo
 
-// Lados del octágono donde se sientan los rivales (ángulo desde el centro; 90° = mi lado). Los de las
-// diagonales y los lados se corren un poco hacia el fondo para que no se tapen entre ellos.
-export const SLOT = { L: 192, FL: 234, F: 270, FR: 306, R: 348 };
-// Con pocos rivales se reparten para que la mesa se vea pareja (1 rival: enfrente).
-export const SPREAD = [[], ['F'], ['FL', 'FR'], ['FL', 'F', 'FR'], ['L', 'FL', 'FR', 'R'], ['L', 'FL', 'F', 'FR', 'R']];
-
-export function octagon(r = 1, y = 0) {
-  return Array.from({ length: 8 }, (_, k) => {
-    const t = (22.5 + 45 * k) * DEG;
-    return { x: r * Math.cos(t), y, z: r * Math.sin(t) };
-  });
-}
+// La orilla encogida hacia el centro (k = 1 es la orilla misma) a la altura y.
+export const edgeRing = (k = 1, y = 0) => TABLE_EDGE.map(p => ({ x: p.x * k, y, z: p.z * k }));
 export const dirOf = deg => ({ x: Math.cos(deg * DEG), z: Math.sin(deg * DEG) });
-// Distancia del centro a la orilla de la mesa en la dirección `deg`.
-export function rimR(deg) {
-  const off = ((deg % 45) + 45) % 45; // los lados están centrados en múltiplos de 45°
-  return APOTHEM / Math.cos(Math.min(off, 45 - off) * DEG);
+
+// Punto de la orilla en la dirección `deg` desde el centro.
+export function rimPoint(deg) {
+  const d = dirOf(deg);
+  let best = Infinity;
+  for (let i = 0; i < TABLE_EDGE.length; i++) {
+    const a = TABLE_EDGE[i], b = TABLE_EDGE[(i + 1) % TABLE_EDGE.length];
+    const ex = b.x - a.x, ez = b.z - a.z, den = d.x * ez - d.z * ex;
+    if (Math.abs(den) < 1e-9) continue;
+    const t = (a.x * ez - a.z * ex) / den, u = (a.x * d.z - a.z * d.x) / den;
+    if (t > 0 && u >= -1e-9 && u <= 1 + 1e-9) best = Math.min(best, t);
+  }
+  return { x: d.x * best, z: d.z * best };
 }
 
-// Cámara de toma de serie: algo alta, mirando hacia abajo al centro de la mesa.
-// `fit` escoge la escala para que la mesa y los rivales quepan entre la franja de arriba y la barra de abajo.
-export function makeView({ W, H, top, reserve, portrait }) {
-  const pitch = (portrait ? 43 : 38) * DEG, dist = portrait ? 3.3 : 3.4;
+// Cámara de toma de serie, alta y cerca, mirando hacia abajo al centro de la mesa (config.js: CAMERAS).
+export function makeView({ W, H, top, reserve, portrait, cam }) {
+  const pitch = cam.pitch * DEG, dist = cam.dist;
   const sp = Math.sin(pitch), cp = Math.cos(pitch);
-  const C = { y: dist * sp, z: dist * cp + (portrait ? 0.05 : 0.1) };
+  const C = { y: dist * sp, z: dist * cp };
   const v = { W, H, F: 1, cx: 0, cy: 0, pitch, portrait, reserve, top, cam: { x: 0, y: C.y, z: C.z } };
   v.project = (x, y, z) => {
     const dy = y - C.y, dz = z - C.z;
@@ -45,35 +47,79 @@ export function makeView({ W, H, top, reserve, portrait }) {
     const s = v.F / depth;
     return { x: v.cx + x * s, y: v.cy - up * s, s, depth };
   };
+  // Al revés: qué punto de la mesa (a la altura y) se ve en el pixel (sx, sy).
+  v.unproject = (sx, sy, y = 0) => {
+    const ux = (sx - v.cx) / v.F, uy = (v.cy - sy) / v.F;
+    const t = (y - C.y) / (uy * cp - sp);
+    return { x: t * ux, y, z: C.z - t * (cp + uy * sp) };
+  };
   return v;
 }
 
-// Ajusta escala y centro: el borde cercano abajo, la cabeza del rival de enfrente debajo de la franja,
-// y que la mesa no se salga de lado (en vertical se permite un poco, como acordamos).
-export function fit(v, headWorld) {
-  const rim = octagon(1, RAIL_Y);
-  const pts = rim.map(p => v.project(p.x, p.y, p.z));
-  const near = v.project(0, RAIL_Y, APOTHEM);
-  const far = v.project(0, RAIL_Y, -APOTHEM);
-  const nearY = near.y, headY = far.y - far.s * headWorld;
-  const width = Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x));
+// Ajusta escala y centro. La mesa es más ancha que la pantalla (`cam.width`) y se sale por los lados.
+// En horizontal la cabeza del rival más alto del fondo queda justo debajo de la franja de arriba y mi
+// orilla de la mesa se sale por abajo (si la pantalla es muy alta, se acerca más para que no quede flotando).
+// En vertical la mesa queda limitada por el ancho: mi orilla se esconde detrás de la barra y los rivales
+// se agrandan (`v.grow`) para llenar el espacio de arriba.
+export function fit(v, headWorld, cam) {
   const { W, H, top, reserve, portrait } = v;
-  // dónde quiere quedar el borde cercano: en horizontal al fondo de la pantalla; en vertical arriba de la barra
-  const wantNear = portrait ? H - reserve * 0.55 : H + 6;
-  const wantHead = top + (portrait ? 56 : 64);
+  const backs = LAYOUTS.flat().filter(s => s.row === 'back').map(s => rimPoint(s.ang));
+  v.F = 1; v.cx = 0; v.cy = 0;
+  const halfWidth = Math.max(...TABLE_EDGE.map(p => Math.abs(v.project(p.x, RAIL_Y, p.z).x)));
+  const headY = Math.min(...backs.map(p => { const q = v.project(p.x, RAIL_Y, p.z); return q.y - q.s * headWorld; }));
+  const nearY = v.project(0, RAIL_Y, NEAR_Z).y;
+  const wantHead = top + cam.headGap;
+  // en horizontal mi orilla queda debajo de la pantalla; en vertical, escondida detrás de la barra
+  const wantNear = portrait ? H - reserve * 0.62 : H + 8;
+  const byWidth = (cam.width * W) / 2 / halfWidth;
   const byHeight = (wantNear - wantHead) / (nearY - headY);
-  const byWidth = (portrait ? 1.1 : 0.9) * W / width;
-  v.F = Math.min(byHeight, byWidth);
   v.cx = W / 2;
-  v.cy = wantNear - v.F * nearY;
+  v.grow = 1;
+  if (portrait) {
+    v.F = byWidth;
+    v.cy = wantNear - v.F * nearY;
+    const room = Math.min(...backs.map(p => { const q = v.project(p.x, RAIL_Y, p.z); return (q.y - wantHead) / (q.s * headWorld); }));
+    if (room >= 1) { v.grow = Math.min(room, cam.maxGrow || 1); return v; }
+  } else v.F = Math.max(byWidth, byHeight);
+  v.cy = wantHead - v.F * headY;
   return v;
 }
 
 // Polígono convexo de la silueta de la mesa en pantalla (riel arriba + canto abajo).
 export function tableOutline(v) {
-  const top = octagon(1, RAIL_Y).map(p => v.project(p.x, p.y, p.z));
-  const bottom = octagon(1, RAIL_Y - APRON).map(p => v.project(p.x, p.y, p.z));
+  const top = edgeRing(1, RAIL_Y).map(p => v.project(p.x, p.y, p.z));
+  const bottom = edgeRing(1, RAIL_Y - APRON).map(p => v.project(p.x, p.y, p.z));
   return hull([...top, ...bottom]);
+}
+
+// Lo que queda delante de la orilla de la mesa: todo lo que está debajo de la línea de arriba de su silueta,
+// alargada en horizontal más allá de las orillas de la pantalla. Ahí se recorta a los rivales.
+export function frontRegion(outline) {
+  const n = outline.length;
+  let iL = 0, iR = 0;
+  outline.forEach((p, i) => { if (p.x < outline[iL].x) iL = i; if (p.x > outline[iR].x) iR = i; });
+  const walk = step => { const out = []; for (let i = iL; ; i = (i + step + n) % n) { out.push(outline[i]); if (i === iR) return out; } };
+  const a = walk(1), b = walk(-1);
+  const avg = c => c.reduce((s, p) => s + p.y, 0) / c.length;
+  const line = avg(a) <= avg(b) ? a : b; // la cadena de arriba (y menor en pantalla)
+  const L = line[0], R = line[line.length - 1], BIG = 1e5;
+  return [{ x: -BIG, y: L.y }, ...line, { x: BIG, y: R.y }, { x: BIG, y: BIG }, { x: -BIG, y: BIG }];
+}
+
+// Altura en pantalla de la línea de arriba de la orilla en la columna x.
+export function edgeYAt(region, x) {
+  const span = colSpan(region, x);
+  return span ? span[0] : null;
+}
+function colSpan(poly, x) {
+  let a = Infinity, b = -Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    if ((p.x - x) * (q.x - x) > 0 || p.x === q.x) continue;
+    const y = p.y + ((x - p.x) / (q.x - p.x)) * (q.y - p.y);
+    a = Math.min(a, y); b = Math.max(b, y);
+  }
+  return a <= b ? [a, b] : null;
 }
 
 function hull(points) {
@@ -83,18 +129,6 @@ function hull(points) {
   for (const q of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop(); lower.push(q); }
   for (const q of p.slice().reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop(); upper.push(q); }
   return lower.slice(0, -1).concat(upper.slice(0, -1));
-}
-
-// De dónde a dónde (en x) ocupa el polígono en la fila y; null si no la toca.
-export function rowSpan(poly, y) {
-  let a = Infinity, b = -Infinity;
-  for (let i = 0; i < poly.length; i++) {
-    const p = poly[i], q = poly[(i + 1) % poly.length];
-    if ((p.y - y) * (q.y - y) > 0 || p.y === q.y) continue;
-    const x = p.x + ((y - p.y) / (q.y - p.y)) * (q.x - p.x);
-    a = Math.min(a, x); b = Math.max(b, x);
-  }
-  return a <= b ? [a, b] : null;
 }
 
 // La parte del polígono que queda debajo de la fila y (recorte de Sutherland-Hodgman con una recta).
@@ -107,16 +141,6 @@ export function belowRow(poly, y) {
     if (pin !== qin) out.push({ x: p.x + ((y - p.y) / (q.y - p.y)) * (q.x - p.x), y });
   }
   return out;
-}
-
-// Punto del fieltro (y = 0) que cae en la fila de pantalla `sy` sobre la línea x = 0.
-export function feltZAtRow(v, sy, y = 0) {
-  let a = -APOTHEM, b = APOTHEM * 1.6;
-  for (let i = 0; i < 40; i++) {
-    const m = (a + b) / 2;
-    if (v.project(0, y, m).y < sy) a = m; else b = m;
-  }
-  return (a + b) / 2;
 }
 
 // Generador de números al azar con semilla, para que la mugre y el desorden sean siempre iguales.

@@ -28,3 +28,6 @@ coverage/
 
 # Entorno de Python para recortes (rembg)
 .venv-rembg/
+
+# Referencia de composición: tiene textos y diseños de una serie existente, no se publica
+/referencia/composicion.png

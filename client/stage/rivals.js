@@ -4,7 +4,7 @@
 //   apuesta  unos 2 s cuando iguala, apuesta o sube; luego regresa a espera
 // Más una respiración muy sutil (escala vertical desde la cintura) para que no se vea congelado.
 
-import { CHARACTERS, artUrl, loadedImage } from './characters.js';
+import { artOf, angleOf, artUrl, loadedImage } from './characters.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const BLINK_MS = 150;
@@ -49,11 +49,12 @@ export class RivalAnim {
 // y se ve granulado). Se reduce a la mitad varias veces para que la línea quede limpia.
 const scaled = new Map();
 export function clearPoseCache() { scaled.clear(); }
-// `dim`: versión apagada (desaturada y oscura) para quien se retiró o está ausente.
-export function poseCanvas(charId, pose, small, pxH, dim = false) {
-  const key = `${charId}|${pose}|${small ? 1 : 0}|${pxH}|${dim ? 1 : 0}`;
+// `angle`: 'frente' o 'lado'. `dim`: versión apagada (desaturada y oscura) para quien se retiró o está ausente.
+export function poseCanvas(charId, angle, pose, small, pxH, dim = false) {
+  angle = angleOf(charId, angle);
+  const key = `${charId}|${angle}|${pose}|${small ? 1 : 0}|${pxH}|${dim ? 1 : 0}`;
   if (scaled.has(key)) return scaled.get(key);
-  const img = loadedImage(artUrl(CHARACTERS[charId].poses[pose], small));
+  const img = loadedImage(artUrl(artOf(charId, angle).poses[pose], small));
   if (!img) return null; // todavía no carga (solo pasa si se cambió la calidad hace un momento)
   const c = downscale(img, pxH);
   if (dim) darken(c);

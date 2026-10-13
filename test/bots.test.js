@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { decide, makeBots, DIFFICULTIES, BOT_NAMES } from '../server/bots.js';
 import {
-  BLINDS, createState, addPlayer, startHand, act, viewFor, isBetting, pendingRebuys, rebuy, declineRebuy,
+  MAXP, BLINDS, createState, addPlayer, startHand, act, viewFor, isBetting, pendingRebuys, rebuy, declineRebuy,
 } from '../server/engine.js';
 
 const ITER = 15; // pocas repeticiones Monte Carlo para que las pruebas sean rápidas
@@ -63,8 +63,8 @@ function torneoDeBots(semilla, dificultades, maxManos = 400) {
 
 describe('bots', () => {
   test('hay nombres divertidos y no se repiten', () => {
-    const bots = makeBots(5, 'normal', ['Don Chepe']);
-    assert.equal(new Set(bots.map(b => b.name)).size, 5);
+    const bots = makeBots(MAXP - 1, 'normal', ['Don Chepe']);
+    assert.equal(new Set(bots.map(b => b.name)).size, MAXP - 1);
     assert.ok(!bots.some(b => b.name === 'Don Chepe'));
     assert.ok(BOT_NAMES.length >= 8);
   });
@@ -73,7 +73,7 @@ describe('bots', () => {
     test(`mesas solo de bots (${dif}): jugadas siempre legales, sin ver cartas ajenas y fichas intactas`, () => {
       let terminados = 0;
       for (let g = 0; g < 12; g++) {
-        const n = 2 + (g % 5);
+        const n = 2 + (g % (MAXP - 1)); // de 2 a MAXP jugadores
         const s = torneoDeBots(500 + g, Array(n).fill(dif));
         if (s.finished) terminados++;
       }

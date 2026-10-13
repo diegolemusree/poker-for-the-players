@@ -150,15 +150,15 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 
 /* etiquetas de los rivales */
 .seat-tag{position:absolute;left:0;top:0;will-change:transform;text-align:center;font-family:var(--hand);
-  background:var(--paper);color:var(--ink);border:2.5px solid var(--ink);border-radius:18px 22px 17px 21px;padding:3px 12px 6px;
-  box-shadow:3px 3px 0 rgba(29,22,17,.55);min-width:96px;max-width:170px;line-height:1.05}
-.seat-tag .nm{font-family:var(--display);font-size:18px;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  background:var(--paper);color:var(--ink);border:2.5px solid var(--ink);border-radius:14px 17px 13px 16px;padding:2px 9px 4px;
+  box-shadow:2px 2px 0 rgba(29,22,17,.55);min-width:76px;max-width:150px;line-height:1.02}
+.seat-tag .nm{font-family:var(--display);font-size:16px;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .seat-tag .bot{margin-left:5px;font-family:var(--caps);font-size:11px;border:1.5px solid var(--muted);color:var(--muted);border-radius:4px;padding:0 3px;vertical-align:2px}
-.seat-tag .stk{font-family:var(--display);font-size:20px;font-variant-numeric:tabular-nums}
+.seat-tag .stk{font-family:var(--display);font-size:16px;font-variant-numeric:tabular-nums}
 .seat-tag .stk::before{content:'';display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--mustard);border:1.5px solid var(--ink);margin-right:5px;vertical-align:0}
 .seat-tag .tg{font-size:14px;color:var(--muted)}
 .seat-tag .hn{font-size:15px;color:var(--brick)}
-.seat-tag .act{margin:4px -7px 0;border:2px solid var(--ink);border-radius:999px;padding:1px 9px 2px;font-family:var(--display);font-size:16px;letter-spacing:.03em;white-space:nowrap}
+.seat-tag .act{margin:2px -5px 0;border:2px solid var(--ink);border-radius:999px;padding:0 8px 1px;font-family:var(--display);font-size:14px;letter-spacing:.03em;white-space:nowrap}
 .a-check{background:var(--paper2)}
 .a-call{background:#a9b46a}
 .a-raise{background:var(--mustard2)}
@@ -298,10 +298,12 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
   .tools{margin-left:auto}
   .ticker{display:none}
   .hud .lastline{display:block}
-  .seat-tag{min-width:64px;max-width:118px;padding:1px 6px 3px}
-  .seat-tag .nm{font-size:14px}
-  .seat-tag .stk{font-size:15px}
-  .seat-tag .act{font-size:13px}
+  .seat-tag{min-width:60px;max-width:92px;padding:1px 5px 2px;border-width:2px}
+  .seat-tag .nm{font-size:13px}
+  .seat-tag .bot{font-size:9px;margin-left:3px;padding:0 2px}
+  .seat-tag .stk{font-size:13px}
+  .seat-tag .stk::before{width:8px;height:8px;margin-right:3px}
+  .seat-tag .act{font-size:12px;margin:1px -3px 0;padding:0 5px}
   .amt{font-size:14px}
   .amt.pot{font-size:17px}
   .hud-side{top:auto;bottom:200px}
