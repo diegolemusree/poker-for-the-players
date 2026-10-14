@@ -540,11 +540,12 @@ function drawHud() {
   const cell = (label, value, cls, extra) => h('div', { class: 'cell ' + (cls || '') }, h('span', {}, label), h('b', {}, value), extra && h('small', {}, extra));
   const phone = isPhone();
 
-  // una sola franja: bote, lo que te toca, tus fichas, ciegas y ronda
+  // una sola franja: bote, lo que te toca, tus fichas, ciegas y ronda. El bote de aquí incluye las apuestas
+  // de la ronda (las que siguen frente a cada quien); el "Bote" de la mesa es solo el montón del centro.
   const sound = store.get('ppt-sound') === 'on';
   const strip = h('header', { class: 'strip' },
     h('div', { class: 'cells' },
-      cell('Bote', fmt(pot), 'c-pot'),
+      cell('Bote total', fmt(pot), 'c-pot'),
       inPlay && cell('Para igualar', toCall > 0 ? fmt(toCall) : '—', toCall > 0 ? 'c-call' : ''),
       mine && cell('Tus fichas', fmt(mine.stack)),
       cell('Ciegas', `${fmt(v.sb)}/${fmt(v.bb)}`, 'wide', snap.levelLeftMs != null && ['suben en ', deadline(snap.levelLeftMs)]),

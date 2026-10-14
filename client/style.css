@@ -171,6 +171,13 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .seat-tag.turn{border-width:3px;border-color:var(--mustard);box-shadow:0 0 0 2px var(--ink),3px 3px 0 rgba(29,22,17,.55)}
 .seat-tag.win{background:#d9e0a8}
 .seat-tag.dim{opacity:.62}
+.seat-tag.folded{min-width:0;padding-bottom:3px}
+.seat-tag.probe{visibility:hidden;pointer-events:none}
+/* piquito que apunta a la cabeza de su rival (abajo; arriba si la etiqueta va debajo de la cara) */
+.seat-tag::after{content:'';position:absolute;left:calc(50% + var(--tail,0px));bottom:-7px;width:10px;height:10px;margin-left:-6px;
+  background:inherit;border:solid var(--ink);border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+.seat-tag.below::after{bottom:auto;top:-7px;border-width:2.5px 0 0 2.5px}
+.seat-tag:has(.sit)::after,.seat-tag:has(.emptyseat)::after{display:none}
 .seat-tag.pop .act{animation:pop .5s ease-out}
 @keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:none}}
 .seat-tag:has(.sit),.seat-tag:has(.emptyseat){background:none;border:0;box-shadow:none;padding:0}
@@ -361,7 +368,7 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
   .hud .row.amount .step{flex:0 0 44px;padding:0;font-size:26px;line-height:1}
   .hud .row.amount .btn.hot{flex:0 0 auto;min-height:48px;padding:4px 12px;font-size:18px;white-space:nowrap}
 
-  /* etiquetas de los rivales: compactas (nombre arriba; fichas y jugada abajo) si con todos no caben */
+  /* etiquetas de los rivales: siempre compactas (nombre arriba; fichas y jugada abajo) */
   .labels.compact .seat-tag{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;column-gap:3px;min-width:0;max-width:78px;padding:1px 4px 2px}
   .labels.compact .seat-tag .nm{flex:1 0 100%;max-width:100%;font-size:12px}
   .labels.compact .seat-tag .bot{display:none}
@@ -370,6 +377,8 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
   .labels.compact .seat-tag .act{margin:0;padding:0 4px;font-size:10px;border-width:1.5px}
   .labels.compact .seat-tag .tg,.labels.compact .seat-tag .hn{font-size:11px}
   .labels.compact .seat-tag .dl{width:20px;height:20px;font-size:12px;top:-9px;right:-9px}
+  .labels.compact .seat-tag::after{width:8px;height:8px;margin-left:-5px;bottom:-6px;border-width:0 2px 2px 0}
+  .labels.compact .seat-tag.below::after{top:-6px;border-width:2px 0 0 2px}
 }
 
 /* celular acostado: el juego es vertical. Por proporción y no por orientación: en Android el teclado

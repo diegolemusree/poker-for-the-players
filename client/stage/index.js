@@ -31,6 +31,13 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } },
 };
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const overlapArea = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+// La línea de un lugar en la orilla al centro: `d` hacia afuera, `tan` de lado, y on(r, t) el punto a `r` de
+// la orilla (1 = la orilla, 0 = el centro) recorrido `t` de lado.
+function rimLine(rim) {
+  const n = Math.hypot(rim.x, rim.z), d = { x: rim.x / n, z: rim.z / n }, tan = { x: -d.z, z: d.x };
+  return { d, tan, on: (r, t = 0) => ({ x: rim.x * r + tan.x * t, z: rim.z * r + tan.z * t }) };
+}
 function readMode() {
   const m = store.get('ppt-quality') || 'auto';
   return m === 'auto' || QUALITIES.includes(m) ? m : 'auto';
@@ -77,6 +84,8 @@ export function createTableScene(container, ui) {
   let snap = null, L = null, topMax = 0;
   let drawn = [], ring = null;  // rivales y aro de turno que dibuja el ciclo de animación
   let boardQuads = [];          // dónde quedan en pantalla las cartas comunitarias (el aro nunca las pisa)
+  let betSpots = new Map(), betKey = '';   // dónde va la apuesta de cada rival (fijo para un acomodo)
+  let labelSpots = new Map(), labelKey = ''; // y su etiqueta
   const ringCv = document.createElement('canvas'); // el aro se pinta aparte para borrarle lo que tapan fichas y cartas
 
   /* ---------- acomodo: perspectiva, mesa y fondo ---------- */
@@ -116,6 +125,7 @@ export function createTableScene(container, ui) {
     bg.style.backgroundImage = `url("${backgroundUrl(H, small() ? 1 : dpr)}")`;
     const outline = tableOutline(v);
     L = { W, H, v, line, dpr, portrait, phone, reserve, outline, front: frontRegion(outline) };
+    betKey = ''; labelKey = '';
     clearPoseCache();
     place();
   }
@@ -252,6 +262,8 @@ export function createTableScene(container, ui) {
     const boardAt = i => ({ x: (i - 2) * (CARD_W * boardScale + 0.014), z: zBoard });
     boardQuads = v.board.map((_, i) => { const c = cardCorners(boardAt(i), CARD_W * boardScale, CARD_H * boardScale, 0.62, 0); return [c.tl, c.tr, c.br, c.bl].map(q => view.project(q.x, q.y, q.z)); });
     const amt = (at, y, text, cls) => amts.push({ at, y, text, cls });
+    const key = [zBoard, boardScale, xCards, xStack, ...[...spots].map(([seat, sp]) => `${seat}:${sp.rim.x},${sp.rim.z}`)].join('|');
+    if (key !== betKey) { betKey = key; betSpots = planBets(spots, boardAt, CARD_W * boardScale, CARD_H * boardScale, zMe, zPot, xCards, xStack); }
 
     drawn = []; ring = null;
     const live = new Set(), fresh = new Set();
@@ -280,9 +292,7 @@ export function createTableScene(container, ui) {
       // fichas, apuesta, botón del dealer y cartas enseñadas
       if (p && !p.out) {
         // frente a cada rival, sobre la línea que va de su lugar en la orilla al centro (r = 1 es la orilla)
-        const rim = spot ? spot.rim : { x: 0, z: 1 }, n = Math.hypot(rim.x, rim.z);
-        const d = { x: rim.x / n, z: rim.z / n }, tan = { x: -d.z, z: d.x };
-        const on = (r, t = 0) => ({ x: rim.x * r + tan.x * t, z: rim.z * r + tan.z * t });
+        const { d, tan, on } = rimLine(spot ? spot.rim : { x: 0, z: 1 });
         const myStack = { x: xStack, z: zMe - 0.03 };
         if (mine || isFront) items.push({ kind: 'stack', amount: p.stack, at: myStack, across: { x: 1, z: 0 }, back: { x: 0, z: -1 }, seed: s.seat + 1 });
         else if (spot) {
@@ -292,8 +302,9 @@ export function createTableScene(container, ui) {
         }
         if (betting && p.bet > 0 && (spot || mine || isFront)) {
           betSum += p.bet;
-          const at = mine || isFront ? { x: 0.06, z: zMe - 0.24 } : on(0.5);
-          items.push({ kind: 'stack', amount: p.bet, at, across: mine || isFront ? { x: 1, z: 0 } : tan, back: mine || isFront ? { x: 0, z: -1 } : { x: -d.x, z: -d.z }, seed: s.seat + 11 });
+          const at = betSpots.get(mine || isFront ? 'me' : s.seat);
+          // la apuesta de un rival crece hacia él (no hacia las cartas comunitarias)
+          items.push({ kind: 'stack', amount: p.bet, at, across: mine || isFront ? { x: 1, z: 0 } : tan, back: mine || isFront ? { x: 0, z: -1 } : d, seed: s.seat + 11 });
           amt(at, 0.05, ui.fmt(p.bet), mine ? 'mine' : '');
         }
         // en el celular mis cartas van fuera de la mesa: el botón del dealer se pasa junto a mi pila
@@ -309,8 +320,10 @@ export function createTableScene(container, ui) {
 
       // etiqueta sobre la cabeza (o donde iría la cabeza en un asiento libre)
       s.layer = spot ? layerOf(spot) : 0;
+      s.anchored = !!(spot || isFront);
+      s.face = null;
       if (isFront) { const q = view.project(0, 0.1, zMe); s.ax = q.x; s.ay = q.y; }
-      else if (spot) { const f = faceBox(spot); s.ax = (f.x0 + f.x1) / 2; s.ay = p && !p.out ? f.y0 + spot.hpx * 0.02 : f.y0 + spot.hpx * 0.25; }
+      else if (spot) { const f = faceBox(spot); s.face = f; s.ax = (f.x0 + f.x1) / 2; s.ay = p ? f.y0 + spot.hpx * 0.02 : f.y0 + spot.hpx * 0.25; }
       s.show = fillLabel(s, p, { mine, me, started, v, shown, winners, empty: !p && (spot || isFront) });
       s.label.style.display = s.show ? '' : 'none';
     }
@@ -350,6 +363,83 @@ export function createTableScene(container, ui) {
     drawn.sort(drawOrder);
     placeLabels();
     wake();
+  }
+
+  // Dónde va la apuesta de cada rival. Sobre la línea de su lugar al centro, lo más cerca posible de la mitad,
+  // sin tapar nunca las cartas comunitarias (los 5 lugares, aunque aún no salgan), el bote ni mis cartas, y de
+  // ser posible tampoco su propia pila, mi pila, mi apuesta ni la apuesta de otro rival (con 6 rivales no
+  // siempre caben); y sin cruzarse con las de sus vecinos. Para las cartas y el bote se mide con la apuesta
+  // más ancha posible (5 columnas altas, con su monto encima); para lo demás, con una de 3 columnas. Así el
+  // lugar es fijo para cada acomodo y no depende de cuánto apueste.
+  function planBets(spots, boardAt, cw, ch, zMe, zPot, xCards, xStack) {
+    const pad = b => ({ x0: b.x0 - 6, x1: b.x1 + 6, y0: b.y0 - 6, y1: b.y1 + 6 });
+    const never = [0, 1, 2, 3, 4].map(i => { const c = cardCorners(boardAt(i), cw, ch, 0.62, 0); return pad(screenBox([c.tl, c.tr, c.br, c.bl])); });
+    never.push(stackBox({ x: 0, z: zPot }, { x: 1, z: 0 }, { x: 0, z: -1 }, 3, 0.05));
+    if (!L.phone) for (const i of [0, 1]) { // mis cartas (en el celular van fuera de la mesa)
+      const c = cardCorners({ x: xCards + i * 0.11, z: zMe }, CARD_W * 1.05, CARD_H * 1.05, 0.75, 0);
+      never.push(pad(screenBox([c.tl, c.tr, c.br, c.bl])));
+    }
+    // mi apuesta: frente a mí, entre las comunitarias y el bote; un poco más acá o a la derecha si taparía algo
+    let mine = null;
+    for (let dz = 0; dz <= 0.121 && !mine; dz += 0.01) for (const x of [0.06, 0.12, 0.18]) {
+      const at = { x, z: zMe - 0.24 + dz };
+      if (!never.some(b => overlapArea(b, stackBox(at, { x: 1, z: 0 }, { x: 0, z: -1 }, 1, 0.05)))) { mine = at; break; }
+    }
+    mine = mine || { x: 0.06, z: zMe - 0.24 };
+    const avoid = [stackBox(mine, { x: 1, z: 0 }, { x: 0, z: -1 }, 1, 0.05, 3), stackBox({ x: xStack, z: zMe - 0.03 }, { x: 1, z: 0 }, { x: 0, z: -1 }, 2, 0)];
+    // lugares a probar: hacia él o hacia el centro y un poco de lado (poco, y cuesta más: que siga frente a su rival)
+    const tries = [];
+    for (let dr = -0.12; dr <= 0.241; dr += 0.02) for (let t = -0.15; t <= 0.151; t += 0.03) tries.push({ dr, t, cost: dr * dr + 3 * t * t });
+    // en el orden en que están sentados alrededor de la mesa: las apuestas no se cruzan (vista desde el centro,
+    // cada una queda entre las de sus vecinos), si no parecería la apuesta del de junto
+    const angOf = p => (Math.atan2(p.z, p.x) * 180 / Math.PI + 360) % 360;
+    const list = [...spots].map(([seat, spot]) => {
+      const { d, tan, on } = rimLine(spot.rim);
+      return { seat, d, tan, on, ang: angOf(spot.rim), own: stackBox(on(0.74), tan, d, 2, 0), best: null };
+    }).sort((a, b) => a.ang - b.ang);
+    // cada quien escoge su mejor lugar viendo dónde quedaron los demás; unas vueltas, para que el primero no
+    // le gane el único hueco a su vecino
+    for (let round = 0; round < 4; round++) {
+      list.forEach((r, i) => {
+        const others = list.filter(o => o !== r && o.best).map(o => o.best);
+        const left = list.slice(0, i).reverse().find(o => o.best), right = list.slice(i + 1).find(o => o.best);
+        let best = null;
+        for (const { dr, t, cost } of tries) {
+          const at = r.on(0.5 + dr, t), box = stackBox(at, r.tan, r.d, 1, 0.05), usual = stackBox(at, r.tan, r.d, 1, 0.05, 3), tag = amountBox(at);
+          // tapar cartas o bote, nunca; que su monto pise otra apuesta (o al revés), casi nunca; meterse en su
+          // propia pila (parecería parte de ella), poco; encimarse con otra cosa cuesta lo mismo que alejarse ~0.1
+          // por cada 2000 px²
+          const crossed = (left && angOf(at) < angOf(left.best.at) + 4) || (right && angOf(at) > angOf(right.best.at) - 4);
+          const hits = never.reduce((a, b) => a + 1e6 * overlapArea(b, box), 0) + (crossed ? 1e8 : 0)
+            + others.reduce((a, o) => a + 1e3 * (overlapArea(o.tag, usual) + overlapArea(o.usual, tag)) + overlapArea(o.usual, usual), 0)
+            + 300 * overlapArea(r.own, usual) + avoid.reduce((a, b) => a + overlapArea(b, usual), 0) + cost * 2e5;
+          if (!best || hits < best.hits) best = { at, box, usual, tag, hits };
+        }
+        r.best = best;
+      });
+    }
+    return new Map([['me', mine], ...list.map(r => [r.seat, r.best.at])]);
+  }
+  // Caja en pantalla de una pila sobre `at`: `cols` columnas de 12 fichas a lo largo de `across` y `rows` filas
+  // hacia `back`, más su monto escrito encima si `label` (la altura a la que va, como en amt()).
+  function stackBox(at, across, back, rows, label, cols = 5) {
+    const gap = CHIP_R * 2 + 0.005, u = ((cols - 1) / 2) * gap + CHIP_R, pts = [];
+    for (const cu of [-u, u]) for (const cw of [-CHIP_R, (rows - 1) * gap + CHIP_R]) for (const y of [0, 12 * CHIP_H]) {
+      pts.push({ x: at.x + across.x * cu + back.x * cw, y, z: at.z + across.z * cu + back.z * cw });
+    }
+    const b = screenBox(pts);
+    if (!label) return b;
+    const q = amountBox(at, label);
+    return { x0: Math.min(b.x0, q.x0), x1: Math.max(b.x1, q.x1), y0: Math.min(b.y0, q.y0), y1: b.y1 };
+  }
+  // El monto escrito encima de una apuesta (como en amt()): ~64 px de ancho y ~24 de alto.
+  function amountBox(at, y = 0.05) {
+    const q = L.v.project(at.x, y, at.z);
+    return { x0: q.x - 32, x1: q.x + 32, y0: q.y - 24, y1: q.y };
+  }
+  function screenBox(pts) {
+    const ps = pts.map(p => L.v.project(p.x, p.y || 0, p.z));
+    return { x0: Math.min(...ps.map(p => p.x)), x1: Math.max(...ps.map(p => p.x)), y0: Math.min(...ps.map(p => p.y)), y1: Math.max(...ps.map(p => p.y)) };
   }
 
   // Aro de turno: rodea la pila del rival que tiene el turno, centrado en ella (frente a él), como si
@@ -409,47 +499,79 @@ export function createTableScene(container, ui) {
     });
   }
 
-  // Etiquetas encima de cada rival. No se enciman entre sí ni tapan caras (los ojos: se permite pisar la
-  // coronilla), no se salen de la pantalla ni se meten debajo de la franja de arriba. Cada una prueba
-  // lugares en orden: sobre su rival, un poco de lado, más arriba (al espacio del garaje) y al final más
-  // abajo. En el celular, si alguna no cabe justo encima de su rival, todas pasan a la versión compacta, y
-  // se busca el lugar libre más cercano arriba o abajo de la cara (sobre el pecho, que sí se puede tapar).
-  // Primero las de los del fondo y luego las de los lados (que van más cerca de las orillas).
+  // Etiquetas encima de cada rival. Cada asiento tiene un lugar fijo, pegado a su rival, que solo se
+  // recalcula cuando cambia el acomodo (pantalla o asientos), nunca por lo que diga la etiqueta: se acomodan
+  // todas con el tamaño de la etiqueta más grande posible y cada una se ancla por la orilla que da a su
+  // rival, con un piquito que apunta a su cabeza; si la etiqueta crece o se encoge, ese punto no se mueve.
+  // No se enciman entre sí ni tapan caras (los ojos: se permite pisar la coronilla), no se salen de la
+  // pantalla ni se meten debajo de la franja de arriba. Cada una prueba lugares en orden: sobre su rival, un
+  // poco de lado, más arriba (al espacio del garaje) y al final más abajo; en el celular (siempre compactas)
+  // también abajo de la cara, sobre el pecho. Primero las de los del fondo y luego las de los lados.
+  const TAIL = 7; // lo que sobresale el piquito
+  const probe = el('div', 'seat-tag probe');
+  probe.setAttribute('aria-hidden', 'true');
+  labelLayer.append(probe);
   function placeLabels() {
-    const labelTop = topMax + 8;
-    const faces = drawn.map(r => { const f = faceBox(r); return { ...f, y0: f.y0 + (f.y1 - f.y0) * 0.25 }; });
-    const order = seats.slice().sort((a, b) => a.layer - b.layer || b.ay - a.ay);
-    const overlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0)) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
-    for (const compact of L.phone ? [false, true] : [false]) {
-      labelLayer.classList.toggle('compact', compact);
-      const placed = [];
-      let clean = true;
-      for (const s of order) {
-        if (!s.show) continue;
-        const lw = s.label.offsetWidth, lh = s.label.offsetHeight, half = lw / 2 + 4;
-        const inside = x => clamp(x, half, Math.max(half, L.W - half));
-        const y0 = Math.max(labelTop + lh, s.ay - 2), step = lh + 5;
-        const ups = [], downs = [1, 2, 3, 4].map(k => y0 + k * step);
-        for (let y = y0 - step; y - lh >= labelTop; y -= step) ups.push(y);
-        const ys = [y0, ...(compact ? ups.flatMap((y, i) => [y, downs[i]]).concat(downs.slice(ups.length)).filter(y => y != null) : [...ups, ...downs.slice(0, 3)])];
-        const dxs = compact ? [0, -0.15, 0.15, -0.3, 0.3, -0.5, 0.5] : [0, -0.15, 0.15, -0.3, 0.3];
-        let best = null;
-        for (const y of ys) {
-          for (const dx of dxs) {
-            const x = inside(s.ax + dx * lw);
-            const box = { x0: x - lw / 2 - 2, x1: x + lw / 2 + 2, y0: y - lh - 2, y1: y + 2 };
-            const cost = placed.reduce((a, o) => a + overlap(o, box), 0) + faces.reduce((a, f) => a + 3 * overlap(f, box), 0);
-            if (!best || cost < best.cost) best = { x, y, box, cost };
-            if (cost === 0) break;
-          }
-          if (best.cost === 0) break;
-        }
-        if (best.cost > 0 || (L.phone && !compact && best.y !== y0)) clean = false;
-        placed.push(best.box);
-        s.label.style.transform = `translate(${best.x}px,${best.y}px) translate(-50%,-100%)`;
-      }
-      if (clean) break;
+    labelLayer.classList.toggle('compact', L.phone);
+    // la etiqueta más grande posible: nombre largo, fichas y "Pensando…" con su tiempo
+    if (!probe.firstChild) {
+      const nm = el('div', 'nm'), bot = el('span', 'bot');
+      nm.textContent = 'Mamá Tentáculos'; bot.textContent = 'BOT'; nm.append(bot);
+      const stk = el('div', 'stk'), act = el('div', 'act a-think');
+      stk.textContent = '5,000'; act.textContent = 'Pensando… 0:45';
+      probe.append(nm, stk, act);
     }
+    const lw = probe.offsetWidth, lh = probe.offsetHeight;
+    const list = seats.filter(s => s.anchored);
+    const key = [L.W, L.H, lw, lh, ...list.map(s => `${s.seat}:${Math.round(s.ax)},${Math.round(s.ay)}`)].join('|');
+    if (key !== labelKey) { labelKey = key; labelSpots = planLabels(list, lw, lh); }
+    for (const s of seats) {
+      const at = labelSpots.get(s.seat);
+      if (!s.show || !at) continue;
+      // el piquito apunta al centro de su cabeza (sin salirse de la etiqueta)
+      const w = s.label.offsetWidth;
+      s.label.style.setProperty('--tail', `${clamp(s.ax - at.x, -w / 2 + 12, w / 2 - 12)}px`);
+      s.label.classList.toggle('below', at.below);
+      s.label.style.transform = `translate(${at.x}px,${at.below ? at.y + TAIL : at.y - TAIL}px) translate(-50%,${at.below ? '0' : '-100%'})`;
+    }
+  }
+  function planLabels(list, lw, lh) {
+    const labelTop = topMax + 8, half = lw / 2 + 4, H = lh + TAIL;
+    const faces = drawn.map(r => { const f = faceBox(r); return { ...f, y0: f.y0 + (f.y1 - f.y0) * 0.25 }; });
+    const inside = x => clamp(x, half, Math.max(half, L.W - half));
+    const order = list.slice().sort((a, b) => a.layer - b.layer || b.ay - a.ay);
+    const placed = [], out = new Map();
+    for (const s of order) {
+      // y: la orilla de la etiqueta que da a su rival (abajo si va arriba de él; arriba si va debajo)
+      const y0 = Math.max(labelTop + H, s.ay - 2), step = H + 5;
+      const ups = [];
+      for (let y = y0 - step; y - H >= labelTop; y -= step) ups.push(y);
+      const above = [y0, ...ups].map(y => ({ y, below: false }));
+      let cands;
+      if (L.phone) {
+        // en el celular también abajo de la cara; los de los lados, antes que irse muy arriba (arriba de ellos
+        // quedan las etiquetas de los del fondo y ya no se vería de quién es)
+        const f = s.face || { y1: y0 };
+        const below = [0, 1, 2].map(k => ({ y: f.y1 + 2 + k * step, below: true }));
+        cands = s.layer ? [above[0], ...below, ...above.slice(1)] : [...above, ...below];
+      } else cands = [...above, ...[1, 2, 3].map(k => ({ y: y0 + k * step, below: false }))];
+      const dxs = L.phone ? [0, -0.15, 0.15, -0.3, 0.3, -0.5, 0.5] : [0, -0.15, 0.15, -0.3, 0.3];
+      let best = null;
+      for (const c of cands) {
+        for (const dx of dxs) {
+          const x = inside(s.ax + dx * lw);
+          const box = c.below ? { x0: x - lw / 2 - 2, x1: x + lw / 2 + 2, y0: c.y - 2, y1: c.y + H + 2 } : { x0: x - lw / 2 - 2, x1: x + lw / 2 + 2, y0: c.y - H - 2, y1: c.y + 2 };
+          const cost = placed.reduce((a, o) => a + overlapArea(o, box), 0) + faces.reduce((a, f) => a + 3 * overlapArea(f, box), 0)
+            + (box.y1 > L.H - L.reserve ? 1e6 : 0); // nunca sobre la barra de abajo
+          if (!best || cost < best.cost) best = { x, y: c.y, below: c.below, box, cost };
+          if (cost === 0) break;
+        }
+        if (best.cost === 0) break;
+      }
+      placed.push(best.box);
+      out.set(s.seat, best);
+    }
+    return out;
   }
 
   function fillLabel(s, p, o) {
@@ -464,6 +586,14 @@ export function createTableScene(container, ui) {
       return true;
     }
     const v = o.v;
+    const name = () => h('div', { class: 'nm', title: p.nick }, p.nick, p.isBot && h('span', { class: 'bot', title: 'Controlado por la computadora' }, 'BOT'));
+    const dealer = () => o.started && v.dealerSeat === p.seat && h('span', { class: 'dl', title: 'Reparte' }, 'D');
+    // se retiró de esta mano: solo su nombre, apagado (sin fichas ni sello)
+    if (p.inHand && p.folded && !p.out && !p.sittingOut) {
+      lab.classList.add('dim', 'folded');
+      lab.replaceChildren(...[name(), dealer()].filter(Boolean));
+      return true;
+    }
     if (v.toAct === p.id && BETTING.includes(v.phase)) lab.classList.add('turn');
     if (o.winners.includes(p.id)) lab.classList.add('win');
     if ((p.inHand && p.folded) || p.out || p.sittingOut) lab.classList.add('dim');
@@ -471,7 +601,6 @@ export function createTableScene(container, ui) {
     if (p.out) tag = `Fuera (${p.place}.º)`;
     else if (p.sittingOut) tag = 'Ausente';
     else if (p.stack === 0 && o.started && !p.allIn) tag = 'Sin fichas';
-    else if (p.inHand && p.folded) tag = 'Retirado';
     else if (p.allIn) tag = 'All-in';
     const handName = o.shown.includes(p.id) && v.results.hands && v.results.hands[p.id];
     // la última jugada de este rival, con un globito que salta cuando es nueva
@@ -484,12 +613,12 @@ export function createTableScene(container, ui) {
     }
     const thinking = v.toAct === p.id && BETTING.includes(v.phase);
     lab.replaceChildren(...[
-      h('div', { class: 'nm', title: p.nick }, p.nick, p.isBot && h('span', { class: 'bot', title: 'Controlado por la computadora' }, 'BOT')),
+      name(),
       h('div', { class: 'stk' }, fmt(p.stack)),
       handName ? h('div', { class: 'hn' }, handName)
         : thinking ? h('div', { class: 'act a-think' }, 'Pensando…', !p.isBot && snap.turnLeftMs != null && [' ', deadline(snap.turnLeftMs, 'low')])
           : badge || (tag && h('div', { class: 'tg' }, tag)),
-      o.started && v.dealerSeat === p.seat && h('span', { class: 'dl', title: 'Reparte' }, 'D'),
+      dealer(),
       p.isBot && !o.started && o.me && h('button', { class: 'linkbtn', onclick: () => ui.onRemoveBot(p.seat) }, 'Quitar'),
     ].filter(Boolean));
     return true;
