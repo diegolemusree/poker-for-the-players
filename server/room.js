@@ -3,7 +3,7 @@
 
 import { randomBytes } from 'node:crypto';
 import {
-  MAXP, TURN_LIMIT, createState, addPlayer, removePlayer, startHand, act, autoAct, resign, sitIn,
+  MAXP, TURN_LIMIT, RESULT_MS, RESULT_FOLD_MS, createState, addPlayer, removePlayer, startHand, act, autoAct, resign, sitIn,
   rebuy, declineRebuy, pendingRebuys, viewFor, isBetting,
 } from './engine.js';
 import { decide, makeBots, botDelay, botWantsRebuy, DIFFICULTIES } from './bots.js';
@@ -24,7 +24,7 @@ export class Room {
     this.solo = !!opts.solo;
     this.levelMinutes = LEVEL_CHOICES.includes(opts.levelMinutes) ? opts.levelMinutes : (this.solo ? 5 : 15);
     this.tuning = {
-      turnLimitMs: TURN_LIMIT, dealDelayMs: 5000, rebuyWindowMs: 60000,
+      turnLimitMs: TURN_LIMIT, resultMs: RESULT_MS, resultFoldMs: RESULT_FOLD_MS, rebuyWindowMs: 60000,
       botDelay: botDelay, levelMs: this.levelMinutes * 60000, ...tuning,
     };
     this.onChange = onChange;
@@ -37,6 +37,7 @@ export class Room {
     this.ownerId = null;
     this.turnKey = null; this.turnTimer = null; this.dealTimer = null; this.rebuyTimer = null;
     this.dealAt = null; this.rebuyAt = null; this.turnAt = null; this.handledHand = 0;
+    this.readyHand = 0; this.readyIds = new Set(); // quién tocó Listo en el resultado de la mano readyHand
     this.closed = false;
   }
 
@@ -108,6 +109,16 @@ export class Room {
     this.changed();
   }
 
+  // Listo en el resultado de la mano `hand` (si llega tarde, ya no cuenta para la siguiente).
+  ready(token, hand) {
+    const id = this.requireSeated(token);
+    const s = this.state;
+    if (s.phase !== 'showdown' || s.finished || hand !== s.handNo) return;
+    if (this.readyHand !== s.handNo) { this.readyHand = s.handNo; this.readyIds = new Set(); }
+    this.readyIds.add(id);
+    this.changed();
+  }
+
   rebuy(token) { rebuy(this.state, this.requireSeated(token)); this.changed(); }
   decline(token) { declineRebuy(this.state, this.requireSeated(token)); this.changed(); }
   resign(token) { resign(this.state, this.requireSeated(token)); this.changed(); }
@@ -127,13 +138,33 @@ export class Room {
     const view = viewFor(s, you);
     view.players.forEach(p => { p.isBot = this.bots.has(p.id); });
     const left = t => (t ? Math.max(0, t - Date.now()) : null);
+    // resultado de la mano: quién ya tocó Listo, a quién se espera y si mi Listo cuenta
+    const showing = s.phase === 'showdown' && !s.finished;
+    const ready = showing ? this.readyNow() : new Set(), need = this.needReady();
     return {
       code: this.code, solo: this.solo, you, view, ownerId: this.ownerId,
       levelMinutes: this.levelMinutes, maxPlayers: MAXP,
       levelLeftMs: left(s.levelEndsAt), turnLeftMs: left(this.turnAt), dealLeftMs: left(this.dealAt), rebuyLeftMs: left(this.rebuyAt),
       nextBlinds: s.config.levels[Math.min(s.level + 1, s.config.levels.length - 1)],
       pending: pendingRebuys(s).map(p => p.id),
+      resultMs: s.results && s.results.fold ? this.tuning.resultFoldMs : this.tuning.resultMs,
+      readyIds: [...ready],
+      waitIds: showing ? need.filter(p => !ready.has(p.id)).map(p => p.id) : [],
+      canReady: showing && !!you && (need.length === 0 || need.some(p => p.id === you)),
     };
+  }
+
+  /* ---------- Listo: pasar a la siguiente mano ---------- */
+
+  // A quién se espera: a los humanos que siguen en el torneo y no están ausentes. Los bots, los eliminados
+  // y los espectadores no cuentan; si alguien se desconectó, decide el reloj.
+  needReady() { return this.humans().filter(p => !p.out && !p.sittingOut); }
+  readyNow() { return this.readyHand === this.state.handNo ? this.readyIds : new Set(); }
+  // ¿Ya tocaron Listo todos los que cuentan? Si no cuenta nadie (en práctica ya quedaste fuera y ves
+  // a los bots), basta el Listo de cualquiera que esté sentado. Sin ningún Listo, decide el reloj.
+  allReady() {
+    const ready = this.readyNow(), need = this.needReady();
+    return need.length ? need.every(p => ready.has(p.id)) : ready.size > 0;
   }
 
   /* ---------- relojes y bots ---------- */
@@ -195,9 +226,16 @@ export class Room {
     const pend = pendingRebuys(s);
     if (conFichas >= 2) {
       clearTimeout(this.rebuyTimer); this.rebuyTimer = null; this.rebuyAt = null;
-      if (!this.dealTimer) {
-        this.dealAt = Date.now() + this.tuning.dealDelayMs;
-        this.dealTimer = setTimeout(() => this.deal(), this.tuning.dealDelayMs);
+      if (this.allReady()) { // todos tocaron Listo: se reparte ya (en cuanto termine este aviso de cambios)
+        if (!this.dealTimer || this.dealAt > Date.now()) {
+          clearTimeout(this.dealTimer);
+          this.dealAt = Date.now();
+          this.dealTimer = setTimeout(() => this.deal(), 0);
+        }
+      } else if (!this.dealTimer) { // el resultado se ve un rato (menos si todos se retiraron)
+        const ms = s.results && s.results.fold ? this.tuning.resultFoldMs : this.tuning.resultMs;
+        this.dealAt = Date.now() + ms;
+        this.dealTimer = setTimeout(() => this.deal(), ms);
       }
     } else if (pend.length && !this.rebuyTimer) {
       // solo queda uno con fichas: los que se quedaron sin ellas deciden si recompran
@@ -213,7 +251,10 @@ export class Room {
   deal() {
     this.dealTimer = null; this.dealAt = null;
     if (this.closed) return;
-    try { startHand(this.state); } catch { /* no hay suficientes jugadores activos: se espera */ }
+    try { startHand(this.state); } catch {
+      // no hay suficientes jugadores activos: se espera otra vuelta del reloj (los Listo ya no cuentan)
+      this.readyHand = 0;
+    }
     this.changed();
   }
 

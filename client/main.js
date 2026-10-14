@@ -3,8 +3,9 @@
 
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
-import { handLabel } from './ui/hand.js';
+import { handLabel, winningCards } from './ui/hand.js';
 import { isPhone, phoneQuery } from './ui/phone.js';
+import { SUIT_PATH } from './ui/suits.js';
 
 const MAXP = 7;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -123,11 +124,29 @@ async function joinRoom(code, silent) {
 
 /* ---------- cartas ---------- */
 const cardName = c => `${c[0] === 'T' ? '10' : c[0]} de ${SUIT_NAME[c[1]]}`;
+// o.mark: 'win' (de la mano ganadora) o 'dim' (apagada) al final de la mano
 function cardEl(c, o = {}) {
   if (!c) return h('div', { class: 'card ' + (o.back ? 'back' : 'slot') });
   const rank = c[0] === 'T' ? '10' : c[0];
-  return h('div', { class: 'card' + ('hd'.includes(c[1]) ? ' red' : '') + (o.fresh ? ' deal' : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` },
+  return h('div', { class: 'card' + ('hd'.includes(c[1]) ? ' red' : '') + (o.fresh ? ' deal' : '') + (o.mark ? ' ' + o.mark : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` },
     h('span', { class: 'r' }, rank), h('span', { class: 's' }, GLYPH[c[1]]));
+}
+// Al final de la mano: 'win' para las 5 cartas de la mano ganadora, 'dim' para todas las demás.
+function resultMarks(v) {
+  const win = winningCards(v.phase === 'showdown' ? v.results : null);
+  return c => (c && win.size ? (win.has(c) ? 'win' : 'dim') : null);
+}
+// Carta chiquita para el panel del resultado: número y palo dibujado a mano (los mismos de la mesa).
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function miniCard(c, cls) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', SUIT_PATH[c[1]]);
+  svg.append(path);
+  return h('span', { class: 'mini' + ('hd'.includes(c[1]) ? ' red' : '') + (cls ? ' ' + cls : ''), role: 'img', 'aria-label': cardName(c) },
+    h('b', {}, c[0] === 'T' ? '10' : c[0]), svg);
 }
 
 /* ---------- pantallas ---------- */
@@ -198,6 +217,10 @@ const betting = () => BETTING.includes(snap.view.phase);
 function deadline(ms, cls) { // cuenta regresiva que se actualiza sola
   return h('span', { class: 'timer cd ' + (cls || ''), 'data-end': String(snapAt + ms) }, mmss(ms));
 }
+const secs = ms => String(Math.max(0, Math.ceil(ms / 1000)));
+function seconds(ms) { // igual, pero en segundos ("7"): para el resultado de la mano
+  return h('span', { class: 'timer cd secs', 'data-end': String(snapAt + ms) }, secs(ms));
+}
 
 function drawTable() {
   const v = snap.view, mine = me();
@@ -222,7 +245,8 @@ function drawTable() {
   // tablero y bote
   const board = h('div', { class: 'board' });
   const fresh = v.handNo !== prevBoard.hand ? 0 : prevBoard.len;
-  for (let i = 0; i < 5; i++) board.append(cardEl(v.board[i], { fresh: i >= fresh && v.board[i] }));
+  const mark = resultMarks(v);
+  for (let i = 0; i < 5; i++) board.append(cardEl(v.board[i], { fresh: i >= fresh && v.board[i], mark: mark(v.board[i]) }));
   prevBoard = { hand: v.handNo, len: v.board.length };
   const pot = potOf(v);
   const msg = h('div', { class: 'msg', 'aria-live': 'polite' }, centerMessage());
@@ -254,7 +278,7 @@ function drawTable() {
     h('div', {}, h('h2', {}, 'Posiciones'), h('ol', {}, standings(v))),
     h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-10).reverse().map(t => h('li', {}, t)))));
 
-  return h('div', {}, top, notice, h('main', { class: 'stage' }, table), actionBar(), side, ended && finishOverlay());
+  return h('div', {}, top, notice, h('main', { class: 'stage' }, table), actionBar(), side, ended && !showingResult() && finishOverlay());
 }
 
 function standings(v) {
@@ -267,16 +291,9 @@ function standings(v) {
 function centerMessage() {
   const v = snap.view;
   if (!started()) return v.players.length < 2 ? 'Esperando jugadores' : 'Listos para empezar';
+  if (showingResult()) return ''; // el resultado lo explica el panel de abajo
   if (v.finished) return '¡Torneo terminado!';
-  if (v.phase === 'showdown' && v.results) {
-    const nodes = [];
-    v.results.winners.forEach((w, i) => {
-      if (i) nodes.push(h('br'));
-      nodes.push(h('strong', {}, w.name), ` gana ${fmt(w.amount)}${w.hand ? ' con ' + w.hand.toLowerCase() : ''}`);
-    });
-    if (snap.dealLeftMs != null) nodes.push(h('br'), 'Siguiente mano en ', deadline(snap.dealLeftMs));
-    return nodes;
-  }
+  if (v.phase === 'showdown') return '';
   if (v.toAct) {
     const p = v.players.find(x => x.id === v.toAct);
     if (!p) return '';
@@ -297,7 +314,8 @@ function seatContent(el, p, v) {
   if (p.out) el.classList.add('out');
   if (winner) el.classList.add('win');
   const hand = h('div', { class: 'hand' });
-  if (p.inHand && p.cards.length && !(p.folded && !isMe)) p.cards.forEach(c => hand.append(c ? cardEl(c) : cardEl(null, { back: true })));
+  const mark = resultMarks(v);
+  if (p.inHand && p.cards.length && !(p.folded && !isMe)) p.cards.forEach(c => hand.append(c ? cardEl(c, { mark: mark(c) }) : cardEl(null, { back: true })));
   const name = h('div', { class: 'name', title: p.nick }, p.nick + (isMe ? ' (tú)' : ''));
   const box = h('div', { class: 'box' }, name, h('div', { class: 'stack' }, `${fmt(p.stack)} fichas`,
     p.isBot && h('span', { class: 'bot', title: 'Controlado por la computadora' }, 'BOT')));
@@ -318,6 +336,8 @@ function seatContent(el, p, v) {
 /* ---------- barra de acciones ---------- */
 // `phone`: panel compacto del celular (solo en la mesa ilustrada; la vista 2D simple se queda como está)
 function actionBar(phone = false) {
+  // resultado de la mano: el panel va en lugar de la barra (no hay nada que jugar)
+  if (showingResult()) return resultBar();
   const v = snap.view, mine = me();
   const inner = h('div', { class: 'in' });
   const hint = t => inner.append(h('p', { class: 'hint' }, t));
@@ -447,6 +467,117 @@ function turnControls(inner, mine, phone) {
     rng, num, go));
 }
 
+/* ---------- resultado de la mano ---------- */
+// Arriba quién ganó, cuánto y con qué mano (un renglón por bote si hay botes secundarios o empates); abajo una
+// línea por jugador que llegó al final con sus dos cartas y su mano; al pie, la cuenta regresiva y Listo.
+// En la última mano del torneo primero se ve el resultado y después el aviso de campeón.
+let lastHand = null; // { key, at, done }: cuándo se vio el resultado de la última mano del torneo
+function showingResult() {
+  const v = snap.view;
+  if (!started() || v.phase !== 'showdown' || !v.results) return false;
+  if (!v.finished) return true;
+  const key = `${snap.code}:${v.handNo}`, ms = snap.resultMs || 8000;
+  if (!lastHand || lastHand.key !== key) {
+    lastHand = { key, at: performance.now(), done: false };
+    setTimeout(() => { if (screen === 'table') draw(); }, ms + 50);
+  }
+  return !lastHand.done && performance.now() - lastHand.at < ms;
+}
+
+const nickOf = id => (snap.view.players.find(p => p.id === id) || {}).nick || '?';
+const whoIs = id => (id === snap.you ? 'tú' : nickOf(id));
+const andList = ids => { const n = ids.map(whoIs); return n.length > 1 ? `${n.slice(0, -1).join(', ')} y ${n[n.length - 1]}` : n[0]; };
+const lowerFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
+
+// Lo que dice un bote. `many`: hay más de uno y cada uno lleva su nombre y monto delante.
+function potText(pot, many) {
+  const you = snap.you, ws = pot.winners, hand = lowerFirst(pot.hand || '');
+  if (pot.eligible.length === 1) return ws[0] === you ? 'te lo llevas tú (los demás se retiraron)' : `${whoIs(ws[0])} se lo lleva (los demás se retiraron)`;
+  if (ws.length > 1) {
+    const a = ws.map(id => pot.shares[id]);
+    const each = a.every(x => x === a[0]) ? `${fmt(a[0])} cada uno` : a.map(fmt).join(' y ');
+    return many ? `${andList(ws)} empatan con ${hand} (${each})` : `Empate: ${andList(ws)} se reparten ${fmt(pot.amount)} con ${hand} (${each})`;
+  }
+  if (many) return ws[0] === you ? `tú ganas con ${hand}` : `${whoIs(ws[0])} gana con ${hand}`;
+  return ws[0] === you ? `¡Ganas ${fmt(pot.amount)} con ${hand}!` : `${whoIs(ws[0])} gana ${fmt(pot.amount)} con ${hand}`;
+}
+
+function resultLines(r) {
+  const you = snap.you;
+  if (r.fold) {
+    const w = r.winners[0];
+    return [
+      h('p', { class: 'res-line lead' }, w.id === you ? `¡Ganas ${fmt(w.amount)}!` : `${whoIs(w.id)} gana ${fmt(w.amount)}`),
+      h('p', { class: 'res-line sub' }, w.id === you ? 'Los demás se retiraron: no enseñas tus cartas.' : 'Los demás se retiraron: no enseña sus cartas.'),
+    ];
+  }
+  const many = r.pots.length > 1; // con botes secundarios, cada bote lleva su nombre y su monto delante
+  const name = i => (i === 0 ? 'Bote principal' : r.pots.length > 2 ? `Bote secundario ${i}` : 'Bote secundario');
+  return [
+    ...r.pots.map((pot, i) => (many
+      ? h('p', { class: 'res-line' }, h('span', { class: 'res-pot' }, `${name(i)} (${fmt(pot.amount)}):`), ' ', potText(pot, true))
+      : h('p', { class: 'res-line lead' }, potText(pot, false)))),
+    ...r.refunds.map(f => h('p', { class: 'res-line sub' }, f.id === you ? `Se te regresan ${fmt(f.amount)} (nadie los igualó).` : `A ${whoIs(f.id)} se le regresan ${fmt(f.amount)} (nadie los igualó).`)),
+  ];
+}
+
+// Una línea por jugador que llegó al final, de la mejor mano a la peor. En la de quien ganó, la carta
+// propia que no usó se ve apagada.
+function resultRows(v) {
+  const r = v.results, won = Object.fromEntries(r.winners.map(w => [w.id, w.amount]));
+  return r.shown.map(id => {
+    const p = v.players.find(x => x.id === id);
+    if (!p) return null;
+    const used = new Set((r.best && r.best[id]) || []), winner = id in won;
+    return h('li', { class: winner ? 'win' : null },
+      h('span', { class: 'res-cards' }, p.cards.map(c => c && miniCard(c, winner && !used.has(c) ? 'off' : ''))),
+      h('span', { class: 'res-who' },
+        h('b', {}, id === snap.you ? 'Tú' : p.nick),
+        h('span', {}, (r.desc && r.desc[id]) || (r.hands && r.hands[id]) || '')),
+      winner && h('span', { class: 'res-amt' }, `+${fmt(won[id])}`));
+  });
+}
+
+// Al pie: recompra si me quedé sin fichas, volver si estoy ausente, y la cuenta regresiva con Listo.
+function resultFooter(v, mine) {
+  const rows = [];
+  if (mine && !mine.out && !v.finished && mine.stack === 0 && mine.rebuysLeft > 0) {
+    rows.push(h('div', { class: 'row res-rebuy' },
+      h('button', { class: 'btn gold', onclick: () => run('rebuy') }, 'Recomprar 5,000'),
+      h('button', { class: 'btn', onclick: () => confirm('¿Quedarte fuera del torneo?') && run('decline') }, 'Quedarme fuera')));
+  }
+  if (mine && !mine.out && !v.finished && mine.sittingOut) {
+    rows.push(h('div', { class: 'row' }, h('button', { class: 'btn go', onclick: () => run('sitin') }, 'Volver a la mesa')));
+  }
+  let text = null, button = null;
+  if (v.finished) {
+    text = 'Fue la última mano del torneo.';
+    button = h('button', { class: 'btn go', onclick: () => { lastHand.done = true; draw(); } }, 'Listo');
+  } else if (snap.dealLeftMs != null) {
+    const ready = snap.readyIds.includes(snap.you), others = snap.waitIds.filter(id => id !== snap.you);
+    text = [h('span', {}, 'Siguiente mano en ', seconds(snap.dealLeftMs), ' s'), ready && others.length > 0 && h('span', { class: 'res-wait' }, `Esperando a ${andList(others)}`)];
+    if (snap.canReady) {
+      button = ready ? h('button', { class: 'btn ready', disabled: true }, '✓ Listo')
+        : h('button', { class: 'btn go', onclick: () => run('ready', { hand: v.handNo }) }, 'Listo');
+    }
+  } else if (snap.rebuyLeftMs != null) { // solo queda uno con fichas: los demás deciden si recompran
+    const others = snap.pending.filter(id => id !== snap.you);
+    text = others.length
+      ? h('span', {}, `Esperando a que ${andList(others)} ${others.length > 1 ? 'decidan si recompran' : 'decida si recompra'} (`, deadline(snap.rebuyLeftMs, 'low'), ')')
+      : h('span', {}, 'Decide en ', deadline(snap.rebuyLeftMs, 'low'));
+  }
+  rows.push(h('div', { class: 'res-next' }, text && h('p', { class: 'hint' }, text), button));
+  return rows;
+}
+
+function resultBar() {
+  const v = snap.view, r = v.results;
+  return h('div', { class: 'bar result' + (r.fold ? '' : ' shown') }, h('div', { class: 'in' },
+    h('div', { class: 'res-head', 'aria-live': 'polite' }, resultLines(r)),
+    !r.fold && h('ul', { class: 'res-players', 'aria-label': 'Cartas de quienes llegaron al final' }, resultRows(v)),
+    h('div', { class: 'res-foot' }, resultFooter(v, me()))));
+}
+
 /* ---------- final del torneo ---------- */
 function finishOverlay() {
   const v = snap.view;
@@ -565,7 +696,8 @@ function drawHud() {
 
   // lo que acaba de pasar, en palabras (abajo a la izquierda, junto a la barra; lo más nuevo hasta abajo)
   const recent = v.log.slice(-4).reverse();
-  const ticker = started() && recent.length > 0 && h('div', { class: 'ticker', 'aria-live': 'polite' },
+  // (mientras se ve el resultado no hace falta: lo dice el panel, que además es más ancho que la barra)
+  const ticker = started() && recent.length > 0 && !showingResult() && h('div', { class: 'ticker', 'aria-live': 'polite' },
     recent.slice(0, 3).reverse().map((t, i, all) => h('p', { class: i === all.length - 1 ? 'new' : 'old' }, t)));
 
   // celular: la última jugada (o un error) en una sola línea junto a mis cartas, y se borra sola
@@ -582,8 +714,9 @@ function drawHud() {
     lastLogKey = logKey; lastLog = v.log;
   }
   const lost = toast && socket && !socket.connected; // sin conexión: el aviso se queda hasta que vuelva
+  // (mientras se ve el resultado, la última jugada ya la dice el panel; los errores sí se avisan)
   const noteLine = lost ? h('p', { class: 'note-line err' }, toast)
-    : note && note.until > performance.now() && h('p', { class: 'note-line ' + note.kind, role: note.kind === 'err' ? 'alert' : null, 'aria-live': 'polite' }, note.text);
+    : note && note.until > performance.now() && (note.kind === 'err' || !showingResult()) && h('p', { class: 'note-line ' + note.kind, role: note.kind === 'err' ? 'alert' : null, 'aria-live': 'polite' }, note.text);
 
   const notice = (error || toast) && !(phone && started()) && h('div', { class: 'hud-notice' },
     error && h('p', { class: 'err', role: 'alert' }, error),
@@ -593,7 +726,7 @@ function drawHud() {
   const bar = actionBar(phone);
   // en pantallas angostas la última jugada va dentro de la barra (el historial no cabe junto a ella)
   // (en el celular no: ahí el turno lo dicen el aro y la barra en mostaza, y las jugadas van junto a mis cartas)
-  if (!phone && started() && recent.length) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));
+  if (!phone && started() && recent.length && !showingResult()) bar.firstChild.prepend(h('p', { class: 'lastline' }, recent[0]));
   if (!phone && msg && (!Array.isArray(msg) || msg.length)) bar.firstChild.prepend(h('div', { class: 'hud-banner', 'aria-live': 'polite' }, msg));
   // celular: mis dos cartas grandes van en esta franja entre la mesa y la barra (las dibuja la escena dentro
   // de .mc-cards); a un lado el nombre de mi mano y el aviso
@@ -616,7 +749,7 @@ function drawHud() {
     h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-12).reverse().map(t => h('li', {}, t)))),
     phone && h('button', { class: 'btn small side-exit', onclick: exitRoom }, 'Salir de la mesa'));
   if (info && !phone) strip.insertBefore(info, strip.lastChild);
-  return [strip, ticker, notice, side, mycards, bar, v.finished && finishOverlay()].filter(Boolean);
+  return [strip, ticker, notice, side, mycards, bar, v.finished && !showingResult() && finishOverlay()].filter(Boolean);
 }
 // Calidad, sonido y vista 2D: en la franja en pantallas anchas, dentro del panel en el celular.
 function options(sound, cls) {
@@ -637,7 +770,7 @@ function cycleQuality() {
 }
 setInterval(() => { // cuentas regresivas
   const now = performance.now();
-  document.querySelectorAll('.cd').forEach(e => { e.textContent = mmss(Number(e.dataset.end) - now); });
+  document.querySelectorAll('.cd').forEach(e => { const left = Number(e.dataset.end) - now; e.textContent = e.classList.contains('secs') ? secs(left) : mmss(left); });
 }, 250);
 
 /* ---------- arranque ---------- */

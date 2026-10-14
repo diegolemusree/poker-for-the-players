@@ -9,13 +9,16 @@
 import { CHARACTERS, characterFor, artOf, angleOf, backgroundUrl, preloadArt, BACKGROUND } from './characters.js';
 import { makeView, fit, headTop, tableOutline, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z } from './projection.js';
 import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
-import { drawTable } from './table.js';
+import { drawTable, INK } from './table.js';
 import { drawItems, cardCorners, stackFootprint, CARD_W, CARD_H, CHIP_R, CHIP_H } from './items.js';
 import { cardImage, roundRect, CARD_PX } from './cards.js';
 import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
 import { isPhone } from '../ui/phone.js';
+import { winningCards } from '../ui/hand.js';
 
 const MAXP = 7;
+// Final de la mano: las cartas de quienes llegaron se voltean una tras otra y luego se resalta la mano ganadora.
+const FLIP_MS = 320, FLIP_GAP = 170, MARK_PAUSE = 180;
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
 const FIXED = LAYOUTS[MAXP - 1]; // sin asiento y antes de empezar: cada asiento en su lugar
@@ -86,6 +89,8 @@ export function createTableScene(container, ui) {
   let boardQuads = [];          // dónde quedan en pantalla las cartas comunitarias (el aro nunca las pisa)
   let betSpots = new Map(), betKey = '';   // dónde va la apuesta de cada rival (fijo para un acomodo)
   let labelSpots = new Map(), labelKey = ''; // y su etiqueta
+  let itemList = [], myCardList = null, itemsRaf = 0; // lo que va sobre el fieltro (y mis cartas en el celular)
+  let reveal = { hand: '', at: 0, marksAt: 0 };      // cuándo se voltean las cartas del final y se resalta la ganadora
   const ringCv = document.createElement('canvas'); // el aro se pinta aparte para borrarle lo que tapan fichas y cartas
 
   /* ---------- acomodo: perspectiva, mesa y fondo ---------- */
@@ -234,6 +239,15 @@ export function createTableScene(container, ui) {
     const showdown = v.phase === 'showdown' && v.results;
     const shown = showdown && !v.results.fold ? v.results.shown : [];
     const winners = showdown ? v.results.winners.map(w => w.id) : [];
+    // al final, las cartas de quienes llegaron (menos las mías, que ya se ven) se voltean una tras otra en el
+    // orden del resultado; luego se resaltan las 5 de la mano ganadora y se apagan todas las demás
+    const flips = shown.filter(id => !me || id !== me.id), handKey = `${snap.code}:${v.handNo}`;
+    if (shown.length && reveal.hand !== handKey) {
+      const at = reduced.matches ? now - 60000 : now + 120;
+      reveal = { hand: handKey, at, marksAt: at + Math.max(0, flips.length - 1) * FLIP_GAP + FLIP_MS + MARK_PAUSE };
+    }
+    const win5 = winningCards(showdown ? v.results : null);
+    const markOf = code => (win5.size ? (win5.has(code) ? 'win' : 'dim') : null);
     // Sin asiento se mira desde un asiento libre para que nadie tape la mesa.
     const free = Array.from({ length: MAXP }, (_, i) => i).find(i => !v.players.some(p => p.seat === i));
     const base = me ? me.seat : free ?? 0;
@@ -272,14 +286,18 @@ export function createTableScene(container, ui) {
       const mine = !!me && s.seat === base;
       const isFront = !me && s.seat === base;
       const spot = spots.get(s.seat) || null;
+      // quien quedó fuera del torneo ya no se dibuja, salvo mientras se ve el resultado de la mano en que llegó
+      // al final (para que se vean sus cartas)
+      const gone = p && p.out && !shown.includes(p.id);
 
       // rival dibujado
-      if (p && spot && !p.out) {
+      if (p && spot && !gone) {
         live.add(p.id);
         const charId = characterFor(p);
         let a = anims.get(p.id);
         if (!a || a.charId !== charId) { a = new RivalAnim(charId, now); anims.set(p.id, a); fresh.add(p.id); }
-        // reparto nuevo: espía sus cartas (escalonado, como si fueran repartiendo)
+        // reparto nuevo: deja de celebrar la mano anterior y espía sus cartas (escalonado, como si fueran repartiendo)
+        if (a.hand !== undefined && a.hand !== v.handNo) a.calm();
         if (a.hand !== undefined && a.hand !== v.handNo && p.inHand) a.play('espia', 1700, now, 350 + rel(s.seat) * 220);
         a.hand = v.handNo;
         const la = p.lastAction;
@@ -290,7 +308,7 @@ export function createTableScene(container, ui) {
       }
 
       // fichas, apuesta, botón del dealer y cartas enseñadas
-      if (p && !p.out) {
+      if (p && !gone) {
         // frente a cada rival, sobre la línea que va de su lugar en la orilla al centro (r = 1 es la orilla)
         const { d, tan, on } = rimLine(spot ? spot.rim : { x: 0, z: 1 });
         const myStack = { x: xStack, z: zMe - 0.03 };
@@ -312,9 +330,14 @@ export function createTableScene(container, ui) {
         if (started && v.dealerSeat === s.seat) items.push({ kind: 'dealer', at: mine || isFront ? myDealer : on(0.66, -0.2) });
         const holding = p.inHand && p.cards.length && !p.folded;
         if (holding && mine && L.phone) myCards = p.cards;
-        else if (holding && mine) p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: { x: xCards + i * 0.11, z: zMe + (i ? 0.004 : 0) }, tilt: 0.75, yaw: i ? -0.07 : 0.06, scale: 1.05 }));
+        else if (holding && mine) p.cards.forEach((code, i) => items.push({ kind: 'card', code, mark: markOf(code), at: { x: xCards + i * 0.11, z: zMe + (i ? 0.004 : 0) }, tilt: 0.75, yaw: i ? -0.07 : 0.06, scale: 1.05 }));
         else if (holding && shown.includes(p.id)) {
-          p.cards.forEach((code, i) => items.push({ kind: 'card', code, at: mine || isFront ? { x: xCards + i * 0.11, z: zMe } : on(0.6, (i - 0.5) * (CARD_W + 0.012)), tilt: 0.35, yaw: 0, scale: 0.95 }));
+          // las cartas que enseña, frente a él (en el celular más grandes, para que se lean)
+          const big = L.phone ? 1.3 : 1, turn = reveal.at + Math.max(0, flips.indexOf(p.id)) * FLIP_GAP;
+          p.cards.forEach((code, i) => items.push({
+            kind: 'card', code, mark: markOf(code), reveal: turn, tilt: 0.35, yaw: 0, scale: 0.95 * big,
+            at: isFront ? { x: xCards + i * 0.11, z: zMe } : on(0.6, (i - 0.5) * (CARD_W * big + 0.012)),
+          }));
         }
       }
 
@@ -336,6 +359,14 @@ export function createTableScene(container, ui) {
       if (gd) last.react(ga.type, gd.angle, gp && gp.sittingOut, now);
       last.lastN = ga.n;
     }
+    // quien gana enseña su cuadro de "gana" mientras se ve el resultado (si su personaje lo tiene), en cuanto
+    // se resalta la mano ganadora; va después de las reacciones para que la última jugada no lo borre
+    if (showdown) for (const id of winners) {
+      const a = anims.get(id), d = drawn.find(x => x.id === id);
+      if (!a || !d || a.wonHand === v.handNo) continue;
+      a.wonHand = v.handNo;
+      a.win(d.angle, now, snap.resultMs || 8000, Math.max(0, (shown.length ? reveal.marksAt : now + 200) - now));
+    }
 
     // bote en el centro (las apuestas de la ronda siguen frente a cada quien)
     const pot = v.players.reduce((a, p) => a + (p.total || 0), 0) - (betting ? betSum : 0);
@@ -344,14 +375,12 @@ export function createTableScene(container, ui) {
       items.push({ kind: 'stack', amount: pot, at, across: { x: 1, z: 0 }, back: { x: 0, z: -1 }, seed: 99, messy: true });
       amt(at, 0.06, `Bote ${ui.fmt(pot)}`, 'pot');
     }
-    v.board.forEach((code, i) => items.push({ kind: 'card', code, at: boardAt(i), tilt: 0.62, yaw: 0, scale: boardScale }));
+    v.board.forEach((code, i) => items.push({ kind: 'card', code, mark: markOf(code), at: boardAt(i), tilt: 0.62, yaw: 0, scale: boardScale }));
 
     // capa de fichas y cartas
-    const g = itemsCv.getContext('2d');
-    g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    g.clearRect(0, 0, L.W, L.H);
-    drawItems(g, view, items, L.line);
-    if (myCards) drawMyCards(g, myCards);
+    itemList = items;
+    myCardList = myCards && myCards.map(code => ({ code, mark: markOf(code) }));
+    paintItems();
 
     // montos encima de cada apuesta y del bote
     amts.forEach((m, i) => {
@@ -363,6 +392,30 @@ export function createTableScene(container, ui) {
     drawn.sort(drawOrder);
     placeLabels();
     wake();
+  }
+
+  // Capa de fichas y cartas: se pinta una vez por jugada y, al final de la mano, cuadro por cuadro mientras se
+  // voltean las cartas y hasta que se resalta la mano ganadora.
+  function paintItems() {
+    cancelAnimationFrame(itemsRaf); itemsRaf = 0;
+    if (!L) return;
+    const now = performance.now(), marked = now >= reveal.marksAt;
+    let busy = false;
+    const list = itemList.map(it => {
+      if (it.kind !== 'card') return it;
+      let c = it;
+      const t = it.reveal === undefined ? 1 : (now - it.reveal) / FLIP_MS;
+      // boca abajo hasta su turno; a la mitad del giro ya se ve la cara
+      if (t < 1) { busy = true; c = { ...c, code: t < 0.5 ? null : c.code, flip: t <= 0 ? 1 : Math.max(0.03, Math.abs(Math.cos(Math.PI * t))) }; }
+      if (c.mark && !marked) { busy = true; c = { ...c, mark: null }; }
+      return c;
+    });
+    const g = itemsCv.getContext('2d');
+    g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+    g.clearRect(0, 0, L.W, L.H);
+    drawItems(g, L.v, list, L.line);
+    if (myCardList) drawMyCards(g, myCardList.map(c => (marked ? c : { ...c, mark: null })));
+    if (busy) itemsRaf = requestAnimationFrame(paintItems); // con la pestaña oculta espera a que se vea
   }
 
   // Dónde va la apuesta de cada rival. Sobre la línea de su lugar al centro, lo más cerca posible de la mitad,
@@ -482,19 +535,25 @@ export function createTableScene(container, ui) {
   }
 
   // Celular: mis dos cartas grandes y derechas, en la franja entre la mesa y la barra (.mc-cards).
+  // cards: [{ code, mark }] (mark: 'win' o 'dim' al final de la mano, como las de la mesa)
   function drawMyCards(g, cards) {
     const box = container.parentElement && container.parentElement.querySelector('.mc-cards');
     if (!box) return;
     const r = box.getBoundingClientRect(), c0 = container.getBoundingClientRect();
     const hgt = r.height * 0.92, w = (hgt * CARD_PX[0]) / CARD_PX[1];
     const x0 = r.left - c0.left + w * 0.08, y0 = r.top - c0.top + r.height * 0.06;
-    cards.forEach((code, i) => {
+    cards.forEach(({ code, mark }, i) => {
       const cx = x0 + w / 2 + i * w * 0.86, cy = y0 + hgt / 2, a = (i ? 4 : -4) * Math.PI / 180;
       g.save();
       g.translate(cx, cy); g.rotate(a);
       g.fillStyle = 'rgba(14,8,4,0.45)'; // sombra plana
       roundRect(g, -w / 2 + 4, -hgt / 2 + 5, w, hgt, w * 0.1); g.fill();
       g.drawImage(cardImage(code), -w / 2, -hgt / 2, w, hgt);
+      if (mark) {
+        roundRect(g, -w / 2, -hgt / 2, w, hgt, w * 0.117);
+        if (mark === 'dim') { g.fillStyle = 'rgba(29,22,17,0.52)'; g.fill(); }
+        else { g.lineJoin = 'round'; g.lineWidth = L.line * 4.4; g.strokeStyle = INK; g.stroke(); g.lineWidth = L.line * 2.4; g.strokeStyle = '#d9a441'; g.stroke(); }
+      }
       g.restore();
     });
   }

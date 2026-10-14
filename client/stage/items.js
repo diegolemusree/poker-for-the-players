@@ -3,7 +3,7 @@
 // cartas, y el botón del dealer. Cada cosa lleva una sola sombra plana y contorno de tinta.
 
 import { CHIPS, stackBreakdown, chipInfo } from '../chips.js';
-import { cardImage, CARD_PX } from './cards.js';
+import { cardImage, roundRect, CARD_PX } from './cards.js';
 import { INK } from './table.js';
 import { mulberry } from './projection.js';
 
@@ -111,8 +111,10 @@ export function cardCorners(at, w, h, tilt, yaw, lift = 0) {
   return { tl: pt(-w / 2, h), tr: pt(w / 2, h), bl: pt(-w / 2, 0), br: pt(w / 2, 0) };
 }
 
+// `flip` (0 a 1): qué tan ancha se ve mientras se voltea. `mark`: 'win' si es de la mano ganadora (contorno
+// mostaza, plano como el aro de turno) o 'dim' si no (apagada, como un rival retirado).
 function drawCard(g, v, it, line) {
-  const w = CARD_W * (it.scale || 1), h = CARD_H * (it.scale || 1);
+  const w = CARD_W * (it.scale || 1) * (it.flip ?? 1), h = CARD_H * (it.scale || 1);
   const c = cardCorners(it.at, w, h, it.tilt || 0, it.yaw || 0, 0.002);
   const P = p => v.project(p.x, p.y, p.z);
   // sombra plana: la huella de la carta sobre el fieltro, corrida un poco
@@ -124,8 +126,15 @@ function drawCard(g, v, it, line) {
   g.save();
   g.setTransform(g.getTransform().multiply(new DOMMatrix([(tr.x - tl.x) / W, (tr.y - tl.y) / W, (bl.x - tl.x) / H, (bl.y - tl.y) / H, tl.x, tl.y])));
   g.drawImage(cardImage(it.code), 0, 0);
+  if (it.mark) roundRect(g, 0, 0, W, H, 30); // la orilla de la carta, ya en perspectiva
   g.restore();
-  void line;
+  // (el trazo va con el grueso de la pantalla, no el de la carta, para que sea parejo)
+  if (it.mark === 'dim') { g.fillStyle = 'rgba(29,22,17,0.52)'; g.fill(); }
+  else if (it.mark === 'win') {
+    g.lineJoin = 'round';
+    g.lineWidth = line * 4.4; g.strokeStyle = INK; g.stroke();
+    g.lineWidth = line * 2.4; g.strokeStyle = '#d9a441'; g.stroke();
+  }
 }
 
 function drawDealer(g, v, it, line) {
@@ -147,7 +156,7 @@ function drawDealer(g, v, it, line) {
   g.lineWidth = line; g.strokeStyle = INK; g.stroke();
 }
 
-// items: [{ kind: 'stack', amount, at, across, back, seed, messy } | { kind: 'card', code, at, tilt, yaw, scale } | { kind: 'dealer', at }]
+// items: [{ kind: 'stack', amount, at, across, back, seed, messy } | { kind: 'card', code, at, tilt, yaw, scale, flip, mark } | { kind: 'dealer', at }]
 export function drawItems(g, v, items, line) {
   g.lineJoin = 'round'; g.lineCap = 'round';
   const parts = [];

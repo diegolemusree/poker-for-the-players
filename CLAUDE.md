@@ -66,7 +66,7 @@ poker-for-the-players/
       rivals.js       # poses, parpadeo, respiración de los rivales
       characters.js   # personajes (lee personajes.json) y precarga del arte
       personajes.json # registro de personajes: tamaño y cuadros (los escribe el script), cintura, cabeza y alto (a mano)
-    ui/             # palos dibujados, nombre de la mano, regla de "celular" (phone.js)
+    ui/             # palos dibujados, nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
     audio/
   public/
     assets/         # logo, sonidos, íconos, imagen para compartir
@@ -76,6 +76,7 @@ poker-for-the-players/
     robots.txt
   test/
     engine.test.js  # simulación de manos aleatorias
+    resultado.test.js # final de la mano: lo que recibe cada quien y el botón Listo
   docs/
     ESPEC-PERSONAJES.md # cómo debe venir el arte de cada personaje (ángulos, cuadros, encuadre, fondo, estilo)
   referencia/
@@ -104,10 +105,10 @@ poker-for-the-players/
    - Una vez empezado no entran jugadores nuevos; quien se va queda "ausente" (se retira solo cada mano y paga ciegas) hasta que vuelve.
    - Dealer rota cada mano, heads-up correcto (el dealer pone la ciega chica y habla primero preflop).
 5. **Acciones**: retirarse, pasar, igualar, apostar o subir con slider y atajos (½ bote, bote, todo).
-6. **Showdown**: mostrar cartas de los que llegaron, nombre de la jugada y ganador(es).
+6. **Final de la mano (showdown)**: frente a cada jugador que llegó al final se voltean sus cartas, una tras otra; las de quien se retiró nunca se muestran y, si todos se retiraron menos uno, el ganador no enseña las suyas. Luego se resaltan las 5 cartas de la mano ganadora (las de la mesa y las propias que usó; con empate, las de todos los que empatan; con botes secundarios, la mejor mano de la mesa) y se apagan las demás. Un panel explica el resultado (ver "Interfaz"). El servidor manda las cartas ajenas solo al llegar al final y nunca las de quien se retiró: `viewFor` y el resultado (`results` en `server/engine.js`: cada bote con quién lo ganó, devoluciones, las 5 cartas y el nombre de la mano de cada quien) solo traen las de quienes llegaron. Lo que alguien apostó y nadie pudo igualar se le regresa y no se anuncia como premio.
 7. **Turno con tiempo**: 45 segundos. Al vencer, el servidor pasa o retira automáticamente (ya no depende de que otro jugador presione un botón).
 8. **Reconexión**: si alguien recarga la página, recupera su asiento y sus cartas. Usar un `playerToken` aleatorio guardado en `localStorage`, nunca el id del socket.
-9. **Siguiente mano**: se reparte automáticamente 5 segundos después del showdown.
+9. **Siguiente mano**: el resultado se ve 8 segundos (`RESULT_MS`), o 4 si todos se retiraron (`RESULT_FOLD_MS`; los dos en `server/engine.js`), con cuenta regresiva y botón "Listo". En práctica, Listo reparte de inmediato. En mesas con amigos se reparte cuando tocan Listo todos los humanos que siguen en el torneo y no están ausentes, o al acabarse el tiempo: no se espera a bots, eliminados ni espectadores, y si alguien se desconectó decide el reloj (si no queda nadie que cuente, por ejemplo en práctica después de quedar fuera, basta el Listo de cualquiera sentado). El Listo lleva el número de mano, así uno tardío no cuenta para la siguiente. En la última mano del torneo primero se ve el resultado y después el aviso de campeón.
 10. **Recompra única** cuando un jugador se queda en cero (ver formato torneo), y **levantarse** de la mesa antes de empezar o **ausentarse** durante el torneo. Si alguien deja pasar dos turnos seguidos, queda ausente.
 11. **Mesas vacías** se borran de memoria después de 30 minutos sin jugadores.
 12. **Acceso solo para el grupo**: código de acceso general del sitio, configurado con la variable de entorno `ACCESS_CODE`. Se pide una sola vez al entrar y se recuerda en el dispositivo. Si `ACCESS_CODE` no está definida (por ejemplo en desarrollo), no se pide. Validar en el servidor, no solo en el navegador.
@@ -183,7 +184,7 @@ Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `publi
 | `<id>-<ángulo>-<cuadro>.webp` | cada cuadro de cada personaje, por ejemplo `blorp-frente-espera.webp` |
 | `*-chico.webp` | cada cuadro a la mitad, para calidad baja |
 
-Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `apuesta`, `retirarse` (`POSES` en `characters.js`, `CUADROS` en `optimizar-arte.py`, `POSES` en `generar-personaje.py`). Obligatorios: espera, parpadeo, apuesta y retirarse; espia es opcional y, si falta, se usa espera. La especificación completa del arte está en `docs/ESPEC-PERSONAJES.md`.
+Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `apuesta`, `retirarse`, `gana` (`POSES` en `characters.js`, `CUADROS` en `optimizar-arte.py`, `POSES` en `generar-personaje.py`). Obligatorios: espera, parpadeo, apuesta y retirarse; espia y gana son opcionales y, si faltan, se usa espera. **Pendiente**: `gana` por ahora solo lo conoce el juego (`characters.js`); falta agregarlo a los dos scripts, a `prompts-personaje.toml` y a `docs/ESPEC-PERSONAJES.md` en la tarea del pipeline de personajes. La especificación completa del arte está en `docs/ESPEC-PERSONAJES.md`.
 
 **Receta para agregar un personaje** (todos los bots usan a Madame Blorp por ahora; Blorp solo tiene `frente` y le falta `retirarse`):
 
@@ -232,6 +233,7 @@ Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la car
   - **espia** justo después de que le reparten (escalonado, como si fueran repartiendo) y de vez en cuando mientras espera (si no tiene ese cuadro, se queda en espera);
   - **apuesta** unos 2 s cuando iguala, apuesta o sube (no con ciegas, pasar ni retirarse), y luego regresa a espera;
   - **retirarse** 1.4 s al retirarse (si tiene ese cuadro y no está ausente), y después se apaga;
+  - **gana** mientras se ve el resultado de una mano que ganó (también si los demás se retiraron o si empató; no por fichas que le regresan), desde que se resalta la mano ganadora y hasta la mano siguiente, si tiene ese cuadro;
   - respiración muy sutil (escala vertical de 1 a 1.5 % desde la cintura), a un ritmo distinto para cada uno;
   - si se retira o está ausente, se ve apagado (desaturado y oscuro) y un poco transparente;
   - aro mostaza en el fieltro alrededor de la pila de quien está pensando, centrado frente a él; las fichas y las cartas comunitarias quedan encima. (En el celular sigue a un lado de la pila, entre ella y la orilla.)
@@ -287,6 +289,7 @@ Los rivales tienen sus propias animaciones de pose (ver "Animación de los rival
   - Cada apuesta sobre la mesa y el bote llevan su monto escrito encima, para no tener que contar fichas. El valor de cada color de ficha está en el panel "Posiciones".
   - Las cartas comunitarias van grandes e inclinadas hacia el jugador.
   - Cuando es tu turno, la barra se marca en mostaza y el aviso dice qué opciones tienes ("¡Te toca! Para seguir tienes que igualar 50").
+  - **Resultado de la mano**: un panel en lugar de la barra de acciones (en pantallas anchas, más ancho que la barra y bajito, para no tapar mis cartas). Arriba, quién ganó, cuánto y con qué mano ("Madame Blorp gana 450 con color de corazones"; con empate, cuánto le toca a cada quien); con botes secundarios, un renglón por bote ("Bote principal (900): …", "Bote secundario (1,800): …") y lo que se le regresa a alguien. Abajo, una línea por jugador que llegó al final, de la mejor mano a la peor: sus dos cartas (chiquitas, con los mismos palos de la mesa), su nombre y su mano ("Escalera del 5 al 9"), y lo que ganó; en la de quien ganó, la carta propia que no usó se ve apagada. Al lado (abajo en el celular), "Siguiente mano en 7 s" y Listo; después de tocarlo, a quién se espera. Si me quedé sin fichas, Recomprar y Quedarme fuera van dentro del panel. Mientras se ve, no hay historial a la izquierda ni aviso del centro: todo lo dice el panel.
 - Botón para silenciar y botón de calidad gráfica (alta, media, baja).
 - Retirarse cuando se puede pasar gratis pide confirmación ("Puedes pasar gratis, ¿seguro que te retiras?").
 
@@ -301,6 +304,7 @@ Los rivales tienen sus propias animaciones de pose (ver "Animación de los rival
   3. **Mis dos cartas grandes y derechas**, entre la mesa y el panel (`.mycards`; las dibuja la escena en esa caja, es la excepción a "una sola perspectiva"). Junto a ellas, "Tu mano" y un solo aviso de una línea (la última jugada o un error) que se borra a los 4.5 s.
   4. **Panel de acciones**, nunca más de un cuarto de la pantalla: "¡Te toca!…" y una fila con Retirarse, Pasar o Igualar, y Subir (Apostar si nadie ha apostado). Subir cambia esa fila por ½ bote, Bote, Todo, ✕ y abajo − slider + y el botón que confirma; − y + mueven una ciega grande.
 - La escena mide `.mycards` para acomodar la mesa arriba (mi orilla queda detrás de mis cartas), así la mesa no brinca al abrir Subir.
+- **Resultado de la mano**: el panel crece hacia arriba desde la barra y tapa, como mucho, la franja de mis cartas (salen en mi línea del panel), nunca la mesa; cuando se enseñan cartas la tapa completa, para que no se asomen. Si no cabe todo (muchos jugadores o botes), se desliza por dentro y Listo se queda abajo a la vista. Las cartas que enseña cada rival se dibujan más grandes que en la computadora para que se lean.
 - Sin el aviso "Turno de…": lo dicen el aro y el "Pensando…" de la etiqueta, y mi turno, el panel en mostaza.
 - Etiquetas de los rivales: siempre en la versión compacta (nombre arriba, fichas y jugada abajo), en un lugar fijo por asiento: encima de la cabeza los del fondo y, si arriba ya no cabe, debajo de la cara (los de los lados prefieren debajo de la cara antes que irse muy arriba, donde quedarían junto a las de los del fondo). El piquito apunta a su rival. Nunca tapan caras (en ninguna pantalla).
 - **Agregar a pantalla de inicio** (`manifest.json`, `apple-touch-icon` y etiquetas `apple-mobile-web-app-*`): se abre como app sin la barra de Safari, con la barra de estado translúcida (todo respeta las orillas seguras). En iPhone la app guarda sus datos aparte de Safari: la primera vez pide de nuevo el código de acceso y el apodo.
@@ -322,7 +326,11 @@ Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la 
 
 `test/engine.test.js` con `node --test`: simular al menos 3,000 partidas aleatorias de 2 a 7 jugadores y verificar que las fichas totales nunca cambian y que ninguna mano se queda atorada. Incluir bots en esas simulaciones (mesas solo de bots en las 3 dificultades) y verificar que nunca hagan jugadas ilegales ni reciban cartas ajenas. Probar el evaluador con casos conocidos (escalera real, escalera baja A-2-3-4-5, full contra color, empates).
 
-`test/personajes.test.js`: cada personaje de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico); un cuadro que falta se dibuja con espera; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina.
+En esas simulaciones, el resultado de cada mano cuadra: botes + devoluciones = lo apostado, cada bote se reparte entre quienes lo ganaron, solo se le regresa a quien apostó más que todos y las 5 cartas de cada mano son de verdad su mejor mano. El evaluador también da los nombres para los jugadores ("Color de corazones", "Escalera del A al 5").
+
+**Seguridad del final de la mano** (`test/resultado.test.js` con cartas acomodadas en una mesa, y `test/server.test.js` por sockets con tres jugadores y un espectador): se revisa todo lo que recibe cada quien, incluidos el resultado y el historial, sin fiarse de la lista del servidor de quién enseñó: antes del final nadie recibe cartas ajenas; al final llegan las de quienes llegaron y nunca las de quien se retiró; si todos se retiran, nadie ve las del ganador; con all-in, las cartas se enseñan hasta que termina la mano. También el Listo: práctica, amigos (falta uno, todos), un Listo de otra mano, ausentes y espectadores, y la duración de cada resultado.
+
+`test/personajes.test.js`: cada personaje de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico); un cuadro que falta se dibuja con espera; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina; con cuadro `gana`, el que gana lo enseña mientras dura el resultado (sin él se queda en espera) y deja de celebrar con la mano nueva.
 
 ## Comandos esperados
 

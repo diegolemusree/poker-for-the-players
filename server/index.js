@@ -124,6 +124,7 @@ export function createApp({ accessCode = process.env.ACCESS_CODE || '', tuning =
     socket.on('bots:remove', handle((d) => { need().removeBot(token, d.seat); }));
     socket.on('start', handle(() => { need().start(token); }));
     socket.on('act', handle((d) => { need().act(token, String(d.type), d.amount); }));
+    socket.on('ready', handle((d) => { need().ready(token, Number(d.hand)); }));
     socket.on('rebuy', handle(() => { need().rebuy(token); }));
     socket.on('decline', handle(() => { need().decline(token); }));
     socket.on('resign', handle(() => { need().resign(token); }));

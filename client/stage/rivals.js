@@ -3,6 +3,7 @@
 //   espia    justo después de que le reparten y de vez en cuando mientras espera
 //   apuesta  unos 2 s cuando iguala, apuesta o sube; luego regresa a espera
 //   retirarse  al retirarse, antes de apagarse (si el personaje tiene ese cuadro)
+//   gana     mientras se ve el resultado de una mano que ganó (si el personaje tiene ese cuadro)
 // Más una respiración muy sutil (escala vertical desde la cintura) para que no se vea congelado.
 
 import { angleOf, artUrl, loadedImage, poseFile, hasPose } from './characters.js';
@@ -24,6 +25,7 @@ export class RivalAnim {
     this.phase = rand(0, Math.PI * 2);
     this.hand = undefined;         // última mano y última jugada vistas (para no animar lo viejo)
     this.lastN = undefined;
+    this.wonHand = undefined;      // última mano que celebró (gana)
   }
   play(pose, ms, now, delay = 0) {
     if (delay > 0) { this.pending = { pose, at: now + delay, ms }; return; }
@@ -36,6 +38,16 @@ export class RivalAnim {
   react(type, angle, away, now) {
     if (BET_POSE.includes(type)) this.play('apuesta', 2000, now);
     else if (type === 'fold' && !away && hasPose(this.charId, angle, 'retirarse')) this.play('retirarse', 1400, now);
+  }
+  // Ganó la mano: el cuadro gana mientras dura el resultado (`ms`), si el personaje lo tiene; si no, sigue
+  // en espera. `delay`: para que empiece cuando ya se voltearon las cartas.
+  win(angle, now, ms, delay = 0) {
+    if (hasPose(this.charId, angle, 'gana')) this.play('gana', ms, now, delay);
+  }
+  // Mano nueva (aunque el resultado se haya cerrado antes con Listo): deja de celebrar.
+  calm() {
+    if (this.pending && this.pending.pose === 'gana') this.pending = null;
+    if (this.pose === 'gana') { this.pose = 'espera'; this.poseUntil = 0; }
   }
   // Imagen que toca en este momento. `idle`: puede espiar sus cartas por su cuenta.
   frame(now, idle) {

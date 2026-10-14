@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { score5, bestHand, cmp, handName } from '../server/hands.js';
+import { score5, bestHand, bestFive, cmp, handName, describeHand } from '../server/hands.js';
 import {
   MAXP, BLINDS, createState, addPlayer, removePlayer, rebuy, declineRebuy, resign, sitIn, autoAct,
   pendingRebuys, startHand, act, viewFor, canAct, isBetting,
@@ -94,6 +94,40 @@ describe('evaluador de manos', () => {
     ].map(score5);
     for (let i = 1; i < manos.length; i++) assert.ok(cmp(manos[i], manos[i - 1]) > 0, `categoría ${i}`);
   });
+
+  test('nombres para los jugadores: el color dice su palo y la escalera de dónde a dónde', () => {
+    const nombre = (hole, board) => { const b = bestFive(hole, board); return describeHand(b.score, b.cards); };
+    assert.equal(nombre(['Ah', '9h'], ['4h', 'Th', '2h', 'Qc', '8s']), 'Color de corazones');
+    assert.equal(nombre(['Kh', 'Kd'], ['Ks', '2c', '2d', '9h', '4s']), 'Full de reyes y doses');
+    assert.equal(nombre(['9h', '5c'], ['6d', '7s', '8h', 'Kc', '2d']), 'Escalera del 5 al 9');
+    assert.equal(nombre(['Ah', '2c'], ['3d', '4s', '5h', 'Kc', '9d']), 'Escalera del A al 5');
+    assert.equal(nombre(['Ah', 'Kd'], ['Qs', 'Jh', 'Th', '4c', '2s']), 'Escalera del 10 al A');
+    assert.equal(nombre(['As', 'Ks'], ['Qs', 'Js', 'Ts', '2h', '3d']), 'Escalera real de picas');
+    assert.equal(nombre(['5d', '6d'], ['7d', '8d', '9d', 'Kc', '2h']), 'Escalera de color del 5 al 9');
+    assert.equal(nombre(['9h', '9c'], ['9d', '9s', '2h', 'Kc', '4d']), 'Póker de nueves');
+    assert.equal(nombre(['7h', '7c'], ['7d', 'As', '2h', 'Kc', '4d']), 'Trío de sietes');
+    assert.equal(nombre(['Ah', 'Kc'], ['Ad', 'Ks', '2h', '8c', '4d']), 'Doble par: ases y reyes');
+    assert.equal(nombre(['Qh', 'Qc'], ['3d', '8s', '2h', 'Kc', '4d']), 'Par de reinas');
+    assert.equal(nombre(['Kh', 'Jc'], ['4h', 'Th', '2h', 'Qc', '8s']), 'Carta alta: K');
+  });
+
+  test('las 5 cartas de la mejor mano: si da igual, usa las propias', () => {
+    const recta = bestFive(['9h', '2c'], ['9d', '5s', '6c', '7d', '8h']);
+    assert.deepEqual(recta.cards.slice().sort(), ['5s', '6c', '7d', '8h', '9h']);
+    // el tablero juega: las 5 son de la mesa
+    assert.deepEqual(bestFive(['2c', '3d'], ['Ah', 'Kh', 'Qh', 'Jh', 'Th']).cards.slice().sort(), ['Ah', 'Jh', 'Kh', 'Qh', 'Th']);
+  });
+
+  test('bestFive da el mismo puntaje que bestHand', () => {
+    const r = rng(7);
+    const mazo = [...'23456789TJQKA'].flatMap(x => [...'shdc'].map(y => x + y));
+    for (let i = 0; i < 2000; i++) {
+      const m = mazo.slice().sort(() => r() - 0.5).slice(0, 7);
+      const b = bestFive(m.slice(0, 2), m.slice(2));
+      assert.equal(cmp(b.score, bestHand(m)), 0, m.join(' '));
+      assert.equal(cmp(score5(b.cards), b.score), 0, m.join(' '));
+    }
+  });
 });
 
 /* ---------- mesas controladas ---------- */
@@ -157,6 +191,10 @@ describe('reglas de la mesa', () => {
     const stack = id => s.players.find(p => p.id === id).stack;
     assert.equal(stack('A') + stack('B') + stack('C'), 2 * START + 5);
     assert.equal(stack('C'), 0);
+    // cada bote por separado: el principal (C también podía ganarlo) y el secundario, solo de A y B
+    assert.deepEqual(s.results.pots.map(p => [p.amount, p.eligible.slice().sort().join(), p.shares, p.hand]),
+      [[15, 'A,B,C', { B: 10, A: 5 }, 'Par de reyes'], [30, 'A,B', { B: 15, A: 15 }, 'Par de reyes']]);
+    assert.deepEqual(s.results.refunds, []);
   });
 
   test('botes secundarios con tres all-in de distinto tamaño', () => {
@@ -173,6 +211,28 @@ describe('reglas de la mesa', () => {
     assert.equal(stack('A'), 300); // bote principal: 3 x 100
     assert.equal(stack('B'), 400); // bote lateral: 2 x 200
     assert.equal(stack('C'), 200); // lo que nadie igualó regresa
+    const r = s.results;
+    assert.deepEqual(r.pots.map(p => [p.amount, p.winners]), [[300, ['A']], [400, ['B']]]);
+    assert.deepEqual(r.refunds, [{ id: 'C', amount: 200 }]);
+    // lo que se le regresa a C no es un premio: no aparece entre los ganadores
+    assert.deepEqual(r.winners.map(w => [w.id, w.amount, w.hand]), [['A', 300, 'Par de ases'], ['B', 400, 'Par de reyes']]);
+    assert.ok(s.log.includes('A C se le regresan 200 que nadie igualó.'));
+    assert.ok(s.log.includes('A gana 300 con par de ases.'));
+    assert.deepEqual(r.shown, ['A', 'B', 'C'], 'de la mejor mano a la peor');
+  });
+
+  test('lo que deja quien se retira no hace bote secundario', () => {
+    const s = mesa([{ id: 'A', seat: 0 }, { id: 'B', seat: 1 }, { id: 'C', seat: 2 }]);
+    startHand(s);
+    // A reparte; B pone 10 de ciega y se retira, C iguala la subida de A
+    act(s, 'A', 'raise', 60);
+    act(s, 'B', 'fold');
+    act(s, 'C', 'call');
+    jugarPasivo(s);
+    assert.equal(s.results.pots.length, 1);
+    assert.equal(s.results.pots[0].amount, 130);
+    assert.deepEqual(s.results.pots[0].eligible, ['A', 'C']);
+    assert.deepEqual(s.results.refunds, []);
   });
 
   test('ciegas parciales: quien no alcanza la ciega queda all-in', () => {
@@ -307,6 +367,14 @@ describe('viewFor', () => {
     assert.equal(s.phase, 'showdown');
     assert.ok(s.results.fold);
     for (const id of [...s.players.map(p => p.id), null]) revisarSinFugas(s, id, `retiros/${id}`);
+    // el ganador no enseña: el resultado no trae su mano ni sus cartas
+    const ganador = s.players.find(p => !p.folded);
+    assert.deepEqual(s.results.shown, []);
+    for (const k of ['hands', 'desc', 'best']) assert.ok(!(k in s.results), `el resultado trae ${k}`);
+    assert.deepEqual(s.results.winners.map(w => [w.id, w.hand]), [[ganador.id, '']]);
+    for (const id of s.players.filter(p => p !== ganador).map(p => p.id).concat(null)) {
+      assert.ok(viewFor(s, id).players.find(p => p.id === ganador.id).cards.every(c => c === null), 'se vieron las cartas del ganador');
+    }
   });
 
   test('en el showdown se revelan solo las manos de quienes llegaron', () => {
@@ -322,7 +390,25 @@ describe('viewFor', () => {
       if (p.id === retirado.id) assert.ok(p.cards.every(c => c === null), 'el retirado no muestra');
       else assert.deepEqual(p.cards, s.players.find(x => x.id === p.id).cards);
     }
+    for (const k of ['hands', 'desc', 'best']) assert.ok(!(retirado.id in vista.results[k]), `${k} del retirado`);
     for (const id of [...s.players.map(p => p.id), null]) revisarSinFugas(s, id, `showdown/${id}`);
+  });
+
+  test('el resultado nunca trae la mano de quien se retiró, aunque se colara en el estado', () => {
+    const s = mesa([{ id: 'A', seat: 0 }, { id: 'B', seat: 1 }, { id: 'C', seat: 2 }]);
+    startHand(s);
+    act(s, s.toAct, 'fold');
+    const retirado = s.players.find(p => p.folded);
+    jugarPasivo(s);
+    // como si el motor se equivocara y guardara la mano del retirado
+    s.results.best[retirado.id] = retirado.cards.slice();
+    s.results.desc[retirado.id] = 'Par de ases';
+    s.results.hands[retirado.id] = 'Par';
+    for (const id of s.players.filter(p => p !== retirado).map(p => p.id).concat(null)) {
+      const v = viewFor(s, id);
+      for (const k of ['hands', 'desc', 'best']) assert.ok(!(retirado.id in v.results[k]), `${k} del retirado para ${id}`);
+      for (const c of retirado.cards) assert.ok(!JSON.stringify(v).includes(`"${c}"`), `se filtró ${c} para ${id}`);
+    }
   });
 
   test('no modifica el estado original', () => {
@@ -350,6 +436,36 @@ function rng(seed) { // mulberry32: así cualquier fallo se puede repetir con su
 }
 
 const suma = (s, f) => s.players.reduce((a, p) => a + f(p), 0);
+
+// El resultado explica el reparto sin cambiarlo: botes + devoluciones = lo apostado, cada bote cuadra con
+// lo que se llevó cada quien, y las manos (y sus 5 cartas) son solo de quienes llegaron al final.
+function revisarResultado(s, ctx) {
+  const r = s.results, apostado = suma(s, p => p.total);
+  const monto = xs => xs.reduce((a, x) => a + x.amount, 0);
+  assert.equal(monto(r.pots) + monto(r.refunds), apostado, `${ctx}: botes y devoluciones no suman lo apostado`);
+  assert.equal(monto(r.winners) + monto(r.refunds), apostado, `${ctx}: el bote repartido no cuadra`);
+  for (const pot of r.pots) {
+    assert.equal(Object.values(pot.shares).reduce((a, b) => a + b, 0), pot.amount, `${ctx}: un bote no cuadra con su reparto`);
+    assert.deepEqual(Object.keys(pot.shares).sort(), pot.winners.slice().sort(), `${ctx}: reparto de un bote a quien no lo ganó`);
+    assert.ok(pot.winners.every(id => pot.eligible.includes(id)), `${ctx}: ganó un bote quien no podía`);
+  }
+  for (const w of r.winners) assert.equal(w.amount, r.pots.reduce((a, pot) => a + (pot.shares[w.id] || 0), 0), `${ctx}: lo ganado no cuadra`);
+  // solo se le regresa a quien apostó más que todos, y solo lo que nadie más puso
+  const [mayor, segundo] = s.players.slice().sort((a, b) => b.total - a.total);
+  const debeRegresar = !r.fold && mayor.total > segundo.total && !mayor.folded;
+  assert.deepEqual(r.refunds, debeRegresar ? [{ id: mayor.id, amount: mayor.total - segundo.total }] : [], `${ctx}: devolución incorrecta`);
+  if (r.fold) return;
+  const vivos = s.players.filter(p => p.inHand && !p.folded).map(p => p.id).sort();
+  assert.deepEqual(r.shown.slice().sort(), vivos, `${ctx}: enseñan cartas quienes no llegaron`);
+  for (const k of ['hands', 'desc', 'best']) assert.deepEqual(Object.keys(r[k]).sort(), vivos, `${ctx}: ${k} de quien no llegó`);
+  assert.deepEqual(r.pots[0].eligible.slice().sort(), vivos, `${ctx}: el bote principal es de todos los que llegaron`);
+  for (const id of vivos) {
+    const p = s.players.find(x => x.id === id);
+    assert.equal(new Set(r.best[id]).size, 5, `${ctx}: la mejor mano no tiene 5 cartas`);
+    assert.ok(r.best[id].every(c => p.cards.includes(c) || s.board.includes(c)), `${ctx}: la mejor mano trae cartas ajenas`);
+    assert.equal(cmp(score5(r.best[id]), bestHand([...p.cards, ...s.board])), 0, `${ctx}: esas 5 cartas no son su mejor mano`);
+  }
+}
 
 function jugadaAleatoria(s, r) {
   const p = s.players.find(x => x.id === s.toAct);
@@ -463,7 +579,7 @@ function simular(semilla) {
 
     assert.equal(s.phase, 'showdown', `${ctx}: la mano no terminó`);
     assert.equal(s.toAct, null);
-    assert.equal(s.results.winners.reduce((a, w) => a + w.amount, 0), suma(s, p => p.total), `${ctx}: el bote repartido no cuadra`);
+    revisarResultado(s, ctx);
     invariante('al terminar la mano');
     for (const p of s.players) hayFuga(p.id, 'showdown');
     hayFuga(null, 'showdown/espectador');

@@ -8,11 +8,14 @@
 // tiene una recompra, y el torneo termina cuando solo queda un jugador en pie.
 
 import { randomInt } from 'node:crypto';
-import { RANKS, SUITS, bestHand, cmp, handName } from './hands.js';
+import { RANKS, SUITS, bestHand, bestFive, cmp, handName, describeHand } from './hands.js';
 
 export const START = 5000;
 export const MAXP = 7; // yo más 6 rivales, como en la composición de la mesa
 export const TURN_LIMIT = 45000;
+// Cuánto se ve el resultado de una mano antes de repartir la siguiente (antes, si todos tocan Listo).
+export const RESULT_MS = 8000;      // cuando se enseñan cartas
+export const RESULT_FOLD_MS = 4000; // cuando todos se retiraron: no hay cartas que ver
 export const LEVEL_MINUTES = 15;
 export const REBUYS = 1;
 // La ficha más chica es de 10, pero con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20:
@@ -265,26 +268,44 @@ function progress(s, lastSeat) {
   s.toAct = nxt.id; s.turnAt = Date.now();
 }
 
+// Resultado de la mano (lo ven todos, así que solo trae cartas y manos de quienes las enseñaron):
+//   fold     true si ganó porque los demás se retiraron (entonces no enseña sus cartas)
+//   shown    quienes llegaron al final y enseñan sus cartas, de la mejor mano a la peor
+//   hands    nombre corto de la mano de cada uno ('Color'); desc, el completo ('Color de corazones')
+//   best     las 5 cartas de la mano de cada uno (las propias que usó y las de la mesa)
+//   pots     cada bote: monto, quiénes podían ganarlo (eligible), quién lo ganó (winners), cuánto le
+//            tocó a cada quien (shares) y con qué mano (hand). El primero es el principal.
+//   refunds  lo que alguien apostó y nadie pudo igualar: se le regresa, no es premio
+//   winners  quién ganó algo y cuánto en total (sin devoluciones)
 function winByFold(s) {
   const w = live(s)[0];
   const pot = s.players.reduce((a, p) => a + p.total, 0);
   w.stack += pot;
-  s.results = { fold: true, shown: [], winners: [{ id: w.id, name: label(w), amount: pot, hand: '' }] };
+  s.results = {
+    fold: true, shown: [], refunds: [],
+    pots: [{ amount: pot, eligible: [w.id], winners: [w.id], shares: { [w.id]: pot }, hand: '' }],
+    winners: [{ id: w.id, name: label(w), amount: pot, hand: '' }],
+  };
   s.phase = 'showdown'; s.toAct = null;
   addLog(s, `${label(w)} gana ${pot} (los demás se retiraron).`);
   afterHand(s);
 }
 
+const lowerFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
+
 function showdown(s) {
-  const L = live(s), sc = {};
-  L.forEach(p => { sc[p.id] = bestHand([...p.cards, ...s.board]); });
+  const L = live(s), sc = {}, five = {};
+  L.forEach(p => { sc[p.id] = bestHand([...p.cards, ...s.board]); five[p.id] = bestFive(p.cards, s.board).cards; });
+  const desc = id => describeHand(sc[id], five[id]);
   const contrib = s.players.filter(p => p.total > 0);
   const levels = [...new Set(contrib.map(p => p.total))].sort((a, b) => a - b);
   const won = {};
+  const pots = [], refunds = []; // solo para explicar el reparto: no cambian lo que recibe cada quien
   let prev = 0, carry = 0;
   const seatOrder = p => (p.seat - s.dealerSeat - 1 + MAXP) % MAXP;
   for (const lv of levels) {
     let amt = carry; carry = 0;
+    const payers = contrib.filter(p => p.total > prev);
     contrib.forEach(p => { amt += Math.max(0, Math.min(p.total, lv) - prev); });
     prev = lv;
     const elig = L.filter(p => p.total >= lv);
@@ -299,25 +320,48 @@ function showdown(s) {
     const units = Math.floor(amt / CHIP_UNIT);
     const share = Math.floor(units / ws.length);
     let rem = units - share * ws.length, loose = amt - units * CHIP_UNIT;
+    const shares = {};
     ws.forEach(p => {
       let a = share * CHIP_UNIT;
       if (rem > 0) { a += CHIP_UNIT; rem--; }
       a += loose; loose = 0;
       won[p.id] = (won[p.id] || 0) + a;
+      shares[p.id] = a;
     });
+    // lo que solo puso uno y nadie igualó se le regresa; los niveles seguidos con los mismos jugadores
+    // con derecho son un solo bote (lo que dejó quien se retiró no hace bote aparte, solo un all-in)
+    const ids = elig.map(p => p.id), last = pots[pots.length - 1];
+    if (payers.length === 1 && ids.length === 1 && payers[0].id === ids[0]) refunds.push({ id: ids[0], amount: amt });
+    else if (last && last.eligible.join() === ids.join()) {
+      last.amount += amt;
+      for (const [id, a] of Object.entries(shares)) last.shares[id] += a;
+    } else pots.push({ amount: amt, eligible: ids, winners: ws.map(p => p.id), shares, hand: desc(ws[0].id) });
   }
-  if (carry) {
+  if (carry) { // lo que dejó en lo más alto quien se retiró: a la mejor mano (gana el bote principal)
     const top = L.slice().sort((a, b) => cmp(sc[b.id], sc[a.id]))[0];
     won[top.id] = (won[top.id] || 0) + carry;
+    pots[0].amount += carry; pots[0].shares[top.id] += carry;
   }
+  for (const [id, amt] of Object.entries(won)) s.players.find(x => x.id === id).stack += amt;
+  // ganadores: lo que se llevó cada quien de los botes (en el orden de los botes), sin devoluciones
   const winners = [];
-  Object.entries(won).forEach(([id, amt]) => {
-    const p = s.players.find(x => x.id === id);
-    p.stack += amt;
-    winners.push({ id, name: label(p), amount: amt, hand: handName(sc[id]) });
-    addLog(s, `${label(p)} gana ${amt} con ${handName(sc[id]).toLowerCase()}.`);
-  });
-  s.results = { fold: false, shown: L.map(p => p.id), hands: Object.fromEntries(L.map(p => [p.id, handName(sc[p.id])])), winners };
+  for (const pot of pots) {
+    for (const [id, a] of Object.entries(pot.shares)) {
+      const w = winners.find(x => x.id === id);
+      if (w) w.amount += a;
+      else winners.push({ id, name: label(s.players.find(x => x.id === id)), amount: a, hand: desc(id) });
+    }
+  }
+  winners.forEach(w => addLog(s, `${w.name} gana ${w.amount} con ${lowerFirst(w.hand)}.`));
+  refunds.forEach(r => addLog(s, `A ${label(s.players.find(x => x.id === r.id))} se le regresan ${r.amount} que nadie igualó.`));
+  const order = L.slice().sort((a, b) => cmp(sc[b.id], sc[a.id]) || seatOrder(a) - seatOrder(b));
+  s.results = {
+    fold: false, shown: order.map(p => p.id),
+    hands: Object.fromEntries(L.map(p => [p.id, handName(sc[p.id])])),
+    desc: Object.fromEntries(L.map(p => [p.id, desc(p.id)])),
+    best: Object.fromEntries(L.map(p => [p.id, five[p.id]])),
+    pots, refunds, winners,
+  };
   s.phase = 'showdown'; s.toAct = null;
   afterHand(s);
 }
@@ -410,6 +454,10 @@ export function viewFor(state, playerId) {
   for (const p of v.players) {
     if (p.id === playerId || reveal.includes(p.id)) continue;
     p.cards = p.cards.map(() => null);
+  }
+  // el resultado solo trae manos de quienes las enseñaron; se vuelve a filtrar aquí por si acaso
+  for (const k of ['hands', 'desc', 'best']) {
+    if (v.results && v.results[k]) v.results[k] = Object.fromEntries(Object.entries(v.results[k]).filter(([id]) => reveal.includes(id)));
   }
   return v;
 }

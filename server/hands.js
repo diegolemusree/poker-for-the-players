@@ -53,3 +53,47 @@ export function bestHand(cs) {
 }
 
 export const handName = s => (s[0] === 8 && s[1] === 14) ? 'Escalera real' : HAND_NAMES[s[0]];
+
+// Las 5 cartas de la mejor mano con las 2 propias (`hole`) y las de la mesa, y su puntaje. Entre varias
+// iguales se queda con la que usa más cartas propias: son las que se resaltan como "las que usó".
+// (Para comparar manos sin saber cuáles son, bestHand es más rápida: la usan los bots.)
+export function bestFive(hole, board) {
+  const all = [...hole, ...board];
+  let best = null, bestCards = null, bestOwn = -1;
+  const pick = (start, chosen) => {
+    if (chosen.length === Math.min(5, all.length)) {
+      const s = score5(chosen.map(i => all[i]));
+      const own = chosen.filter(i => i < hole.length).length;
+      const c = best ? cmp(s, best) : 1;
+      if (c > 0 || (c === 0 && own > bestOwn)) { best = s; bestCards = chosen.map(i => all[i]); bestOwn = own; }
+      return;
+    }
+    for (let i = start; i < all.length; i++) pick(i + 1, [...chosen, i]);
+  };
+  pick(0, []);
+  return { score: best, cards: bestCards };
+}
+
+export const PLURAL = { 14: 'ases', 13: 'reyes', 12: 'reinas', 11: 'jotas', 10: 'dieces', 9: 'nueves', 8: 'ochos', 7: 'sietes', 6: 'seises', 5: 'cincos', 4: 'cuatros', 3: 'treses', 2: 'doses' };
+const RANK_NAME = { 14: 'A', 13: 'K', 12: 'Q', 11: 'J' };
+export const SUIT_NAMES = { s: 'picas', h: 'corazones', d: 'diamantes', c: 'tréboles' };
+export const rankName = v => RANK_NAME[v] || String(v);
+// "del 5 al 9"; la escalera baja es "del A al 5"
+const span = high => `del ${high === 5 ? 'A' : rankName(high - 4)} al ${rankName(high)}`;
+
+// Nombre de una mano para decírselo a los jugadores: "Color de corazones", "Full de reyes y doses",
+// "Escalera del 5 al 9". `five`: sus 5 cartas (de ahí sale el palo).
+export function describeHand(s, five) {
+  const suit = five && five[0] ? SUIT_NAMES[five[0][1]] : '';
+  switch (s[0]) {
+    case 8: return s[1] === 14 ? `Escalera real de ${suit}` : `Escalera de color ${span(s[1])}`;
+    case 7: return `Póker de ${PLURAL[s[1]]}`;
+    case 6: return `Full de ${PLURAL[s[1]]} y ${PLURAL[s[2]]}`;
+    case 5: return `Color de ${suit}`;
+    case 4: return `Escalera ${span(s[1])}`;
+    case 3: return `Trío de ${PLURAL[s[1]]}`;
+    case 2: return `Doble par: ${PLURAL[s[1]]} y ${PLURAL[s[2]]}`;
+    case 1: return `Par de ${PLURAL[s[1]]}`;
+    default: return `Carta alta: ${rankName(s[1])}`;
+  }
+}

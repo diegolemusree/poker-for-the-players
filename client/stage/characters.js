@@ -14,7 +14,8 @@
 import DATA from './personajes.json' with { type: 'json' };
 
 // La misma lista que scripts/optimizar-arte.py. Obligatorios: espera, parpadeo, apuesta, retirarse.
-export const POSES = ['espera', 'parpadeo', 'espia', 'apuesta', 'retirarse'];
+// Opcionales: espia y gana (si faltan, se usa espera). gana todavía no está en los scripts de arte.
+export const POSES = ['espera', 'parpadeo', 'espia', 'apuesta', 'retirarse', 'gana'];
 
 export const CHARACTERS = Object.fromEntries(Object.entries(DATA).map(([id, c]) => [id, {
   name: c.name,

@@ -273,6 +273,44 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .hud .overlay .card-panel{background:var(--paper);color:var(--ink);border:2px solid var(--ink);box-shadow:4px 4px 0 var(--ink);font-family:var(--hand)}
 .hud .overlay .big{font-family:var(--display);font-weight:400;color:var(--brick)}
 
+/* resultado de la mano: en lugar de la barra de acciones. Arriba quién ganó (un renglón por bote), abajo una
+   línea por jugador que llegó al final, y la cuenta regresiva con Listo (en pantallas anchas a la derecha del
+   título, para que el panel sea bajito y no tape mis cartas) */
+.bar.result .in{gap:7px}
+.hud .bar.result .in{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"head foot" "rows rows";align-items:center;gap:7px 18px;
+  max-width:940px;max-height:min(46vh,430px);overflow-y:auto;overscroll-behavior:contain}
+.res-head{grid-area:head;display:flex;flex-direction:column;gap:2px}
+.res-line{margin:0;font-size:18px;line-height:1.25}
+.res-line.lead{font-family:var(--display);font-size:25px;line-height:1.1;letter-spacing:.01em}
+.res-line.sub{color:var(--muted);font-size:17px}
+.res-pot{font-family:var(--display);letter-spacing:.01em}
+.res-players{grid-area:rows;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:4px 10px}
+.res-players li{display:flex;align-items:center;gap:9px;min-width:0;padding:3px 10px 3px 4px;border-radius:14px 16px 13px 15px}
+.res-players li.win{background:#e7dea6;box-shadow:inset 0 0 0 2px var(--ink)}
+.res-cards{display:flex;gap:3px;flex:none}
+.res-who{display:flex;flex-direction:column;min-width:0;line-height:1.1}
+.res-who b{font-family:var(--display);font-weight:400;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-who span{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-amt{margin-left:auto;padding-left:6px;font-family:var(--display);font-size:21px;color:#56661f;white-space:nowrap}
+.res-foot{grid-area:foot;display:flex;flex-direction:column;gap:7px}
+.res-next{display:flex;align-items:center;gap:12px}
+.res-next .hint{flex:1 1 auto;margin:0;display:flex;flex-direction:column;line-height:1.2}
+.res-wait{font-size:15px;color:var(--muted)}
+.res-next .btn{flex:0 0 auto;min-width:128px}
+.res-next .btn.ready{background:transparent;box-shadow:none;border-style:dashed;opacity:1;cursor:default}
+.res-rebuy{flex-wrap:nowrap}
+/* carta chiquita del panel: número y palo dibujado a mano (los mismos de la mesa) */
+.mini{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:33px;height:46px;flex:none;
+  background:#fbf6e6;color:#2b2622;border:2px solid var(--ink);border-radius:7px;box-shadow:1px 2px 0 rgba(29,22,17,.4);line-height:1}
+.mini b{font-family:var(--display);font-weight:400;font-size:20px;letter-spacing:-.02em}
+.mini svg{width:16px;height:16px;overflow:visible}
+.mini path{fill:currentColor;stroke:var(--ink);stroke-width:9;stroke-linejoin:round;paint-order:stroke}
+.mini.red{color:#a8352a}
+.mini.off{opacity:.45}
+/* vista 2D: las cartas de la mano ganadora se resaltan y las demás se apagan */
+.card.win{outline:3px solid var(--mustard2);outline-offset:1px}
+.card.dim{filter:brightness(.55) saturate(.5)}
+
 @media (max-width:1500px){
   .hud-code{display:none}
   .hud .tool{min-width:44px;padding:4px 12px}
@@ -367,6 +405,30 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
   .hud .row.amount input[type=range]{flex:1 1 auto;min-width:50px;min-height:44px;margin:0;accent-color:var(--brick)}
   .hud .row.amount .step{flex:0 0 44px;padding:0;font-size:26px;line-height:1}
   .hud .row.amount .btn.hot{flex:0 0 auto;min-height:48px;padding:4px 12px;font-size:18px;white-space:nowrap}
+
+  /* resultado de la mano: crece hacia arriba hasta tapar, como mucho, la franja de mis cartas (que salen en mi
+     línea del panel), nunca la mesa; si no cabe, se desliza por dentro y Listo se queda abajo a la vista */
+  .hud .bar.result .in{display:flex;align-items:stretch;max-height:calc(var(--bar-h) + var(--cards-h) + 6px);gap:4px;padding:7px 10px 0}
+  /* con cartas enseñadas tapa siempre toda la franja de mis cartas (si no, se asomarían por arriba) */
+  .hud .bar.result.shown .in{min-height:calc(var(--bar-h) + var(--cards-h) + 6px)}
+  .hud .bar.result .res-foot{margin-top:auto}
+  .res-line{font-size:16px;line-height:1.2}
+  .res-line.lead{font-size:18px;line-height:1.1}
+  .res-line.sub{font-size:15px}
+  .res-players{grid-template-columns:1fr;gap:2px}
+  .res-players li{gap:7px;padding:1px 8px 1px 3px}
+  .res-who b{font-size:16px}
+  .res-who span{font-size:15px}
+  .res-amt{font-size:18px}
+  .mini{width:26px;height:36px;border-radius:6px}
+  .mini b{font-size:16px}
+  .mini svg{width:12px;height:12px}
+  .hud .bar.result .res-foot{position:sticky;bottom:0;background:var(--paper);gap:4px;padding:2px 0 6px}
+  .res-next{gap:8px}
+  .res-next .hint{font-size:15px}
+  .res-wait{font-size:14px}
+  .res-next .btn{min-width:104px;min-height:44px}
+  .res-rebuy .btn{flex:1 1 0;min-width:0;min-height:44px;font-size:18px;padding:4px 8px}
 
   /* etiquetas de los rivales: siempre compactas (nombre arriba; fichas y jugada abajo) */
   .labels.compact .seat-tag{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;column-gap:3px;min-width:0;max-width:78px;padding:1px 4px 2px}

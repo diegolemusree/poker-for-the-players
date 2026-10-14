@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { io as connect } from 'socket.io-client';
 import { createApp } from '../server/index.js';
 
-const TUNING = { turnLimitMs: 400, dealDelayMs: 20, rebuyWindowMs: 300, botDelay: () => 0, levelMs: 1500 };
+const TUNING = { turnLimitMs: 400, resultMs: 20, resultFoldMs: 20, rebuyWindowMs: 300, botDelay: () => 0, levelMs: 1500 };
 
 function cliente(url, token, accessCode) {
   const socket = connect(url, { auth: { token, accessCode }, reconnection: false, forceNew: true });
@@ -157,6 +157,73 @@ describe('código de acceso', () => {
     const ok = cliente(url, tk('3'), 'noche-de-poker');
     await ok.ready;
     ok.socket.close();
+    await srv.close();
+  });
+});
+
+describe('final de la mano por sockets', () => {
+  test('cada mensaje a cada quien: cartas ajenas solo al final, nunca las de quien se retiró; con el Listo de todos se reparte', async () => {
+    const LARGO = 60000;
+    const srv = createApp({ tuning: { ...TUNING, turnLimitMs: LARGO, resultMs: LARGO, resultFoldMs: LARGO } });
+    const url = `http://localhost:${await srv.listen(0)}`;
+    const [ana, beto, carla, mira] = ['s1', 's2', 's3', 's4'].map(n => cliente(url, tk(n)));
+    await Promise.all([ana, beto, carla, mira].map(c => c.ready));
+    const r = await ana.emit('room:create', { nick: 'Ana', solo: false });
+    for (const [c, nick, seat] of [[beto, 'Beto', 1], [carla, 'Carla', 2]]) {
+      await c.emit('room:join', { code: r.code });
+      assert.ok((await c.emit('sit', { nick, seat })).ok);
+    }
+    await mira.emit('room:join', { code: r.code }); // espectador
+    // cómo juega cada quien: en la mano 1 Beto se retira y Ana y Carla pasan o igualan hasta el final;
+    // en la 2 Beto sube y los demás se retiran
+    const plan = { Ana: n => (n === 1 ? 'pasa' : 'fold'), Beto: n => (n === 1 ? 'fold' : 'sube'), Carla: n => (n === 1 ? 'pasa' : 'fold') };
+    for (const [c, nick] of [[ana, 'Ana'], [beto, 'Beto'], [carla, 'Carla']]) {
+      c.socket.on('state', st => {
+        const v = st.view, yo = v.players.find(p => p.id === st.you);
+        if (v.toAct !== st.you || !['preflop', 'flop', 'turn', 'river'].includes(v.phase)) return;
+        const quiere = plan[nick](v.handNo);
+        const jugada = quiere === 'fold' ? { type: 'fold' } : quiere === 'sube' ? { type: 'raise', amount: 200 } : { type: v.currentBet - yo.bet > 0 ? 'call' : 'check' };
+        c.socket.emit('act', jugada, () => {});
+      });
+    }
+    assert.ok((await ana.emit('start', {})).ok);
+    const room = srv.rooms.get(r.code);
+    const final = n => st => st.view.handNo === n && st.view.phase === 'showdown';
+    await Promise.all([ana, beto, carla, mira].map(c => c.until(final(1))));
+    assert.ok(!room.state.results.fold);
+    const cartas = () => Object.fromEntries(room.state.players.map(p => [p.id, p.cards.slice()]));
+    const id = nick => room.state.players.find(p => p.nick === nick).id;
+    const manos = { 1: cartas() };
+
+    // el resultado se queda hasta que los tres tocan Listo; el espectador no puede
+    assert.equal((await mira.emit('ready', { hand: 1 })).error, 'No estás sentado en esta mesa.');
+    for (const c of [ana, beto]) assert.ok((await c.emit('ready', { hand: 1 })).ok);
+    await new Promise(res => setTimeout(res, 50));
+    assert.equal(room.state.handNo, 1, 'falta el Listo de Carla');
+    assert.deepEqual(ana.state.waitIds, [id('Carla')]);
+    assert.ok((await carla.emit('ready', { hand: 1 })).ok);
+    await Promise.all([ana, beto, carla, mira].map(c => c.until(final(2))));
+    assert.ok(room.state.results.fold);
+    manos[2] = cartas();
+
+    // todo lo que recibió cada quien, mano por mano, sin fiarse de lo que el servidor dice que enseñó
+    const llegaron = { 1: [id('Ana'), id('Carla')], 2: [] };
+    for (const c of [ana, beto, carla, mira]) {
+      for (const st of c.history) {
+        const v = st.view, json = JSON.stringify(st);
+        assert.ok(!('deck' in v), 'llegó el mazo');
+        if (!manos[v.handNo]) continue;
+        const alFinal = v.phase === 'showdown' && v.results && !v.results.fold;
+        for (const [dueño, suyas] of Object.entries(manos[v.handNo])) {
+          if (dueño === st.you) continue;
+          const vp = v.players.find(p => p.id === dueño);
+          if (alFinal && llegaron[v.handNo].includes(dueño)) { assert.deepEqual(vp.cards, suyas); continue; }
+          assert.ok(vp.cards.every(x => x === null), `mano ${v.handNo}: llegaron cartas de ${dueño} (${v.phase})`);
+          for (const x of suyas) assert.ok(!json.includes(`"${x}"`), `mano ${v.handNo}: llegó ${x} de ${dueño} (${v.phase})`);
+        }
+      }
+    }
+    [ana, beto, carla, mira].forEach(c => c.socket.close());
     await srv.close();
   });
 });

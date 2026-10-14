@@ -49,6 +49,38 @@ test('al retirarse muestra retirarse y no se apaga hasta que termina', () => {
   assert.ok(!a.folding(2500));
 });
 
+test('gana es un cuadro opcional: con él, el que gana lo enseña mientras dura el resultado', () => {
+  assert.ok(POSES.includes('gana'));
+  CHARACTERS.ganador = { name: 'Ganador', angles: { frente: { poses: { espera: 'g-espera', parpadeo: 'g-parpadeo', gana: 'g-gana' } } } };
+  const a = new RivalAnim('ganador', 0);
+  a.blinkAt = Infinity;
+  a.win('lado', 1000, 8000, 500); // sin lado usa frente; empieza cuando se resalta la mano ganadora
+  assert.equal(a.frame(1200, true), 'espera');
+  assert.equal(a.frame(1600, true), 'gana');
+  a.blinkAt = 2000;
+  assert.equal(a.frame(2000, true), 'gana', 'en gana no parpadea');
+  assert.equal(a.frame(9400, true), 'gana');
+  assert.equal(a.frame(9600, true), 'espera', 'al acabarse el resultado regresa a espera');
+});
+
+test('sin cuadro gana se queda en espera, y con mano nueva deja de celebrar', () => {
+  const sin = new RivalAnim('prueba', 0); // tiene retirarse pero no gana
+  sin.blinkAt = Infinity;
+  sin.win('frente', 0, 8000);
+  assert.equal(sin.frame(100, true), 'espera');
+  const a = new RivalAnim('ganador', 0);
+  a.blinkAt = Infinity;
+  a.win('frente', 0, 8000);
+  assert.equal(a.frame(100, true), 'gana');
+  a.calm(); // se cerró el resultado con Listo y ya hay mano nueva
+  assert.equal(a.frame(200, true), 'espera');
+  const b = new RivalAnim('ganador', 0);
+  b.blinkAt = Infinity;
+  b.win('frente', 0, 8000, 1000);
+  b.calm(); // ni siquiera empezó
+  assert.equal(b.frame(1500, true), 'espera');
+});
+
 test('sin cuadro retirarse, o ausente, no hay pose de retirarse', () => {
   CHARACTERS.prueba2 = { name: 'Prueba 2', angles: { frente: { poses: { espera: 'q-espera' } } } };
   const sin = new RivalAnim('prueba2', 0);
