@@ -4,7 +4,7 @@ USO (desde la carpeta poker-for-the-players/, con el entorno de recortar.py)
 --------------------------------------------------------------------------
     .venv-rembg/bin/python scripts/optimizar-arte.py                     # fondos y todos los personajes
     .venv-rembg/bin/python scripts/optimizar-arte.py fondos
-    .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien    # uno o varios (o todos sin nombre)
+    .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien    # uno o varios (o todos sin nombre, menos los retirados)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien --angulo lado
     .venv-rembg/bin/python scripts/optimizar-arte.py gif alien           # GIF de revisión por ángulo
     .venv-rembg/bin/python scripts/optimizar-arte.py registrar alien --nombre "El Compadre Zorg"
@@ -243,11 +243,15 @@ def cargar(path):
 # ---------- personajes ----------
 
 def entradas(ids=None):
-    """{(id, ángulo): {cuadro: ruta}} de arte/personajes/<id>/."""
+    """{(id, ángulo): {cuadro: ruta}} de arte/personajes/<id>/. Sin ids, todos menos los retirados."""
     grupos = defaultdict(dict)
+    retirados = {pid for pid, c in leer_registro().items() if c.get("retirado")}
     for carpeta in sorted(glob.glob(os.path.join(SRC, "personajes", "*"))):
         pid = os.path.basename(carpeta)
         if not os.path.isdir(carpeta) or ids and pid not in ids:
+            continue
+        if not ids and pid in retirados:   # sus WebP se quedan como están; para rehacerlos hay que nombrarlo
+            print(f"  (me salto {pid}: está retirado en {rel(REGISTRO)}; para procesarlo, nómbralo: personajes {pid})")
             continue
         for path in sorted(glob.glob(os.path.join(carpeta, "*"))):
             base, ext = os.path.splitext(os.path.basename(path))

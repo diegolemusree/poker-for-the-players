@@ -148,10 +148,10 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .stage-shade{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 75% 70% at 50% 45%,transparent 55%,rgba(18,10,6,.5) 100%)}
 .labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 
-/* etiquetas de los rivales */
+/* etiquetas de los rivales (caben en un renglón los nombres de los bots, como "El Compadre Zorg BOT") */
 .seat-tag{position:absolute;left:0;top:0;will-change:transform;text-align:center;font-family:var(--hand);
   background:var(--paper);color:var(--ink);border:2.5px solid var(--ink);border-radius:14px 17px 13px 16px;padding:2px 9px 4px;
-  box-shadow:2px 2px 0 rgba(29,22,17,.55);min-width:76px;max-width:150px;line-height:1.02}
+  box-shadow:2px 2px 0 rgba(29,22,17,.55);min-width:76px;max-width:190px;line-height:1.02}
 .seat-tag .nm{font-family:var(--display);font-size:16px;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .seat-tag .bot{margin-left:5px;font-family:var(--caps);font-size:11px;border:1.5px solid var(--muted);color:var(--muted);border-radius:4px;padding:0 3px;vertical-align:2px}
 .seat-tag .stk{font-family:var(--display);font-size:16px;font-variant-numeric:tabular-nums}
@@ -340,7 +340,8 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
   .ticker{display:none}
   .hud .lastline{display:block}
   .seat-tag{min-width:60px;max-width:92px;padding:1px 5px 2px;border-width:2px}
-  .seat-tag .nm{font-size:13px}
+  /* la etiqueta es angosta (también en el celular): un nombre largo va en dos renglones en vez de cortarse */
+  .seat-tag .nm{font-size:13px;white-space:normal;overflow-wrap:break-word;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;line-height:1.05}
   .seat-tag .bot{font-size:9px;margin-left:3px;padding:0 2px}
   .seat-tag .stk{font-size:13px}
   .seat-tag .stk::before{width:8px;height:8px;margin-right:3px}

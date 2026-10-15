@@ -21,6 +21,8 @@ const MAXP = 7;
 const FLIP_MS = 320, FLIP_GAP = 170, MARK_PAUSE = 180;
 // ?medidas en la dirección: dibuja la cintura y la cara de cada rival (ver drawMeasures)
 const MEDIDAS = new URLSearchParams(location.search).has('medidas');
+// El nombre de bot más largo (cada personaje lleva el suyo): con él se mide el lugar de las etiquetas.
+const LONGEST_NAME = Object.values(CHARACTERS).map(c => c.name).reduce((a, b) => (b.length > a.length ? b : a), 'Don Chepe');
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
 const FIXED = LAYOUTS[MAXP - 1]; // sin asiento y antes de empezar: cada asiento en su lugar
@@ -575,10 +577,11 @@ export function createTableScene(container, ui) {
   labelLayer.append(probe);
   function placeLabels() {
     labelLayer.classList.toggle('compact', L.phone);
-    // la etiqueta más grande posible: nombre largo, fichas y "Pensando…" con su tiempo
+    // la etiqueta más grande posible: el nombre de bot más largo (en el celular, en dos renglones), fichas y
+    // "Pensando…" con su tiempo
     if (!probe.firstChild) {
       const nm = el('div', 'nm'), bot = el('span', 'bot');
-      nm.textContent = 'Mamá Tentáculos'; bot.textContent = 'BOT'; nm.append(bot);
+      nm.textContent = LONGEST_NAME; bot.textContent = 'BOT'; nm.append(bot);
       const stk = el('div', 'stk'), act = el('div', 'act a-think');
       stk.textContent = '5,000'; act.textContent = 'Pensando… 0:45';
       probe.append(nm, stk, act);

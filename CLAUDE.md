@@ -202,7 +202,7 @@ Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `a
    - `height`: el alto de toda la imagen en unidades de la mesa (más grande = personaje más grande). Lo que se ve es `height × y` de la cintura; con los seis actuales va de 0.36 a 0.43.
    - Para verlo: guarda el archivo, recarga la página y abre una mesa con `?medidas` en la dirección (por ejemplo `http://localhost:3000/?medidas` y luego "Jugar contra la compu"). Sobre cada rival se dibujan el marco de su imagen, la caja de la cara (roja, punteada) y la línea de la cintura con su punto (mostaza). Cambiar las medidas no necesita reiniciar el servidor.
    - Si un personaje no tiene `lado`, se usa `frente`; el rival de la derecha se dibuja en espejo.
-6. Para dejar de usar un personaje sin borrar nada, ponle `"retirado": true` en `personajes.json` (y reinicia el servidor).
+6. Para dejar de usar un personaje sin borrar nada, ponle `"retirado": true` en `personajes.json` (y reinicia el servidor). `optimizar-arte.py` sin nombres se lo salta, así sus WebP se quedan como están; para reprocesarlo hay que nombrarlo (`personajes blorp`).
 
 ### Asientos
 
@@ -213,7 +213,7 @@ Mi lugar es el lado cercano del octágono. Hasta 6 rivales, acomodados como en l
 
 El orden visual respeta el orden real de juego: el primero es el que habla después de mí (a mi izquierda) y sigue el reloj por el fondo hasta el de mi derecha. Con menos rivales se llena primero el fondo desde el centro (1 al centro, 2, 3 y 4 en fila) y luego los dos lados a la vez (5: 3 al fondo y los dos lados; 6: 4 al fondo y los dos lados), para que nunca quede un lado vacío y el otro lleno. Los lugares no cambian durante el torneo aunque alguien quede eliminado. Sin asiento y antes de empezar, los 6 lugares quedan fijos con su botón "Sentarme aquí".
 
-Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la cara: si la tapan, el del fondo se recorre hacia el centro sobre la orilla, y si aun así alguno le tapa la cara a otro (pantallas angostas), se achican todos un poco. Las etiquetas de nombre van compactas encima de cada rival; si chocan, se recorren de lado o suben, sin taparle la cara a nadie. Cada asiento tiene un lugar fijo para su etiqueta: se calcula una vez por acomodo con el tamaño de la etiqueta más grande y se ancla por la orilla que da a su rival, con un piquito que apunta a su cabeza, así no brinca cuando cambia lo que dice.
+Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la cara: si la tapan, el del fondo se recorre hacia el centro sobre la orilla, y si aun así alguno le tapa la cara a otro (pantallas angostas), se achican todos un poco. Las etiquetas de nombre van compactas encima de cada rival; si chocan, se recorren de lado o suben, sin taparle la cara a nadie. Cada asiento tiene un lugar fijo para su etiqueta: se calcula una vez por acomodo con el tamaño de la etiqueta más grande (la del nombre de bot más largo, que en la computadora cabe completo en un renglón) y se ancla por la orilla que da a su rival, con un piquito que apunta a su cabeza, así no brinca cuando cambia lo que dice. En etiquetas angostas (ventana de 640 px o menos, celular), un nombre largo va en dos renglones en vez de cortarse.
 
 ### Paleta (apagada y terrosa)
 
@@ -316,7 +316,7 @@ Los rivales tienen sus propias animaciones de pose (ver "Animación de los rival
 - La escena mide `.mycards` para acomodar la mesa arriba (mi orilla queda detrás de mis cartas), así la mesa no brinca al abrir Subir.
 - **Resultado de la mano**: el panel crece hacia arriba desde la barra y tapa, como mucho, la franja de mis cartas (salen en mi línea del panel), nunca la mesa; cuando se enseñan cartas la tapa completa, para que no se asomen. Si no cabe todo (muchos jugadores o botes), se desliza por dentro y Listo se queda abajo a la vista. Las cartas que enseña cada rival se dibujan más grandes que en la computadora para que se lean.
 - Sin el aviso "Turno de…": lo dicen el aro y el "Pensando…" de la etiqueta, y mi turno, el panel en mostaza.
-- Etiquetas de los rivales: siempre en la versión compacta (nombre arriba, fichas y jugada abajo), en un lugar fijo por asiento: encima de la cabeza los del fondo y, si arriba ya no cabe, debajo de la cara (los de los lados prefieren debajo de la cara antes que irse muy arriba, donde quedarían junto a las de los del fondo). El piquito apunta a su rival. Nunca tapan caras (en ninguna pantalla).
+- Etiquetas de los rivales: siempre en la versión compacta (nombre arriba, en dos renglones si es largo, como "El Compadre / Zorg"; fichas y jugada abajo), en un lugar fijo por asiento: encima de la cabeza los del fondo y, si arriba ya no cabe, debajo de la cara (los de los lados prefieren debajo de la cara antes que irse muy arriba, donde quedarían junto a las de los del fondo). El piquito apunta a su rival. Nunca tapan caras (en ninguna pantalla).
 - **Agregar a pantalla de inicio** (`manifest.json`, `apple-touch-icon` y etiquetas `apple-mobile-web-app-*`): se abre como app sin la barra de Safari, con la barra de estado translúcida (todo respeta las orillas seguras). En iPhone la app guarda sus datos aparte de Safari: la primera vez pide de nuevo el código de acceso y el apodo.
 
 ### Sonido
@@ -359,6 +359,7 @@ npm start       # producción: sirve dist/ (corre antes npm run build)
 ## Pendientes
 
 - **Memoria en iPhone con todos los cuadros**: el máximo de frente subió a 1000 px de alto (la mitad de abajo queda bajo la mesa). Cuando cada personaje tenga todos sus cuadros de frente y de lado, revisar cuánta memoria usa la mesa en un iPhone: hoy se precargan y decodifican todos los cuadros de todos los personajes en uso (6 personajes × hasta 6 cuadros × 2 ángulos, más los reducidos al tamaño en que se ven). Si pesa, cargar solo los personajes que están en la mesa o bajar el máximo.
+- **Blob y turista en más resolución**: sus originales miden 1024 × 559 (los demás 1024 × 1024), así que en pantallas retina de computadora se ven un poco menos nítidos. No se arregla con código: cuando haya versiones más grandes (el mismo dibujo a 1024 px de alto o más), reemplazar los PNG en `arte/personajes/<id>/`, correr `optimizar-arte.py personajes blob turista` y volver a registrar cada uno (`registrar blob`, `registrar turista`) para que se actualice su tamaño; el nombre y las medidas no se tocan y, si el encuadre es el mismo, siguen sirviendo.
 
 ## Fuera de alcance por ahora
 
