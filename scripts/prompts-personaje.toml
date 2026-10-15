@@ -1,8 +1,10 @@
 # Prompts para scripts/generar-personaje.py (siguen docs/ESPEC-PERSONAJES.md)
 #
 # Cada imagen se arma así (en este orden):
-#   [referencia] + [angulos.<ángulo>] + [poses.<cuadro>] + [comun.estilo] + [comun.encuadre] + [comun.fondo]
+#   [referencia] + [angulos.<ángulo>] + [poses.<cuadro>] + [comun.estilo] + [comun.encuadre] + [fondos.<verde|magenta>]
 # y el parpadeo se hace editando el cuadro espera con [ediciones.parpadeo].
+# El fondo es el que NO tenga el personaje: verde para uno morado o rosa, magenta para uno verde
+# (generar-personaje.py usa el de la referencia, o el que digas con --fondo).
 #
 # Puedes cambiar cualquier texto entre las comillas triples ("""). Los textos van en inglés porque
 # el modelo los sigue mejor. Después de editar, prueba con:
@@ -10,48 +12,56 @@
 
 [config]
 modelo = "gemini-nano-banana-2.1"   # ver precios en ai.google.dev/gemini-api/docs/pricing
-aspect_ratio = "1:1"                # medio cuerpo: cabe en un cuadro; el optimizador recorta lo que sobra
+aspect_ratio = "1:1"                # cuerpo completo sentado: cabe en un cuadro; el optimizador recorta lo que sobra
 image_size = "2K"                   # "1K", "2K" o "4K"; lado se usa hasta 1200 px de alto, así que 2K
 
 [comun]
 # Va en todos los cuadros base (no en el parpadeo, que es una edición de una imagen ya hecha).
 referencia = """
 The attached reference image shows the character. Use it ONLY for the character design (body shape, \
-skin color, face, number and shape of eyes, accessories, clothes). Do not copy its pose, camera angle, \
-framing, background or drawing style: those are described below. Keep the character exactly the same \
-individual, with the same proportions and colors.
+skin color, face, number and shape of eyes, accessories, clothes, and their own chair if it is shown). \
+Do not copy its pose, camera angle, framing, background or drawing style: those are described below. \
+Keep the character exactly the same individual, with the same proportions and colors.
 """
 
 estilo = """
 Style: original hand-drawn 2D animation for adults. Thin, uniform dark brown-black ink outline \
-(#1D1611) around every shape, the same line weight everywhere. Flat colors with exactly one flat, \
-hard-edged shadow tone per color: no gradients, no highlights, no glow, no rim light. Muted, earthy \
-colors. Dirty textures: small grime spots, stains, worn and wrinkled fabric. An original design that \
-does not imitate any existing TV show, character or franchise. No text, letters, numbers or logos \
-anywhere, and no one-sided details (badges, patches, a watch on one wrist, a parted hairstyle), \
-because the image is also shown mirrored.
+(#1D1611) around every shape, the same line weight everywhere. Clean, flat colors with exactly one \
+flat, hard-edged shadow tone per color: no gradients, no highlights, no glow, no rim light, no \
+textures, no grime, no stains, no dirt. An original design that does not imitate any existing TV \
+show, character or franchise. No text, letters, numbers or logos anywhere, and no one-sided details \
+(badges, patches, a watch on one wrist, a parted hairstyle), because the image is also shown mirrored.
 """
 
 encuadre = """
-Framing: half body, from the top of the head down to just below the waist, centered horizontally, \
-the top of the head about 6% below the top edge of the image. The forearms, hands and cards are held \
-low in front of the body, at the height of an invisible table edge near the waist: nothing is held \
-above the chest. Nothing else in the scene: no table, no chair back visible above the shoulders, no \
-other characters, no props other than the ones described.
-"""
-
-fondo = """
-Background: a perfectly flat, uniform, solid pure magenta (#FF00FF) filling the whole image. No \
-gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background. \
-Do not use magenta or pink anywhere on the character.
+Framing: full body, sitting on their own chair (always the same chair for this character, also seen \
+whole), from the top of the head down to the feet and the legs of the chair, centered horizontally, \
+the top of the head about 5% below the top edge of the image. The two playing cards are held in \
+front of the chest: everything the hands hold stays at chest height, never down in the lap, because \
+a table will hide the character from the waist down. Nothing else in the scene: no table, no floor \
+or platform under the chair, no other characters, no props other than the ones described.
 """
 
 # Cuando el cuadro usa también el cuadro "espera" del mismo ángulo como segunda imagen
 # (para que el ángulo, el tamaño y el encuadre queden idénticos).
 segunda_imagen = """
 The second attached image shows this same character already drawn in the target camera angle and \
-framing. Match it exactly: same camera angle, same position in the frame, same size, same waist \
-height. Change only the pose and expression described here.
+framing. Match it exactly: same camera angle, same position in the frame, same size, same chair, same \
+waist height. Change only the pose and expression described here.
+"""
+
+[fondos.verde]
+texto = """
+Background: a perfectly flat, uniform, solid pure green (#00FF00) filling the whole image. No \
+gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background. \
+Do not use green anywhere on the character or on the chair.
+"""
+
+[fondos.magenta]
+texto = """
+Background: a perfectly flat, uniform, solid pure magenta (#FF00FF) filling the whole image. No \
+gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background. \
+Do not use magenta, pink or purple anywhere on the character or on the chair.
 """
 
 [angulos.frente]
@@ -62,44 +72,50 @@ camera, seen slightly from above, as from across a poker table.
 
 [angulos.lado]
 texto = """
-Camera angle: three-quarter view facing right. The body is rotated about 35 degrees so the character \
-faces toward the right side of the image, with the near shoulder on the left. The head is turned \
-slightly toward the viewer so both eyes are still visible. Arms and hands reach toward the right.
+Camera angle: three-quarter view facing right. The body and the chair are rotated about 35 degrees so \
+the character faces toward the right side of the image, with the near shoulder on the left. The head \
+is turned slightly toward the viewer so both eyes are still visible. Arms and hands reach toward the right.
 """
 
 [poses.espera]
 texto = """
-Pose: waiting for their turn. Relaxed and slightly slouched, holding two face-down playing cards low \
-in front of the body with both hands, at table height. Eyes open with heavy, droopy eyelids, a dry, \
-bored, unimpressed expression.
+Pose: waiting for their turn. Sitting relaxed and slightly slouched, holding two face-down playing \
+cards with both hands in front of the chest. Eyes open with heavy, droopy eyelids, a dry, bored, \
+unimpressed expression.
 """
 
 [poses.espia]
 texto = """
-Pose: peeking at their cards. Holding two face-down playing cards in both hands at table height, \
-bending one corner up with the thumb to peek at them. Head tilted down, eyes looking down at the \
-cards, suspicious expression.
+Pose: peeking at their cards. Holding two face-down playing cards in both hands in front of the \
+chest, bending one corner up with the thumb to peek at them. Head tilted down, eyes looking down at \
+the cards, suspicious expression.
 """
 
 [poses.apuesta]
 texto = """
-Pose: betting. Holding two face-down playing cards in one hand at table height, and with the other \
-hand reaching forward at the same height, palm up, holding a small stack of poker chips. Confident, \
-smug half-smile, eyes half-closed and looking at the viewer.
+Pose: betting. Holding two face-down playing cards in one hand in front of the chest, and with the \
+other hand reaching forward at chest height, palm up, holding a small stack of poker chips. \
+Confident, smug half-smile, eyes half-closed and looking at the viewer.
 """
 
 [poses.retirarse]
 texto = """
-Pose: folding. Both hands at table height, lazily tossing the two face-down cards forward and down \
-with a flick of the fingers, hands open. Annoyed, sour expression, eyes rolling, lips pressed in a \
-grimace.
+Pose: folding. Both hands at chest height, lazily tossing the two face-down cards forward with a \
+flick of the fingers, hands open. Annoyed, sour expression, eyes rolling, lips pressed in a grimace.
+"""
+
+[poses.gana]
+texto = """
+Pose: just won the hand. Sitting back in the chair, holding the two cards against the chest with one \
+hand and raising a small stack of poker chips at chest height with the other, as if pulling the pot \
+toward themselves. Smug, satisfied grin, eyes half-closed, looking at the viewer.
 """
 
 [ediciones]
 # Se manda solo el cuadro espera del mismo ángulo y se pide cambiar únicamente los ojos.
 parpadeo = """
 Edit the attached image: reproduce it exactly, keeping every pixel the same (same pose, same \
-framing, same size, same position, same colors, same flat magenta background), and change only one \
-thing: all of the character's eyes are fully closed, as in the middle of a blink, with the eyelids \
-drawn down and relaxed. Do not move, resize or redraw anything else.
+framing, same size, same position, same colors, same chair, same flat background color), and change \
+only one thing: all of the character's eyes are fully closed, as in the middle of a blink, with the \
+eyelids drawn down and relaxed. Do not move, resize or redraw anything else.
 """

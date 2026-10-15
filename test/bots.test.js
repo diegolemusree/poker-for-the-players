@@ -1,9 +1,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, makeBots, DIFFICULTIES, BOT_NAMES } from '../server/bots.js';
+import { decide, makeBots, DIFFICULTIES, BOT_NAMES, CAST } from '../server/bots.js';
 import {
   MAXP, BLINDS, createState, addPlayer, startHand, act, viewFor, isBetting, pendingRebuys, rebuy, declineRebuy,
 } from '../server/engine.js';
+import { Room } from '../server/room.js';
 
 const ITER = 15; // pocas repeticiones Monte Carlo para que las pruebas sean rápidas
 
@@ -61,13 +62,62 @@ function torneoDeBots(semilla, dificultades, maxManos = 400) {
   return s;
 }
 
-describe('bots', () => {
-  test('hay nombres divertidos y no se repiten', () => {
-    const bots = makeBots(MAXP - 1, 'normal', ['Don Chepe']);
-    assert.equal(new Set(bots.map(b => b.name)).size, MAXP - 1);
-    assert.ok(!bots.some(b => b.name === 'Don Chepe'));
-    assert.ok(BOT_NAMES.length >= 8);
+describe('personajes de los bots', () => {
+  // el nombre de cada personaje es siempre el de su bot (personajes.json)
+  const NOMBRES = { alien: 'El Compadre Zorg', blob: 'Tío Glub', turista: 'La Güera', robot: 'La Chispa', nerd: 'El Profe', pulpo: 'Don Tentáculos' };
+  const nombreDe = id => CAST.find(c => c.id === id).name;
+
+  test('cada personaje tiene siempre el mismo nombre de bot, y Madame Blorp ya no sale', () => {
+    for (const [id, nombre] of Object.entries(NOMBRES)) assert.equal(nombreDe(id), nombre);
+    assert.ok(!CAST.some(c => c.id === 'blorp'));
+    assert.ok(![...BOT_NAMES, ...CAST.map(c => c.name)].includes('Madame Blorp'));
   });
+
+  test('con 6 bots o menos, cada uno con un personaje distinto y el nombre de ese personaje', () => {
+    for (let n = 1; n <= MAXP - 1; n++) {
+      for (let k = 0; k < 20; k++) {
+        const bots = makeBots(n, 'normal', ['Ana'], rng(n * 100 + k));
+        assert.equal(new Set(bots.map(b => b.character)).size, n, `${n} bots: personaje repetido`);
+        for (const b of bots) assert.equal(b.name, nombreDe(b.character));
+      }
+    }
+  });
+
+  test('no repite el personaje de otro bot ni un nombre que ya se use; sin personajes, nombres de repuesto', () => {
+    const bots = makeBots(3, 'normal', ['La Güera'], rng(7), ['alien', 'robot']);
+    assert.ok(bots.every(b => !['alien', 'robot', 'turista'].includes(b.character)));
+    const sobran = makeBots(MAXP - 1, 'normal', ['Don Chepe'], rng(8), CAST.map(c => c.id));
+    assert.ok(sobran.every(b => b.character === null && BOT_NAMES.includes(b.name) && b.name !== 'Don Chepe'));
+    assert.equal(new Set(sobran.map(b => b.name)).size, MAXP - 1);
+    assert.ok(BOT_NAMES.length >= MAXP - 1, 'faltan nombres de repuesto para una mesa llena');
+  });
+
+  test('en la mesa: los bots con su personaje y los humanos con los que sobran', () => {
+    const LARGO = 60 * 60 * 1000, tk = n => 'token-de-prueba-' + String(n).padStart(16, '0');
+    const solo = new Room({ code: 'SOLOX', solo: true }, { turnLimitMs: LARGO, botDelay: () => LARGO });
+    solo.sit(tk(1), 'Diego', 0);
+    solo.addBots(tk(1), MAXP - 1, 'facil');
+    let vista = solo.snapshot(tk(1)).view.players;
+    const bots = vista.filter(p => p.isBot);
+    assert.equal(new Set(bots.map(p => p.character)).size, MAXP - 1, 'en práctica con 6 rivales se repitió un personaje');
+    for (const p of bots) assert.equal(p.nick, nombreDe(p.character));
+    assert.ok(vista.find(p => p.id === solo.playerIdOf(tk(1))).character, 'el humano no tiene personaje');
+    solo.close();
+
+    const amigos = new Room({ code: 'AMIGO', solo: false }, { turnLimitMs: LARGO, botDelay: () => LARGO });
+    amigos.sit(tk(2), 'Ana', 0);
+    amigos.sit(tk(3), 'Beto', 1);
+    amigos.addBots(tk(2), 3, 'normal');
+    vista = amigos.snapshot(tk(2)).view.players;
+    const deBots = vista.filter(p => p.isBot).map(p => p.character);
+    const deHumanos = vista.filter(p => !p.isBot).map(p => p.character);
+    assert.equal(new Set([...deBots, ...deHumanos]).size, 5, 'con 5 jugadores, todos distintos');
+    assert.deepEqual(amigos.snapshot(tk(3)).view.players.map(p => p.character), vista.map(p => p.character), 'todos ven lo mismo');
+    amigos.close();
+  });
+});
+
+describe('bots', () => {
 
   for (const dif of DIFFICULTIES) {
     test(`mesas solo de bots (${dif}): jugadas siempre legales, sin ver cartas ajenas y fichas intactas`, () => {

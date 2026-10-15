@@ -19,6 +19,8 @@ import { winningCards } from '../ui/hand.js';
 const MAXP = 7;
 // Final de la mano: las cartas de quienes llegaron se voltean una tras otra y luego se resalta la mano ganadora.
 const FLIP_MS = 320, FLIP_GAP = 170, MARK_PAUSE = 180;
+// ?medidas en la dirección: dibuja la cintura y la cara de cada rival (ver drawMeasures)
+const MEDIDAS = new URLSearchParams(location.search).has('medidas');
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
 const FIXED = LAYOUTS[MAXP - 1]; // sin asiento y antes de empezar: cada asiento en su lugar
@@ -212,7 +214,7 @@ export function createTableScene(container, ui) {
       spots = new Map();
       for (const [seat, cfg] of seatOf) {
         const p = players.find(q => q.seat === seat);
-        spots.set(seat, seatPlace(cfg, p ? characterFor(p) : 'blorp', shrink));
+        spots.set(seat, seatPlace(cfg, characterFor(p), shrink)); // un asiento vacío se acomoda como el primero
       }
       protectFaces([...spots.values()]);
       const list = [...spots.values()].sort(drawOrder);
@@ -296,6 +298,7 @@ export function createTableScene(container, ui) {
         const charId = characterFor(p);
         let a = anims.get(p.id);
         if (!a || a.charId !== charId) { a = new RivalAnim(charId, now); anims.set(p.id, a); fresh.add(p.id); }
+        a.angle = spot.angle; // sus cuadros son los de este ángulo
         // reparto nuevo: deja de celebrar la mano anterior y espía sus cartas (escalonado, como si fueran repartiendo)
         if (a.hand !== undefined && a.hand !== v.handNo) a.calm();
         if (a.hand !== undefined && a.hand !== v.handNo && p.inHand) a.play('espia', 1700, now, 350 + rel(s.seat) * 220);
@@ -691,6 +694,27 @@ export function createTableScene(container, ui) {
     lastDraw = now;
     drawRivals(now);
   }
+  // Con ?medidas en la dirección, sobre cada rival: el marco de su imagen, la caja de la cara (face: ninguna
+  // etiqueta la tapa), la línea de la cintura con su punto (waist: de ahí para abajo lo tapa la mesa) y el id
+  // del personaje. Sirve para ajustar a mano personajes.json.
+  function drawMeasures(g) {
+    g.save();
+    g.lineWidth = 2;
+    g.font = '15px "Patrick Hand", sans-serif';
+    g.textBaseline = 'bottom';
+    for (const r of drawn) {
+      const f = faceBox(r);
+      g.setLineDash([]);
+      g.strokeStyle = 'rgba(239,228,200,0.55)'; g.strokeRect(r.left, r.top, r.wpx, r.hpx);
+      g.strokeStyle = '#e0b552';
+      g.beginPath(); g.moveTo(r.left, r.y); g.lineTo(r.left + r.wpx, r.y); g.stroke();
+      g.beginPath(); g.arc(r.x, r.y, 5, 0, Math.PI * 2); g.stroke();
+      g.setLineDash([6, 4]);
+      g.strokeStyle = '#d24a2f'; g.strokeRect(f.x0, f.y0, f.x1 - f.x0, f.y1 - f.y0);
+      g.fillStyle = '#efe4c8'; g.fillText(r.charId, f.x0 + 2, f.y1 - 2);
+    }
+    g.restore();
+  }
   function drawRivals(now) {
     if (!L) return;
     const g = rivalsCv.getContext('2d'), still = reduced.matches;
@@ -729,6 +753,7 @@ export function createTableScene(container, ui) {
       g.drawImage(img, r.left, r.top, r.wpx, r.hpx);
       g.restore();
     }
+    if (MEDIDAS) drawMeasures(g);
     if (ring) { // aro mostaza alrededor de la pila de quien está pensando (late, salvo con movimiento reducido)
       const k = 1 + (still ? 0 : Math.sin(now / 200) * 0.06);
       const pts = ring.points(k), pad = L.line * 3;

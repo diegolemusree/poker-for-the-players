@@ -7,7 +7,7 @@ USO (desde la carpeta poker-for-the-players/, con el entorno de recortar.py)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien    # uno o varios (o todos sin nombre)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien --angulo lado
     .venv-rembg/bin/python scripts/optimizar-arte.py gif alien           # GIF de revisión por ángulo
-    .venv-rembg/bin/python scripts/optimizar-arte.py registrar alien --nombre "El Alien"
+    .venv-rembg/bin/python scripts/optimizar-arte.py registrar alien --nombre "El Compadre Zorg"
 
 Para un personaje nuevo, los tres pasos en orden: personajes -> gif (revisar) -> registrar.
 La especificación del arte está en docs/ESPEC-PERSONAJES.md.
@@ -18,26 +18,35 @@ QUÉ HACE
 
 - personajes: arte/personajes/<id>/<id>-<ángulo>-<cuadro>.png -> public/assets/arte/<id>-<ángulo>-<cuadro>.webp
   (grande) y <id>-<ángulo>-<cuadro>-chico.webp (mitad, para calidad baja). Ángulos: frente y lado.
-  Cuadros: espera, parpadeo, espia, apuesta, retirarse. Cada personaje y ángulo es un grupo aparte:
-    1. quita el fondo magenta (#FF00FF) con chroma key; si la imagen ya es transparente, se usa tal cual;
+  Cuadros: espera, parpadeo, espia, apuesta, retirarse, gana (solo espera es obligatorio; mientras falte
+  otro, el juego usa espera). Cada personaje y ángulo es un grupo aparte:
+    1. quita el fondo verde o magenta con chroma key (ver abajo); si la imagen ya es transparente, se usa
+       tal cual; si el personaje tiene un corte abajo en CORTE_ABAJO (la tarima del pulpo), se aplica;
     2. escala todos los cuadros del grupo al mismo lienzo (deben tener la misma proporción);
     3. los recorta con UNA sola caja común (la unión de lo visible de todos los cuadros);
-    4. los reduce con un solo factor: frente a 700 px de alto como máximo, lado a 1200 px.
+    4. los reduce con un solo factor: frente a 1000 px de alto como máximo, lado a 1200 px.
   Así todos los cuadros de un grupo salen del mismo tamaño y al cambiar de pose nada brinca.
 
 - gif: arte/revision/<id>-<ángulo>.gif alterna espera con cada uno de los demás cuadros, sobre un fondo
-  liso, con el marco de la imagen y la línea de la cintura (si ya está registrada). Si algo brinca, se ve.
+  liso, con el marco de la imagen, la línea de la cintura y la caja de la cara (si ya están registradas).
+  Si algo brinca, se ve.
 
-- registrar: agrega o actualiza el personaje en client/stage/personajes.json (lo lee characters.js).
-  Solo escribe el tamaño y la lista de cuadros; la cintura, la cabeza y el alto se miden a mano y nunca
-  se sobrescriben. Un personaje nuevo entra con valores provisionales y la marca "pendiente".
+- registrar: agrega o actualiza el personaje en client/stage/personajes.json (lo leen el juego y el
+  servidor). Solo escribe el tamaño y la lista de cuadros; el nombre (el que usa el bot de ese personaje),
+  la cintura, la cabeza y el alto se miden o ponen a mano y nunca se sobrescriben. Un personaje nuevo
+  entra con valores provisionales y la marca "pendiente". Entra solo a la mesa: cada bot toma un personaje
+  distinto (salvo los que tengan "retirado": true).
 
 CHROMA KEY
 ----------
-El fondo es el magenta conectado a la orilla de la imagen (así el morado dentro del personaje se respeta,
-porque la línea de tinta lo separa del fondo), más los huecos encerrados de magenta casi puro (entre
-el brazo y el cuerpo). En la orilla del contorno el alfa sale de cuánto magenta tiene cada píxel, y ese
-magenta se le quita al color, para que no quede halo rosa. Las manchitas sueltas se borran.
+El color del fondo se toma de las cuatro esquinas de cada imagen: verde o magenta (se usa el que no tenga el
+personaje). De cada píxel se mide cuánto de ese color tiene (verde: G sobre R y B; magenta: R y B sobre G).
+El fondo es lo de ese color conectado a la orilla de la imagen (así un morado o un verde dentro del
+personaje se respeta, porque la línea de tinta lo separa del fondo), más los huecos encerrados que sean
+casi del color del fondo, aunque sean chiquitos (entre los brazos, la silla y los tentáculos). En la orilla
+del contorno el alfa sale de cuánto color de fondo tiene cada píxel, y ese color se le quita, para que no
+quede halo. Las manchitas sueltas se borran. Al final se cuentan los píxeles visibles que siguen teñidos del
+fondo: si hay, se avisa y se deja arte/revision/<id>-<ángulo>-<cuadro>-restos.png con los restos en rojo.
 """
 import argparse, glob, json, os, re, sys
 from collections import defaultdict
@@ -54,21 +63,28 @@ REGISTRO = os.path.join(ROOT, "client", "stage", "personajes.json")
 Q_FONDO, Q_PERSONAJE = 80, 86
 
 ANGULOS = ["frente", "lado"]
-CUADROS = ["espera", "parpadeo", "espia", "apuesta", "retirarse"]   # la misma lista que client/stage/characters.js
-OBLIGATORIOS = ["espera", "parpadeo", "apuesta", "retirarse"]       # espia es opcional (si falta, se usa espera)
-ALTO_MAX = {"frente": 700, "lado": 1200}
+CUADROS = ["espera", "parpadeo", "espia", "apuesta", "retirarse", "gana"]   # la misma lista que client/stage/characters.js
+OBLIGATORIOS = ["espera"]                                # sin él no hay personaje; los demás se usan cuando existen
+COMPLETOS = ["espera", "parpadeo", "apuesta", "retirarse"]   # los de siempre (espia y gana son extras)
+# Personajes de cuerpo completo: la mitad de abajo queda bajo la mesa, así que lo visible es la mitad de esto.
+ALTO_MAX = {"frente": 1000, "lado": 1200}
 NOMBRE = re.compile(rf"^(?P<id>[a-z0-9]+(?:-[a-z0-9]+)*?)-(?P<angulo>{'|'.join(ANGULOS)})-(?P<cuadro>{'|'.join(CUADROS)})$")
+# Lo que se quita abajo de cada cuadro, en fracción del alto (mucho más abajo de la cintura: en la mesa no se
+# ve). La tarima del pulpo hace su imagen casi del ancho de la pantalla y estorba para acomodar a los rivales.
+CORTE_ABAJO = {("pulpo", "frente"): 0.875}
 
-MAGENTA = np.array([255, 0, 255], np.float32)
-TOL_FONDO = 70      # distancia de color al magenta del fondo para contar como fondo (conectado a la orilla)
-TOL_HUECO = 40      # más estricta para los huecos encerrados
-BANDA = 3           # px alrededor del fondo donde se calcula el alfa suave y se quita el magenta
+TOL_FONDO = 70      # distancia de color al fondo de la imagen para contar como fondo (conectado a la orilla)
+HUECO = 0.3         # cuánto color de fondo (0 a 1) debe tener un hueco encerrado para quitarlo
+MIN_HUECO = 1       # px: hasta las rendijas entre las barras de la silla
+RESTO = 0.35        # en lo que queda visible, más color de fondo que esto cuenta como resto
+BANDA = 3           # px alrededor del fondo donde se calcula el alfa suave y se quita el color del fondo
 MIN_MANCHA = 0.0005 # pedazos visibles más chicos que esto (fracción de la imagen) se borran
 
-# Valores provisionales al registrar un ángulo nuevo (hay que medirlos sobre la imagen; ver CLAUDE.md).
+# Valores provisionales al registrar un ángulo nuevo, para un personaje de cuerpo completo sentado (hay que
+# medirlos sobre la imagen; ver CLAUDE.md).
 PROVISIONAL = {
-    "frente": {"waist": [0.5, 0.85], "face": [0.2, 0, 0.8, 0.4], "height": 0.54},
-    "lado": {"waist": [0.5, 0.85], "face": [0.2, 0, 0.8, 0.4], "height": 0.54},
+    "frente": {"waist": [0.5, 0.6], "face": [0.25, 0, 0.75, 0.3], "height": 0.8},
+    "lado": {"waist": [0.5, 0.6], "face": [0.25, 0, 0.75, 0.3], "height": 0.8},
 }
 PENDIENTE = "medir waist, face y height y luego borrar esta línea"
 
@@ -122,25 +138,54 @@ def ya_transparente(img):
     return (orillas(alfa) < 8).mean() > 0.9
 
 
-def quitar_magenta(img, nombre):
+def esquinas(a):
+    """Los píxeles de las cuatro esquinas (de ahí sale el color del fondo)."""
+    b = max(8, min(a.shape[:2]) // 40)
+    return [a[:b, :b].reshape(-1, 3), a[:b, -b:].reshape(-1, 3), a[-b:, :b].reshape(-1, 3), a[-b:, -b:].reshape(-1, 3)]
+
+
+def tipo_fondo(K):
+    """'verde' o 'magenta' según el color K del fondo, o None si no es ninguno de los dos."""
+    if K[1] - max(K[0], K[2]) > 100:
+        return "verde"
+    if min(K[0], K[2]) - K[1] > 100:
+        return "magenta"
+    return None
+
+
+def croma(a, K, tipo):
+    """Cuánto color de fondo tiene cada píxel: 1 = como el fondo; 0 o menos = nada de ese color."""
+    if tipo == "verde":
+        return (a[..., 1] - np.maximum(a[..., 0], a[..., 2])) / max(1.0, K[1] - max(K[0], K[2]))
+    return (np.minimum(a[..., 0], a[..., 2]) - a[..., 1]) / max(1.0, min(K[0], K[2]) - K[1])
+
+
+def quitar_fondo(img, nombre):
     a = np.asarray(img.convert("RGB")).astype(np.float32)
     h, w = a.shape[:2]
-    K = np.median(orillas(a), axis=0)   # el magenta real de esta imagen (el generador no siempre da #FF00FF exacto)
-    if np.abs(K - MAGENTA).max() > 60:
-        print(f"  AVISO {nombre}: el fondo no parece magenta (RGB {K.astype(int).tolist()}); revisa el resultado")
+    # el color real del fondo de esta imagen (el generador no siempre da el verde o el magenta exacto)
+    partes = esquinas(a)
+    K = np.median(np.concatenate(partes), axis=0)
+    tipo = tipo_fondo(K)
+    if not tipo:
+        sys.exit(f"{nombre}: el fondo de las esquinas no es verde ni magenta (RGB {K.astype(int).tolist()}).")
+    for lado, p in zip(["arriba a la izquierda", "arriba a la derecha", "abajo a la izquierda", "abajo a la derecha"], partes):
+        if np.abs(np.median(p, axis=0) - K).max() > 60:
+            print(f"  AVISO {nombre}: la esquina de {lado} no es del color del fondo; revisa el resultado")
     dist = np.linalg.norm(a - K, axis=2)
+    cr = croma(a, K, tipo)
 
-    # fondo: magenta conectado a la orilla, más huecos encerrados de magenta casi puro
+    # fondo: lo de ese color conectado a la orilla, más los huecos encerrados casi del color del fondo
     lab, _ = ndi.label(dist < TOL_FONDO)
     borde = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
     fondo = np.isin(lab, borde[borde > 0])
-    lab, n = ndi.label((dist < TOL_HUECO) & ~fondo)
+    lab, n = ndi.label((cr > HUECO) & ~fondo)
     if n:
         areas = ndi.sum(np.ones_like(dist), lab, index=np.arange(1, n + 1))
-        fondo |= np.isin(lab, np.arange(1, n + 1)[areas >= 0.0002 * h * w])
+        fondo |= np.isin(lab, np.arange(1, n + 1)[areas >= MIN_HUECO])
 
-    # orilla: el alfa sale de cuánto magenta tiene el píxel (min(R, B) - G, comparado con el del fondo)
-    spill = np.clip((np.minimum(a[..., 0], a[..., 2]) - a[..., 1]) / max(1.0, min(K[0], K[2]) - K[1]), 0, 1)
+    # orilla: el alfa sale de cuánto color de fondo tiene el píxel
+    spill = np.clip(cr, 0, 1)
     # la banda llega hasta la tinta del contorno pero no la atraviesa: con línea delgada, si no, se metería
     # al relleno y un morado o un malva quedarían medio transparentes junto a la línea
     tinta = a @ np.array([0.3, 0.59, 0.11], np.float32) < 60
@@ -149,7 +194,7 @@ def quitar_magenta(img, nombre):
     alfa[fondo] = 0
     alfa[banda] = 1 - spill[banda]
     alfa[alfa < 0.04] = 0
-    # y se le quita el magenta al color: píxel = alfa * color + (1 - alfa) * K
+    # y se le quita el color del fondo: píxel = alfa * color + (1 - alfa) * K
     m = banda & (alfa > 0)
     color = a.copy()
     color[m] = (a[m] - (1 - alfa[m, None]) * K) / alfa[m, None]
@@ -160,8 +205,29 @@ def quitar_magenta(img, nombre):
         areas = ndi.sum(np.ones_like(alfa), lab, index=np.arange(1, n + 1))
         alfa[np.isin(lab, np.arange(1, n + 1)[areas < MIN_MANCHA * h * w])] = 0
 
-    rgba = np.dstack([np.clip(color, 0, 255), alfa * 255]).round().astype(np.uint8)
+    color = np.clip(color, 0, 255)
+    revisar_restos(color, alfa, K, tipo, nombre)
+    rgba = np.dstack([color, alfa * 255]).round().astype(np.uint8)
     return Image.fromarray(rgba, "RGBA")
+
+
+def revisar_restos(color, alfa, K, tipo, nombre):
+    """Cuenta lo visible que sigue teñido del fondo (por ejemplo un hueco que no se quitó) y, si hay, deja una
+    imagen en arte/revision/ con los restos en rojo sobre el personaje en gris."""
+    restos = (alfa > 0.5) & (croma(color, K, tipo) > RESTO)
+    n = int(restos.sum())
+    if not n:
+        print(f"  {nombre}: fondo {tipo}, sin restos")
+        return
+    ys, xs = np.where(restos)
+    print(f"  AVISO {nombre}: fondo {tipo}, quedan {n} px teñidos del fondo (x {xs.min()}-{xs.max()}, y {ys.min()}-{ys.max()})")
+    gris = (color @ np.array([0.3, 0.59, 0.11], np.float32))[..., None].repeat(3, axis=2) * 0.5 + 60
+    vista = np.where((alfa > 0)[..., None], gris, 25)
+    vista[ndi.binary_dilation(restos, iterations=2)] = (255, 0, 0)
+    os.makedirs(REVISION, exist_ok=True)
+    destino = os.path.join(REVISION, os.path.splitext(nombre)[0] + "-restos.png")
+    Image.fromarray(vista.astype(np.uint8), "RGB").save(destino)
+    print(f"    revisa {rel(destino)}")
 
 
 def cargar(path):
@@ -171,7 +237,7 @@ def cargar(path):
         return img.convert("RGBA")
     if path.lower().endswith((".jpg", ".jpeg")):
         print(f"  AVISO {nombre}: es JPEG; con PNG la orilla sale más limpia")
-    return quitar_magenta(img, nombre)
+    return quitar_fondo(img, nombre)
 
 
 # ---------- personajes ----------
@@ -202,9 +268,9 @@ def grupo(pid, angulo, paths):
     """Procesa todos los cuadros de un personaje en un ángulo con la misma caja y la misma escala."""
     if "espera" not in paths:
         sys.exit(f"{pid} {angulo}: falta el cuadro espera (es la base de todos los demás).")
-    faltan = [c for c in OBLIGATORIOS if c not in paths]
+    faltan = [c for c in COMPLETOS if c not in paths]
     if faltan:
-        print(f"  AVISO {pid} {angulo}: faltan {', '.join(faltan)}")
+        print(f"  {pid} {angulo}: todavía sin {', '.join(faltan)} (mientras, el juego usa espera)")
     imgs = {c: cargar(paths[c]) for c in CUADROS if c in paths}
     proporciones = {round(i.size[0] / i.size[1], 3) for i in imgs.values()}
     if len(proporciones) > 1:
@@ -212,6 +278,14 @@ def grupo(pid, angulo, paths):
     W = min(i.size[0] for i in imgs.values())
     H = round(W / proporciones.pop())
     imgs = {c: escalar(i, W, H) for c, i in imgs.items()}
+    corte = CORTE_ABAJO.get((pid, angulo))
+    if corte:   # lo de abajo de la línea se quita (en la mesa no se ve; ver CORTE_ABAJO)
+        y = round(corte * H)
+        for c, i in imgs.items():
+            alfa = np.asarray(i.getchannel("A")).copy()
+            alfa[y:] = 0
+            i.putalpha(Image.fromarray(alfa))
+        print(f"  {pid} {angulo}: corto abajo de y = {y} px ({corte:.0%} del alto)")
 
     # caja común: unión de lo visible de todos los cuadros, con un margen chico (abajo no: ahí corta la mesa)
     vis = np.zeros((H, W), bool)
@@ -265,16 +339,21 @@ def gif(pid, angulo=None):
             w, h = round(w * 800 / h), 800
             imgs = {c: escalar(i, w, h) for c, i in imgs.items()}
         pad = 24
-        cintura = reg.get(ang, {}).get("waist")
+        cintura, cara = reg.get(ang, {}).get("waist"), reg.get(ang, {}).get("face")
         fotos = []
         for c in orden:
             lienzo = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (117, 97, 76, 255))   # pared del garaje
             lienzo.alpha_composite(imgs[c], (pad, pad))
             d = ImageDraw.Draw(lienzo)
             d.rectangle((pad - 1, pad - 1, pad + w, pad + h), outline=(239, 228, 200, 255))
-            if cintura:
+            if cintura:   # donde la corta la mesa (y el punto que va en la orilla)
                 y = pad + round(cintura[1] * h)
                 d.line((0, y, w + 2 * pad, y), fill=(201, 160, 58, 255), width=1)
+                x = pad + round(cintura[0] * w)
+                d.ellipse((x - 4, y - 4, x + 4, y + 4), outline=(201, 160, 58, 255), width=2)
+            if cara:      # la caja de la cabeza, que ninguna etiqueta tapa
+                d.rectangle((pad + round(cara[0] * w), pad + round(cara[1] * h), pad + round(cara[2] * w), pad + round(cara[3] * h)),
+                            outline=(164, 69, 47, 255), width=2)
             d.text((6, 6), c, fill=(239, 228, 200, 255))
             fotos.append(lienzo.convert("RGB"))
         os.makedirs(REVISION, exist_ok=True)
@@ -321,9 +400,9 @@ def registrar(pid, nombre=None):
         previo = c["angles"].get(ang) or {**PROVISIONAL[ang], "pendiente": PENDIENTE}
         c["angles"][ang] = {"size": size, "waist": previo["waist"], "face": previo["face"], "height": previo["height"],
                             "frames": cuadros, **({"pendiente": previo["pendiente"]} if "pendiente" in previo else {})}
-        faltan = [x for x in OBLIGATORIOS if x not in cuadros]
+        faltan = [x for x in COMPLETOS if x not in cuadros]
         print(f"  {pid} {ang}: {size[0]}x{size[1]}, cuadros {', '.join(cuadros)}"
-              + (f"  (faltan {', '.join(faltan)})" if faltan else ""))
+              + (f"  (todavía sin {', '.join(faltan)}: mientras, se usa espera)" if faltan else ""))
     if "frente" not in c["angles"]:
         sys.exit(f"{pid}: hace falta el ángulo frente (es el que se usa cuando no hay lado). No registré nada.")
     escribir_registro(datos)
@@ -331,14 +410,17 @@ def registrar(pid, nombre=None):
     for ang, a in c["angles"].items():
         if "pendiente" in a:
             print(f"  PENDIENTE {ang}: waist, face y height son provisionales; mídelos y borra \"pendiente\".")
-    print("  Para usarlo en la mesa, asígnalo en characterFor() de client/stage/characters.js.")
+    if c.get("retirado"):
+        print("  Está marcado \"retirado\": el juego no lo usa hasta que quites esa línea.")
+    else:
+        print(f"  Ya entra a la mesa: el bot que lo use se llama \"{c['name']}\" (cambia el nombre con --nombre).")
 
 
 def main():
     ap = argparse.ArgumentParser(description="Optimiza el arte para el juego (sin comando: fondos y todos los personajes).")
     sub = ap.add_subparsers(dest="comando")
     sub.add_parser("fondos", help="fondos del cuarto")
-    p = sub.add_parser("personajes", help="quita el fondo magenta, recorta, reduce y exporta en WebP")
+    p = sub.add_parser("personajes", help="quita el fondo verde o magenta, recorta, reduce y exporta en WebP")
     p.add_argument("ids", nargs="*", help="personajes a procesar (todos si no se pone ninguno)")
     p.add_argument("--angulo", choices=ANGULOS)
     g = sub.add_parser("gif", help="GIF de revisión por ángulo en arte/revision/")
@@ -346,7 +428,7 @@ def main():
     g.add_argument("--angulo", choices=ANGULOS)
     r = sub.add_parser("registrar", help="agrega o actualiza el personaje en client/stage/personajes.json")
     r.add_argument("id")
-    r.add_argument("--nombre", help='nombre para mostrar, por ejemplo "Madame Blorp"')
+    r.add_argument("--nombre", help='nombre del bot que usa este personaje, por ejemplo "El Compadre Zorg"')
     args = ap.parse_args()
 
     os.makedirs(OUT, exist_ok=True)

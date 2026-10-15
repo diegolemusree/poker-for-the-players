@@ -5,6 +5,8 @@
 //   retirarse  al retirarse, antes de apagarse (si el personaje tiene ese cuadro)
 //   gana     mientras se ve el resultado de una mano que ganó (si el personaje tiene ese cuadro)
 // Más una respiración muy sutil (escala vertical desde la cintura) para que no se vea congelado.
+// Si al personaje le falta un cuadro (por ahora puede tener solo espera), ese cambio no ocurre: no parpadea,
+// no espía, no apuesta...; en cuanto se registra el cuadro, se usa solo.
 
 import { angleOf, artUrl, loadedImage, poseFile, hasPose } from './characters.js';
 
@@ -15,6 +17,7 @@ const BET_POSE = ['call', 'bet', 'raise'];
 export class RivalAnim {
   constructor(charId, now) {
     this.charId = charId;
+    this.angle = 'frente';         // ángulo en que se dibuja (lo actualiza la escena): de ahí salen sus cuadros
     this.pose = 'espera';
     this.poseUntil = 0;
     this.pending = null;           // { pose, at, ms }: una pose que empieza después (al repartir)
@@ -27,22 +30,27 @@ export class RivalAnim {
     this.lastN = undefined;
     this.wonHand = undefined;      // última mano que celebró (gana)
   }
+  has(pose) { return pose === 'espera' || hasPose(this.charId, this.angle, pose); }
+  // Pasa a `pose` por `ms` (después de `delay` ms). Si el personaje no tiene ese cuadro, se queda como está.
   play(pose, ms, now, delay = 0) {
+    if (!this.has(pose)) return;
     if (delay > 0) { this.pending = { pose, at: now + delay, ms }; return; }
     this.pending = null;
     this.pose = pose;
     this.poseUntil = now + ms;
   }
-  // Reacción a su jugada: apuesta al igualar, apostar o subir; retirarse al retirarse, si tiene ese cuadro
-  // y no está ausente (ausente se retira solo cada mano y ya se ve apagado).
+  // Reacción a su jugada: apuesta al igualar, apostar o subir; retirarse al retirarse, si no está ausente
+  // (ausente se retira solo cada mano y ya se ve apagado).
   react(type, angle, away, now) {
+    this.angle = angle;
     if (BET_POSE.includes(type)) this.play('apuesta', 2000, now);
-    else if (type === 'fold' && !away && hasPose(this.charId, angle, 'retirarse')) this.play('retirarse', 1400, now);
+    else if (type === 'fold' && !away) this.play('retirarse', 1400, now);
   }
-  // Ganó la mano: el cuadro gana mientras dura el resultado (`ms`), si el personaje lo tiene; si no, sigue
-  // en espera. `delay`: para que empiece cuando ya se voltearon las cartas.
+  // Ganó la mano: el cuadro gana mientras dura el resultado (`ms`); si no lo tiene, sigue en espera.
+  // `delay`: para que empiece cuando ya se voltearon las cartas.
   win(angle, now, ms, delay = 0) {
-    if (hasPose(this.charId, angle, 'gana')) this.play('gana', ms, now, delay);
+    this.angle = angle;
+    this.play('gana', ms, now, delay);
   }
   // Mano nueva (aunque el resultado se haya cerrado antes con Listo): deja de celebrar.
   calm() {
@@ -58,8 +66,8 @@ export class RivalAnim {
       if (idle && this.pose === 'espera') this.play('espia', rand(1200, 2000), now);
     }
     if (now >= this.blinkAt) { this.blinkUntil = now + BLINK_MS; this.blinkAt = now + rand(3000, 6000); }
-    // solo espera tiene cuadro de parpadeo
-    return now < this.blinkUntil && this.pose === 'espera' ? 'parpadeo' : this.pose;
+    // solo espera tiene cuadro de parpadeo (y si el personaje no lo tiene, no parpadea)
+    return now < this.blinkUntil && this.pose === 'espera' && this.has('parpadeo') ? 'parpadeo' : this.pose;
   }
   // ¿Sigue en la pose de retirarse? Mientras tanto no se apaga.
   folding(now) { return this.pose === 'retirarse' && now < this.poseUntil; }

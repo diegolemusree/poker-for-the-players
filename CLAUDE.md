@@ -52,7 +52,7 @@ poker-for-the-players/
     index.js        # Express + Socket.IO, manejo de salas
     engine.js       # motor del juego portado de la referencia (sin dependencias de red)
     hands.js        # evaluador de manos
-    bots.js         # decisiones de los bots por dificultad
+    bots.js         # decisiones de los bots por dificultad, y su personaje y nombre (lee personajes.json)
   client/
     index.html
     main.js         # arranque, conexión con Socket.IO
@@ -65,7 +65,7 @@ poker-for-the-players/
       cards.js        # caras y reversos de las cartas (canvas)
       rivals.js       # poses, parpadeo, respiración de los rivales
       characters.js   # personajes (lee personajes.json) y precarga del arte
-      personajes.json # registro de personajes: tamaño y cuadros (los escribe el script), cintura, cabeza y alto (a mano)
+      personajes.json # registro de personajes: tamaño y cuadros (los escribe el script); nombre de su bot, cintura, cabeza y alto (a mano); "retirado"
     ui/             # palos dibujados, nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
     audio/
   public/
@@ -77,6 +77,8 @@ poker-for-the-players/
   test/
     engine.test.js  # simulación de manos aleatorias
     resultado.test.js # final de la mano: lo que recibe cada quien y el botón Listo
+    bots.test.js    # bots: jugadas legales, sin cartas ajenas, y un personaje distinto con su nombre
+    personajes.test.js # personajes registrados, cuadros que faltan, poses
   docs/
     ESPEC-PERSONAJES.md # cómo debe venir el arte de cada personaje (ángulos, cuadros, encuadre, fondo, estilo)
   referencia/
@@ -84,12 +86,12 @@ poker-for-the-players/
   scripts/
     generar-personaje.py      # genera los cuadros con Gemini (arte/generadas/<id>/) y los aprueba a arte/personajes/<id>/
     prompts-personaje.toml    # prompts en inglés de cada ángulo y cuadro, editables
-    recortar.py       # quita un fondo GRIS con rembg (solo para arte viejo; el nuevo viene en magenta)
-    optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key, cuadros alineados), GIF de revisión y registro
+    recortar.py       # quita un fondo GRIS con rembg (solo para arte viejo; el nuevo viene en verde o magenta)
+    optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro
     generar-iconos.mjs # PNG del ícono de la app (32, 180, 192, 512) a partir de icono.svg, con Chrome sin ventana
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
-    personajes/<id>/  # cuadros de cada personaje sobre magenta: <id>-<ángulo>-<cuadro>.png
-    revision/         # GIF de revisión de cada personaje y ángulo
+    personajes/<id>/  # cuadros de cada personaje sobre verde o magenta: <id>-<ángulo>-<cuadro>.png
+    revision/         # GIF de revisión de cada personaje y ángulo (y los restos del fondo, si quedan)
 ```
 
 ## Requisitos funcionales
@@ -134,7 +136,7 @@ Dos formas de jugar con bots:
 - Tienen un pequeño componente aleatorio para no ser predecibles.
 - Esperan entre 1 y 3 segundos antes de actuar, para que se sienta natural y se vean las animaciones.
 - Siempre envían jugadas legales a través del mismo `act()` del motor que usan los humanos.
-- Cada bot es uno de los personajes del cuarto de juego, con nombre inventado y gracioso en español (por ejemplo "Don Chepe", "La Güera", "El Profe") y un ícono de bot discreto junto a su nombre, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el cabezón de cables es calculador, el del casco es impulsivo).
+- Cada bot es uno de los personajes del cuarto de juego y lleva siempre el nombre de ese personaje (el `name` de `personajes.json`): alien = El Compadre Zorg, blob = Tío Glub, turista = La Güera, robot = La Chispa, nerd = El Profe, pulpo = Don Tentáculos. Al agregar bots, el servidor le da a cada uno un personaje distinto, al azar entre los que no usa ningún otro bot (con 6 rivales o menos nunca se repite); si se acabaran los personajes, usa los nombres de repuesto (`BOT_NAMES`). Los humanos siguen con su apodo y se dibujan con los personajes que no usa ningún bot (si ya no queda ninguno, se repite uno; uno nunca se ve a sí mismo). Junto al nombre, un ícono de bot discreto, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el cabezón de cables es calculador, el del casco es impulsivo). El servidor lee los nombres al arrancar: si cambias un nombre o retiras un personaje, reinicia `npm run dev`.
 - Si se quedan sin fichas, usan su única recompra casi siempre; si no, quedan eliminados.
 - En práctica en solitario, si el humano se queda sin fichas, ofrecer "Recomprar" (si le queda) o quedar fuera y ver cómo termina; al final, "Volver al inicio" para una nueva partida.
 
@@ -153,7 +155,7 @@ La experiencia es en **primera persona**: la cámara son los ojos del jugador se
 
 **Todo debe parecer un cuadro dibujado a mano de un capítulo de una serie animada de televisión para adultos de ciencia ficción, no un videojuego.** Todo es **original**: no usar personajes, objetos, lugares, logos, frases ni diseños reconocibles de ninguna serie o franquicia existente. Si algo se parece demasiado a algo conocido, cambiarlo. Lo absurdo está en los personajes y los objetos, no en luces de neón.
 
-**Referencia oficial del dueño:** una ilustración de una mesa de póker en un garaje con seis rivales grandes alrededor y tu mano sosteniendo tus cartas abajo a la izquierda. `referencia/composicion.png` (fuera de git: tiene textos y diseños de una serie existente) es la referencia de **composición, cámara y acomodo**; de ella no se copia ningún texto, marca ni diseño. De esa imagen manda el acomodo: brazos y manos sobre la mesa sosteniendo cartas, cámara algo alta viendo la mesa desde arriba, luz cálida de la lámpara que se apaga suave hacia las orillas y esquinas oscuras. El estilo de los personajes lo manda **`docs/ESPEC-PERSONAJES.md`**: línea delgada negro-café uniforme, sombras planas de un tono, colores apagados y terrosos, texturas sucias, sin luz de borde ni degradados, todo original. Lo prohibido sigue siendo el neón chillón en la interfaz y cualquier elemento de series existentes.
+**Referencia oficial del dueño:** una ilustración de una mesa de póker en un garaje con seis rivales grandes alrededor y tu mano sosteniendo tus cartas abajo a la izquierda. `referencia/composicion.png` (fuera de git: tiene textos y diseños de una serie existente) es la referencia de **composición, cámara y acomodo**; de ella no se copia ningún texto, marca ni diseño. De esa imagen manda el acomodo: brazos y manos sobre la mesa sosteniendo cartas, cámara algo alta viendo la mesa desde arriba, luz cálida de la lámpara que se apaga suave hacia las orillas y esquinas oscuras. El estilo de los personajes lo manda **`docs/ESPEC-PERSONAJES.md`**: línea delgada negro-café uniforme, colores limpios y planos con una sola sombra plana, sin texturas, luz de borde ni degradados, cuerpo completo sentado en su propia silla, todo original. Lo prohibido sigue siendo el neón chillón en la interfaz y cualquier elemento de series existentes.
 
 Lo que NO queremos (así se veía la versión anterior y se descartó): colores neón saturados, materiales brillantes, casi sin contornos, un casino gigante y vacío, personajes hechos de bloques.
 
@@ -181,18 +183,26 @@ Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `publi
 | Archivo | Qué es |
 |---|---|
 | `fondo-garaje-3840.webp`, `fondo-garaje-1920.webp` | el cuarto, sin mesa ni personajes (se usa el chico si la pantalla no necesita más) |
-| `<id>-<ángulo>-<cuadro>.webp` | cada cuadro de cada personaje, por ejemplo `blorp-frente-espera.webp` |
+| `<id>-<ángulo>-<cuadro>.webp` | cada cuadro de cada personaje, por ejemplo `alien-frente-espera.webp` |
 | `*-chico.webp` | cada cuadro a la mitad, para calidad baja |
 
-Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `apuesta`, `retirarse`, `gana` (`POSES` en `characters.js`, `CUADROS` en `optimizar-arte.py`, `POSES` en `generar-personaje.py`). Obligatorios: espera, parpadeo, apuesta y retirarse; espia y gana son opcionales y, si faltan, se usa espera. **Pendiente**: `gana` por ahora solo lo conoce el juego (`characters.js`); falta agregarlo a los dos scripts, a `prompts-personaje.toml` y a `docs/ESPEC-PERSONAJES.md` en la tarea del pipeline de personajes. La especificación completa del arte está en `docs/ESPEC-PERSONAJES.md`.
+Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `apuesta`, `retirarse`, `gana` (`POSES` en `characters.js`, `CUADROS` en `optimizar-arte.py`, `POSES` en `generar-personaje.py`). Por ahora **solo espera es obligatorio**: mientras falte otro cuadro, el personaje se queda en espera (no parpadea, no espía, no apuesta ni se retira con pose, no celebra) y el juego no falla; en cuanto se procesa y se registra el cuadro, se usa solo. Los de siempre son espera, parpadeo, apuesta y retirarse; espia y gana son extras. La especificación completa del arte está en `docs/ESPEC-PERSONAJES.md`.
 
-**Receta para agregar un personaje** (todos los bots usan a Madame Blorp por ahora; Blorp solo tiene `frente` y le falta `retirarse`):
+**Personajes en uso**: alien, blob, nerd, pulpo, robot y turista (de cuerpo completo, por ahora solo con `frente-espera`). Madame Blorp está retirada: sigue en `personajes.json` con `"retirado": true` y sus archivos se quedan, pero el juego no la carga ni la usa.
 
-1. Poner sus cuadros sobre magenta en `arte/personajes/<id>/<id>-<ángulo>-<cuadro>.png`, según `docs/ESPEC-PERSONAJES.md`. Se pueden generar con `scripts/generar-personaje.py` a partir de una ilustración de referencia (API key de Gemini en `.env`; ver el uso al inicio del script); su comando `aprobar` los deja ahí.
-2. Optimizar: `.venv-rembg/bin/python scripts/optimizar-arte.py personajes <id>`. Quita el magenta con chroma key y, por cada ángulo aparte, escala todos los cuadros al mismo lienzo, los recorta con una sola caja común (para que al cambiar de cuadro nada brinque), los reduce (frente a 700 px de alto como máximo, lado a 1200) y los exporta en WebP.
-3. Revisar: `.venv-rembg/bin/python scripts/optimizar-arte.py gif <id>` arma `arte/revision/<id>-<ángulo>.gif` alternando espera con cada cuadro.
-4. Registrar: `.venv-rembg/bin/python scripts/optimizar-arte.py registrar <id> --nombre "..."` lo agrega a `client/stage/personajes.json` (tamaño y cuadros). Ahí se miden a mano, por ángulo, el punto de la cintura (`waist`, debajo de la mano más baja con cartas o fichas: ahí lo tapa la mesa), la caja de la cabeza (`face`, que nadie tapa) y el alto en unidades de mesa (`height`), y se borra la línea `pendiente`. Volver a registrar nunca sobrescribe esas medidas. Si un personaje no tiene `lado`, se usa `frente`; el rival de la derecha se dibuja en espejo.
-5. Asignarlo en `characterFor(jugador)`.
+**Receta para agregar un personaje**:
+
+1. Poner sus cuadros sobre verde o magenta (el color que no tenga el personaje) en `arte/personajes/<id>/<id>-<ángulo>-<cuadro>.png`, según `docs/ESPEC-PERSONAJES.md`. Se pueden generar con `scripts/generar-personaje.py` a partir de una ilustración de referencia (API key de Gemini en `.env`; ver el uso al inicio del script; `--fondo verde|magenta`); su comando `aprobar` los deja ahí.
+2. Optimizar: `.venv-rembg/bin/python scripts/optimizar-arte.py personajes <id>`. Toma el color del fondo de las esquinas de cada imagen (verde o magenta) y lo quita con chroma key, también en los huecos encerrados (entre brazos, silla y tentáculos); avisa si quedan píxeles teñidos del fondo y deja `arte/revision/<cuadro>-restos.png` con los restos en rojo. Si algo sobra abajo (como la tarima del pulpo), se corta con `CORTE_ABAJO`. Luego, por cada ángulo aparte, escala todos los cuadros al mismo lienzo, los recorta con una sola caja común (para que al cambiar de cuadro nada brinque), los reduce (frente a 1000 px de alto como máximo, porque la mitad de abajo queda bajo la mesa; lado a 1200) y los exporta en WebP.
+3. Revisar: `.venv-rembg/bin/python scripts/optimizar-arte.py gif <id>` arma `arte/revision/<id>-<ángulo>.gif` alternando espera con cada cuadro, con la línea de la cintura y la caja de la cara.
+4. Registrar: `.venv-rembg/bin/python scripts/optimizar-arte.py registrar <id> --nombre "..."` lo agrega a `client/stage/personajes.json` (tamaño y cuadros). El nombre es el del bot que usa ese personaje. Ya entra a la mesa: el servidor le da a cada bot un personaje distinto (reinicia `npm run dev` para que lo vea). Volver a registrar nunca sobrescribe el nombre ni las medidas.
+5. Medir a mano en `personajes.json`, por ángulo (los números son fracciones de la imagen, de 0 a 1, contando desde arriba a la izquierda), y borrar la línea `pendiente`:
+   - `waist: [x, y]`: el punto donde la mesa corta al personaje y que se pone en la orilla de la mesa. `y`, justo debajo de la mano más baja que sostiene cartas (más grande = más abajo = se ve más cuerpo; si queda arriba de las manos, la mesa tapa las cartas). `x`, el centro del cuerpo a esa altura.
+   - `face: [izquierda, arriba, derecha, abajo]`: la caja de la cabeza; ninguna etiqueta la tapa y los rivales de los lados no se le encima.
+   - `height`: el alto de toda la imagen en unidades de la mesa (más grande = personaje más grande). Lo que se ve es `height × y` de la cintura; con los seis actuales va de 0.36 a 0.43.
+   - Para verlo: guarda el archivo, recarga la página y abre una mesa con `?medidas` en la dirección (por ejemplo `http://localhost:3000/?medidas` y luego "Jugar contra la compu"). Sobre cada rival se dibujan el marco de su imagen, la caja de la cara (roja, punteada) y la línea de la cintura con su punto (mostaza). Cambiar las medidas no necesita reiniciar el servidor.
+   - Si un personaje no tiene `lado`, se usa `frente`; el rival de la derecha se dibuja en espejo.
+6. Para dejar de usar un personaje sin borrar nada, ponle `"retirado": true` en `personajes.json` (y reinicia el servidor).
 
 ### Asientos
 
@@ -227,7 +237,7 @@ Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la car
 - **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
 - **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto y el valor impreso en la ficha de arriba de cada columna (10, 25, 50, 100, 500, 1K), de cara al jugador. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
 - **Cartas**: tarjetas de esquinas redondas dibujadas en canvas (`client/stage/cards.js`) y puestas en perspectiva sobre la mesa, papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en la mesa y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
-- **Rivales**: ilustraciones recortadas de medio cuerpo (ver "Archivos de arte" y `docs/ESPEC-PERSONAJES.md`), con sus cartas en la mano a la altura de la mesa. Mismo estilo para todos: formas simples, ojos grandes con párpados caídos, expresiones secas, aburridas o sospechosas, mezcla de criaturas alienígenas y equipo improvisado. Cada uno con una silueta distinta y reconocible. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo encima.
+- **Rivales**: ilustraciones recortadas de cuerpo completo, sentados en su propia silla y con las cartas al pecho (ver "Archivos de arte" y `docs/ESPEC-PERSONAJES.md`); la mesa los recorta en la cintura, así que las manos y las cartas se siguen viendo. Mismo estilo para todos: formas simples, ojos grandes con párpados caídos, expresiones secas, aburridas o sospechosas, mezcla de criaturas alienígenas y equipo improvisado. Cada uno con una silueta distinta y reconocible. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo encima.
 - **Animación de los rivales** (cambio de pose, como en una serie animada):
   - **espera** por omisión, con **parpadeo** cada 3 a 6 s al azar (150 ms; solo en espera);
   - **espia** justo después de que le reparten (escalonado, como si fueran repartiendo) y de vez en cuando mientras espera (si no tiene ese cuadro, se queda en espera);
@@ -289,7 +299,7 @@ Los rivales tienen sus propias animaciones de pose (ver "Animación de los rival
   - Cada apuesta sobre la mesa y el bote llevan su monto escrito encima, para no tener que contar fichas. El valor de cada color de ficha está en el panel "Posiciones".
   - Las cartas comunitarias van grandes e inclinadas hacia el jugador.
   - Cuando es tu turno, la barra se marca en mostaza y el aviso dice qué opciones tienes ("¡Te toca! Para seguir tienes que igualar 50").
-  - **Resultado de la mano**: un panel en lugar de la barra de acciones (en pantallas anchas, más ancho que la barra y bajito, para no tapar mis cartas). Arriba, quién ganó, cuánto y con qué mano ("Madame Blorp gana 450 con color de corazones"; con empate, cuánto le toca a cada quien); con botes secundarios, un renglón por bote ("Bote principal (900): …", "Bote secundario (1,800): …") y lo que se le regresa a alguien. Abajo, una línea por jugador que llegó al final, de la mejor mano a la peor: sus dos cartas (chiquitas, con los mismos palos de la mesa), su nombre y su mano ("Escalera del 5 al 9"), y lo que ganó; en la de quien ganó, la carta propia que no usó se ve apagada. Al lado (abajo en el celular), "Siguiente mano en 7 s" y Listo; después de tocarlo, a quién se espera. Si me quedé sin fichas, Recomprar y Quedarme fuera van dentro del panel. Mientras se ve, no hay historial a la izquierda ni aviso del centro: todo lo dice el panel.
+  - **Resultado de la mano**: un panel en lugar de la barra de acciones (en pantallas anchas, más ancho que la barra y bajito, para no tapar mis cartas). Arriba, quién ganó, cuánto y con qué mano ("La Güera gana 450 con color de corazones"; con empate, cuánto le toca a cada quien); con botes secundarios, un renglón por bote ("Bote principal (900): …", "Bote secundario (1,800): …") y lo que se le regresa a alguien. Abajo, una línea por jugador que llegó al final, de la mejor mano a la peor: sus dos cartas (chiquitas, con los mismos palos de la mesa), su nombre y su mano ("Escalera del 5 al 9"), y lo que ganó; en la de quien ganó, la carta propia que no usó se ve apagada. Al lado (abajo en el celular), "Siguiente mano en 7 s" y Listo; después de tocarlo, a quién se espera. Si me quedé sin fichas, Recomprar y Quedarme fuera van dentro del panel. Mientras se ve, no hay historial a la izquierda ni aviso del centro: todo lo dice el panel.
 - Botón para silenciar y botón de calidad gráfica (alta, media, baja).
 - Retirarse cuando se puede pasar gratis pide confirmación ("Puedes pasar gratis, ¿seguro que te retiras?").
 
@@ -330,7 +340,9 @@ En esas simulaciones, el resultado de cada mano cuadra: botes + devoluciones = l
 
 **Seguridad del final de la mano** (`test/resultado.test.js` con cartas acomodadas en una mesa, y `test/server.test.js` por sockets con tres jugadores y un espectador): se revisa todo lo que recibe cada quien, incluidos el resultado y el historial, sin fiarse de la lista del servidor de quién enseñó: antes del final nadie recibe cartas ajenas; al final llegan las de quienes llegaron y nunca las de quien se retiró; si todos se retiran, nadie ve las del ganador; con all-in, las cartas se enseñan hasta que termina la mano. También el Listo: práctica, amigos (falta uno, todos), un Listo de otra mano, ausentes y espectadores, y la duración de cada resultado.
 
-`test/personajes.test.js`: cada personaje de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico); un cuadro que falta se dibuja con espera; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina; con cuadro `gana`, el que gana lo enseña mientras dura el resultado (sin él se queda en espera) y deja de celebrar con la mano nueva.
+`test/personajes.test.js`: cada personaje en uso de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico); los retirados no se usan y el juego dibuja el personaje que manda el servidor; un cuadro que falta se dibuja con espera; con solo `espera` no parpadea, no espía, no apuesta ni se retira con pose, y en cuanto llega otro cuadro se usa; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina; con cuadro `gana`, el que gana lo enseña mientras dura el resultado (sin él se queda en espera) y deja de celebrar con la mano nueva.
+
+`test/bots.test.js`, además de las jugadas: cada personaje tiene siempre el mismo nombre de bot y Madame Blorp ya no sale; con 1 a 6 bots, cada uno con un personaje distinto y su nombre; nunca repite el personaje de otro bot ni un nombre que ya se use (si se acaban, nombres de repuesto); en la mesa, los humanos se dibujan con los personajes que sobran y todos ven lo mismo.
 
 ## Comandos esperados
 
@@ -343,6 +355,10 @@ npm start       # producción: sirve dist/ (corre antes npm run build)
 ```
 
 `npm run dev` levanta el servidor y Vite juntos en el mismo puerto. Para probar multijugador en local, abrir varias pestañas o ventanas de incógnito. Para probar desde el celular en la misma red WiFi, usar la IP local de la Mac (por ejemplo `http://192.168.1.50:3000`).
+
+## Pendientes
+
+- **Memoria en iPhone con todos los cuadros**: el máximo de frente subió a 1000 px de alto (la mitad de abajo queda bajo la mesa). Cuando cada personaje tenga todos sus cuadros de frente y de lado, revisar cuánta memoria usa la mesa en un iPhone: hoy se precargan y decodifican todos los cuadros de todos los personajes en uso (6 personajes × hasta 6 cuadros × 2 ángulos, más los reducidos al tamaño en que se ven). Si pesa, cargar solo los personajes que están en la mesa o bajar el máximo.
 
 ## Fuera de alcance por ahora
 

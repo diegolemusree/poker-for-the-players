@@ -1,7 +1,8 @@
 // Personajes ilustrados (recortes con fondo transparente en public/assets/arte/). Sus datos viven en
 // personajes.json, que escribe scripts/optimizar-arte.py (comando `registrar`): tamaño y cuadros los pone
-// el script; cintura (`waist`), cabeza (`face`) y alto (`height`) se miden a mano en ese archivo.
-// Especificación del arte: docs/ESPEC-PERSONAJES.md.
+// el script; el nombre (el del bot que usa ese personaje), la cintura (`waist`), la cabeza (`face`) y el
+// alto (`height`) se ponen o miden a mano en ese archivo. Especificación del arte: docs/ESPEC-PERSONAJES.md.
+// El servidor lee el mismo archivo para darle a cada bot un personaje distinto con su nombre.
 //
 // Cada personaje tiene sus ángulos: `frente` (los del fondo) y `lado` (tres cuartos, para los de los lados;
 // el de la derecha se dibuja en espejo). Si un personaje todavía no tiene `lado`, se usa `frente`.
@@ -10,19 +11,21 @@
 //   face    caja de la cabeza (izquierda, arriba, derecha, abajo): nadie la tapa
 //   height  alto de la imagen en unidades de la mesa (radio de la mesa = 1)
 //   frames  cuadros que existen; archivo <id>-<ángulo>-<cuadro>.webp
+// Un personaje con "retirado": true se queda en el registro (y sus imágenes en su lugar), pero no se usa.
 
 import DATA from './personajes.json' with { type: 'json' };
 
-// La misma lista que scripts/optimizar-arte.py. Obligatorios: espera, parpadeo, apuesta, retirarse.
-// Opcionales: espia y gana (si faltan, se usa espera). gana todavía no está en los scripts de arte.
+// La misma lista que scripts/optimizar-arte.py. Solo espera es obligatorio: mientras falte otro cuadro,
+// el personaje se queda en espera (no parpadea, no apuesta...); cuando se registra, se usa solo.
 export const POSES = ['espera', 'parpadeo', 'espia', 'apuesta', 'retirarse', 'gana'];
 
-export const CHARACTERS = Object.fromEntries(Object.entries(DATA).map(([id, c]) => [id, {
+export const CHARACTERS = Object.fromEntries(Object.entries(DATA).filter(([, c]) => !c.retirado).map(([id, c]) => [id, {
   name: c.name,
   angles: Object.fromEntries(Object.entries(c.angles).map(([angle, a]) => [angle, {
     ...a, poses: Object.fromEntries(a.frames.map(f => [f, `${id}-${angle}-${f}`])),
   }])),
 }]));
+const IDS = Object.keys(CHARACTERS);
 
 // Ángulo que se dibuja: el que se pide, o `frente` si el personaje no lo tiene.
 export function angleOf(charId, angle) {
@@ -34,10 +37,10 @@ export const artOf = (charId, angle) => CHARACTERS[charId].angles[angleOf(charId
 export const hasPose = (charId, angle, pose) => !!artOf(charId, angle).poses[pose];
 export const poseFile = (charId, angle, pose) => { const p = artOf(charId, angle).poses; return p[pose] || p.espera; };
 
-// Qué personaje usa cada jugador. Por ahora todos son Madame Blorp; después se puede asignar por
-// bot (p. ej. por su apodo) o dejar que cada humano elija el suyo.
-export function characterFor(player) { // eslint-disable-line no-unused-vars
-  return 'blorp';
+// Qué personaje dibuja a un jugador: el que le asignó el servidor (cada bot uno distinto, con su nombre;
+// los humanos, los que no usa ningún bot). Si no trae uno que exista aquí (o es un asiento vacío), el primero.
+export function characterFor(player) {
+  return player && CHARACTERS[player.character] ? player.character : IDS[0];
 }
 
 export const artUrl = (file, small) => `/assets/arte/${file}${small ? '-chico' : ''}.webp`;

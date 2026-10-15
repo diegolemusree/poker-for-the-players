@@ -1,13 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { CHARACTERS, POSES, poseFile, hasPose } from '../client/stage/characters.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { CHARACTERS, POSES, poseFile, hasPose, characterFor } from '../client/stage/characters.js';
 import { RivalAnim } from '../client/stage/rivals.js';
 
 const arte = file => new URL(`../public/assets/arte/${file}.webp`, import.meta.url);
-const registrados = Object.entries(CHARACTERS); // los de personajes.json (antes de agregar los de prueba)
+const registrados = Object.entries(CHARACTERS); // los de personajes.json en uso (antes de agregar los de prueba)
+const REGISTRO = JSON.parse(readFileSync(new URL('../client/stage/personajes.json', import.meta.url), 'utf8'));
 
 test('cada personaje registrado tiene frente con espera, solo cuadros conocidos y sus imágenes', () => {
+  assert.ok(registrados.length > 0, 'no hay personajes en uso');
   for (const [id, c] of registrados) {
     assert.ok(c.angles.frente, `${id} sin frente`);
     for (const [angle, a] of Object.entries(c.angles)) {
@@ -21,8 +23,23 @@ test('cada personaje registrado tiene frente con espera, solo cuadros conocidos 
   }
 });
 
-// personaje de prueba con retirarse y sin espia
+test('los retirados se quedan en el registro pero el juego no los usa', () => {
+  const retirados = Object.keys(REGISTRO).filter(id => REGISTRO[id].retirado);
+  assert.ok(retirados.includes('blorp'), 'Madame Blorp debería estar retirada');
+  for (const id of retirados) assert.ok(!(id in CHARACTERS), `${id} está retirado y se sigue usando`);
+  // el juego dibuja el personaje que le asigna el servidor; si no existe (o es un retirado), el primero
+  const primero = Object.keys(CHARACTERS)[0];
+  assert.equal(characterFor({ character: 'nerd' }), 'nerd');
+  assert.equal(characterFor({ character: 'blorp' }), primero);
+  assert.equal(characterFor({}), primero);
+  assert.equal(characterFor(null), primero);
+});
+
+// personajes de prueba: uno con todos los cuadros, uno con retirarse y sin espia ni apuesta, uno con solo espera
+const todos = (p) => Object.fromEntries(POSES.map(c => [c, `${p}-${c}`]));
+CHARACTERS.completo = { name: 'Completo', angles: { frente: { poses: todos('c') } } };
 CHARACTERS.prueba = { name: 'Prueba', angles: { frente: { poses: { espera: 'p-espera', parpadeo: 'p-parpadeo', retirarse: 'p-retirarse' } } } };
+CHARACTERS.soloEspera = { name: 'Solo espera', angles: { frente: { poses: { espera: 's-espera' } } } };
 
 test('un cuadro que falta se dibuja con espera', () => {
   assert.equal(poseFile('prueba', 'frente', 'espia'), 'p-espera');
@@ -31,12 +48,30 @@ test('un cuadro que falta se dibuja con espera', () => {
 });
 
 test('solo espera parpadea', () => {
-  const a = new RivalAnim('prueba', 0);
+  const a = new RivalAnim('completo', 0);
   a.blinkAt = 100;
   assert.equal(a.frame(100, false), 'parpadeo');
   a.play('apuesta', 2000, 120);
   a.blinkAt = 130;
   assert.equal(a.frame(130, false), 'apuesta');
+});
+
+test('con solo el cuadro espera: no parpadea, no espía, no apuesta ni se retira, y no falla', () => {
+  const a = new RivalAnim('soloEspera', 0);
+  a.blinkAt = 100; a.peekAt = 100;
+  for (let t = 100; t < 20000; t += 50) assert.equal(a.frame(t, true), 'espera');
+  for (const jugada of ['call', 'bet', 'raise', 'fold', 'check']) {
+    a.react(jugada, 'frente', false, 30000);
+    assert.equal(a.frame(30010, true), 'espera', jugada);
+  }
+  a.play('espia', 1700, 31000, 300); // al repartir
+  a.win('frente', 31000, 8000);      // al ganar
+  assert.equal(a.frame(31500, true), 'espera');
+  assert.ok(!a.folding(31500));
+  // cuando llegan los demás cuadros, se usan solos
+  CHARACTERS.soloEspera.angles.frente.poses.parpadeo = 's-parpadeo';
+  a.blinkAt = 32000;
+  assert.equal(a.frame(32000, true), 'parpadeo');
 });
 
 test('al retirarse muestra retirarse y no se apaga hasta que termina', () => {
@@ -82,11 +117,10 @@ test('sin cuadro gana se queda en espera, y con mano nueva deja de celebrar', ()
 });
 
 test('sin cuadro retirarse, o ausente, no hay pose de retirarse', () => {
-  CHARACTERS.prueba2 = { name: 'Prueba 2', angles: { frente: { poses: { espera: 'q-espera' } } } };
-  const sin = new RivalAnim('prueba2', 0);
+  const sin = new RivalAnim('soloEspera', 0);
   sin.react('fold', 'frente', false, 0);
   assert.equal(sin.pose, 'espera');
-  const ausente = new RivalAnim('prueba', 0);
+  const ausente = new RivalAnim('completo', 0);
   ausente.react('fold', 'frente', true, 0);
   assert.equal(ausente.pose, 'espera');
   ausente.react('raise', 'frente', false, 0);

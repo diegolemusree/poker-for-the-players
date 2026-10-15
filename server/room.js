@@ -6,7 +6,7 @@ import {
   MAXP, TURN_LIMIT, RESULT_MS, RESULT_FOLD_MS, createState, addPlayer, removePlayer, startHand, act, autoAct, resign, sitIn,
   rebuy, declineRebuy, pendingRebuys, viewFor, isBetting,
 } from './engine.js';
-import { decide, makeBots, botDelay, botWantsRebuy, DIFFICULTIES } from './bots.js';
+import { decide, makeBots, botDelay, botWantsRebuy, DIFFICULTIES, CAST } from './bots.js';
 
 export const LEVEL_CHOICES = [2, 5, 10, 15, 20, 30];
 
@@ -29,7 +29,7 @@ export class Room {
     };
     this.onChange = onChange;
     this.state = createState({ levelMs: this.tuning.levelMs });
-    this.bots = new Map();      // playerId -> { difficulty, style }
+    this.bots = new Map();      // playerId -> { difficulty, style, character }
     this.tokens = new Map();    // token secreto -> playerId
     this.timeouts = new Map();  // playerId -> turnos seguidos agotados
     this.connections = 0;       // sockets conectados (lo actualiza el servidor)
@@ -66,13 +66,14 @@ export class Room {
     const libres = [...Array(MAXP).keys()].filter(i => !this.state.players.some(p => p.seat === i));
     if (!Number.isInteger(count) || count < 1) throw new Error('Cantidad no válida.');
     if (count > libres.length) throw new Error('No hay tantos asientos libres.');
-    const nuevos = makeBots(count, difficulty, this.state.players.map(p => p.nick));
+    const usados = [...this.bots.values()].map(b => b.character).filter(Boolean);
+    const nuevos = makeBots(count, difficulty, this.state.players.map(p => p.nick), Math.random, usados);
     // reparte a los bots en asientos libres lo más separados posible
     nuevos.forEach((b, i) => {
       const seat = libres[Math.floor(i * libres.length / count)];
       const id = 'b' + rid();
       addPlayer(this.state, { id, nick: b.name, seat });
-      this.bots.set(id, { difficulty: b.difficulty, style: b.style });
+      this.bots.set(id, { difficulty: b.difficulty, style: b.style, character: b.character });
     });
     this.changed();
   }
@@ -136,7 +137,8 @@ export class Room {
     const you = this.playerIdOf(token);
     const s = this.state;
     const view = viewFor(s, you);
-    view.players.forEach(p => { p.isBot = this.bots.has(p.id); });
+    const looks = this.characters();
+    view.players.forEach(p => { p.isBot = this.bots.has(p.id); p.character = looks.get(p.id) || null; });
     const left = t => (t ? Math.max(0, t - Date.now()) : null);
     // resultado de la mano: quién ya tocó Listo, a quién se espera y si mi Listo cuenta
     const showing = s.phase === 'showdown' && !s.finished;
@@ -152,6 +154,18 @@ export class Room {
       waitIds: showing ? need.filter(p => !ready.has(p.id)).map(p => p.id) : [],
       canReady: showing && !!you && (need.length === 0 || need.some(p => p.id === you)),
     };
+  }
+
+  // Qué personaje dibuja a cada jugador. El de cada bot es fijo (lleva el nombre de su personaje); los humanos
+  // toman, en el orden en que se sentaron, los que no usa ningún bot, y si ya no queda ninguno se repite uno
+  // (en práctica con 6 rivales: el humano nunca se ve a sí mismo).
+  characters() {
+    const out = new Map(), deBots = new Set();
+    for (const [id, b] of this.bots) if (b.character) { out.set(id, b.character); deBots.add(b.character); }
+    const todos = CAST.map(c => c.id), libres = todos.filter(c => !deBots.has(c));
+    const lista = libres.length ? libres : todos;
+    this.humans().forEach((p, i) => { if (lista.length) out.set(p.id, lista[i % lista.length]); });
+    return out;
   }
 
   /* ---------- Listo: pasar a la siguiente mano ---------- */

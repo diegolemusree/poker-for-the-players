@@ -4,6 +4,7 @@
 // decide(view, myId, opts) -> { type: 'fold' | 'check' | 'call' | 'raise', amount? }
 // La jugada siempre es legal; se aplica con el mismo act() del motor que usan los humanos.
 
+import { readFileSync } from 'node:fs';
 import { RANKS, SUITS, bestHand, cmp } from './hands.js';
 import { CHIP_UNIT, MAXP } from './engine.js';
 
@@ -16,9 +17,15 @@ const LEVELS = {
   dificil: { iters: 800, noise: 0.04, callMargin: 0.04,  looseCall: 0,    raiseQ: 0.50, betQ: 0.38, aggr: 0.80, bluff: 0.12, pushBBs: 12, delay: [1000, 3000] },
 };
 
+// Los personajes del cuarto (client/stage/personajes.json, el mismo registro que dibuja el juego), cada uno con
+// el nombre que lleva el bot que lo usa. Los marcados "retirado" ya no salen.
+const REGISTRO = JSON.parse(readFileSync(new URL('../client/stage/personajes.json', import.meta.url), 'utf8'));
+export const CAST = Object.entries(REGISTRO).filter(([, c]) => !c.retirado).map(([id, c]) => ({ id, name: c.name }));
+
+// Nombres de repuesto, por si un bot se queda sin personaje (más bots que personajes, o un humano ya usa
+// el nombre de uno).
 export const BOT_NAMES = [
-  'Don Chepe', 'La Güera', 'El Profe', 'Doña Chuy', 'El Compadre Zorg', 'Madame Blorp',
-  'Tío Glub', 'La Comadre Xyla', 'Chato Quark', 'Mamá Tentáculos', 'El Licenciado Bzzt', 'Güero Nebulón',
+  'Don Chepe', 'Doña Chuy', 'La Comadre Xyla', 'Chato Quark', 'Mamá Tentáculos', 'El Licenciado Bzzt', 'Güero Nebulón',
 ];
 
 export function botDelay(difficulty, rng = Math.random) {
@@ -26,12 +33,15 @@ export function botDelay(difficulty, rng = Math.random) {
   return a + rng() * (b - a);
 }
 
-// `taken` son los apodos ya usados en la mesa.
-export function makeBots(count, difficulty, taken = [], rng = Math.random) {
-  const libres = BOT_NAMES.filter(n => !taken.includes(n));
-  for (let i = libres.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [libres[i], libres[j]] = [libres[j], libres[i]]; }
+// Bots nuevos: cada uno con un personaje distinto, al azar entre los que no usa ningún bot de la mesa, y el
+// nombre de ese personaje. `taken`: apodos ya usados en la mesa; `used`: personajes que ya tienen otros bots.
+export function makeBots(count, difficulty, taken = [], rng = Math.random, used = []) {
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const cast = shuffle(CAST.filter(c => !used.includes(c.id) && !taken.includes(c.name)));
+  const spare = shuffle(BOT_NAMES.filter(n => !taken.includes(n)));
   return Array.from({ length: count }, (_, i) => ({
-    name: libres[i] || `Bot ${i + 1}`,
+    name: cast[i] ? cast[i].name : spare[i - cast.length] || `Bot ${i + 1}`,
+    character: cast[i] ? cast[i].id : null,
     difficulty,
     style: { loose: (rng() - 0.5) * 0.1, aggr: 0.8 + rng() * 0.4 }, // cada bot con su carácter
   }));

@@ -1,6 +1,7 @@
 """Genera con Gemini los cuadros de un personaje a partir de una ilustración de referencia.
 
-Sigue docs/ESPEC-PERSONAJES.md: medio cuerpo, fondo magenta (#FF00FF), cuadros <id>-<ángulo>-<cuadro>.
+Sigue docs/ESPEC-PERSONAJES.md: cuerpo completo, sentado en su silla, con las cartas al pecho; fondo verde
+(#00FF00) o magenta (#FF00FF), el que no tenga el personaje; cuadros <id>-<ángulo>-<cuadro>.
 
 USO (desde la carpeta poker-for-the-players/, con el entorno de recortar.py)
 ----------------------------------------------------------------------------
@@ -13,17 +14,21 @@ Una sola vez:
 
        .venv-rembg/bin/python scripts/generar-personaje.py generar alien arte/alien-referencia.png --simular
 
-2. Generar los cuadros obligatorios que faltan (pide confirmación antes de gastar):
+2. Generar los cuadros de siempre que faltan (pide confirmación antes de gastar):
 
        .venv-rembg/bin/python scripts/generar-personaje.py generar alien arte/alien-referencia.png
+
+   El fondo que se pide es el de la referencia si es verde o magenta; si no, magenta. Para escogerlo:
+   --fondo verde  (o magenta). Va el color que NO tenga el personaje: verde para uno morado o rosa,
+   magenta para uno verde.
 
    Si ya tienes un dibujo del personaje en ángulo de lado, agrégalo para que lado-espera lo copie:
    --ref-lado arte/alien-lado.png
 
-   O solo uno o varios cuadros, por ejemplo el opcional espia, o para rehacer uno que no te gustó
-   (se guarda como versión nueva):
+   O solo uno o varios cuadros, por ejemplo los opcionales espia y gana, o para rehacer uno que no te
+   gustó (se guarda como versión nueva):
 
-       .venv-rembg/bin/python scripts/generar-personaje.py generar alien arte/alien-referencia.png --pose frente-espia
+       .venv-rembg/bin/python scripts/generar-personaje.py generar alien arte/alien-referencia.png --pose frente-gana
 
 3. Revisar arte/generadas/<personaje>/ (y la hoja revision.jpg con todos los cuadros juntos).
 
@@ -36,23 +41,26 @@ Una sola vez:
 
 QUÉ GENERA
 ----------
-Dos ángulos (frente y lado) y, por ángulo, los cuadros obligatorios espera, parpadeo, apuesta y
-retirarse (espia es opcional: solo con --pose <ángulo>-espia), en arte/generadas/<personaje>/:
+Dos ángulos (frente y lado) y, por ángulo, los cuadros de siempre espera, parpadeo, apuesta y
+retirarse (espia y gana son opcionales: solo con --pose <ángulo>-espia o <ángulo>-gana), en
+arte/generadas/<personaje>/:
     <personaje>-<ángulo>-<cuadro>.png
+El juego solo necesita frente-espera; los demás se usan en cuanto existen.
 Un cuadro cuenta como hecho si ya existe en arte/ (por ejemplo la propia referencia) o en arte/generadas/.
 Nada se sobrescribe: si se rehace un cuadro, sale como <nombre>-v2.png, -v3.png, etc.
 
 Orden, para que los cuadros de un ángulo queden alineados entre sí:
   - <ángulo>-espera se genera desde la referencia;
-  - espia, apuesta y retirarse usan la referencia y además la <ángulo>-espera (mismo ángulo y tamaño);
+  - espia, apuesta, retirarse y gana usan la referencia y además la <ángulo>-espera (mismo ángulo y tamaño);
   - parpadeo es una edición de <ángulo>-espera (solo cierra los ojos), así no brinca al parpadear.
 Los prompts están en scripts/prompts-personaje.toml.
 
 APROBAR
 -------
 Toma la versión más reciente de cada cuadro (o la que digas con --elegir), los lleva todos al mismo
-lienzo (el tamaño de la mayoría; escala a esa altura y completa o recorta los lados con el magenta del
-fondo) y los guarda en arte/personajes/<personaje>/. El fondo se quita después, en optimizar-arte.py.
+lienzo (el tamaño de la mayoría; escala a esa altura y completa o recorta los lados con el color del
+fondo) y los guarda en arte/personajes/<personaje>/. Solo hace falta frente-espera. El fondo se quita
+después, en optimizar-arte.py.
 """
 import argparse, base64, io, json, os, re, sys, threading, time, tomllib
 from collections import Counter
@@ -65,12 +73,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ARTE = os.path.join(ROOT, "arte")
 PROMPTS = os.path.join(ROOT, "scripts", "prompts-personaje.toml")
 ANGULOS = ["frente", "lado"]
-POSES = ["espera", "parpadeo", "espia", "apuesta", "retirarse"]   # la misma lista que optimizar-arte.py
-OBLIGATORIAS = ["espera", "parpadeo", "apuesta", "retirarse"]     # espia es opcional
+POSES = ["espera", "parpadeo", "espia", "apuesta", "retirarse", "gana"]   # la misma lista que optimizar-arte.py
+DE_SIEMPRE = ["espera", "parpadeo", "apuesta", "retirarse"]   # los que genera si no dices --pose (espia y gana son extras)
 EDICIONES = {"parpadeo": "espera"}   # cuadro que se hace editando otro del mismo ángulo
 MAX_LADO_ENTRADA = 2048   # las referencias se reducen a esto antes de mandarlas (hay originales de 11008 px)
 T = 14                    # diferencia máx. por canal para considerar un píxel "color de fondo"
-MAGENTA = np.array([255, 0, 255])
+FONDOS = ["verde", "magenta"]   # el que no tenga el personaje (verde para uno morado; magenta para uno verde)
 
 # USD, de ai.google.dev/gemini-api/docs/pricing (octubre 2026). imagen: por imagen de salida;
 # entrada y texto (incluye "thinking"): por millón de tokens.
@@ -138,12 +146,22 @@ def color_fondo(img):
     return np.median(borde, axis=0).astype(int), borde
 
 
-def revisar_fondo(img):
-    """Avisos si el fondo no es el magenta liso que necesita el chroma key de optimizar-arte.py."""
+def tipo_fondo(color):
+    """'verde' o 'magenta' según un color de fondo, o None si no es ninguno (como en optimizar-arte.py)."""
+    r, g, b = (int(v) for v in color)
+    if g - max(r, b) > 100:
+        return "verde"
+    if min(r, b) - g > 100:
+        return "magenta"
+    return None
+
+
+def revisar_fondo(img, fondo_pedido):
+    """Avisos si el fondo no es el verde o magenta liso que se pidió (el que quita optimizar-arte.py)."""
     avisos = []
     fondo, borde = color_fondo(img)
-    if np.abs(fondo - MAGENTA).max() > 40:
-        avisos.append(f"el fondo no es magenta puro (RGB {fondo.tolist()})")
+    if tipo_fondo(fondo) != fondo_pedido:
+        avisos.append(f"el fondo no es {fondo_pedido} (RGB {fondo.tolist()})")
     parejo = (np.abs(borde.astype(int) - fondo).max(axis=1) <= T).mean()
     if parejo < 0.97:
         avisos.append(f"el fondo no es liso en las orillas ({parejo:.0%} parejo): ¿degradado o viñeta?")
@@ -195,9 +213,10 @@ def limpiar(texto):
     return " ".join(texto.split())
 
 
-def plan_de_pose(personaje, referencia, angulo, pose, P, guias=None):
+def plan_de_pose(personaje, referencia, angulo, pose, P, guias=None, fondo="magenta"):
     """(prompt, [imágenes de entrada]) para un cuadro, o (None, motivo) si le falta su cuadro base.
-    guias: {ángulo: imagen ya dibujada en ese ángulo} para guiar el cuadro espera de ese ángulo."""
+    guias: {ángulo: imagen ya dibujada en ese ángulo} para guiar el cuadro espera de ese ángulo.
+    fondo: 'verde' o 'magenta' (el texto sale de [fondos.<fondo>] en los prompts)."""
     c = P["comun"]
     if pose in EDICIONES:
         base = actual(personaje, f"{personaje}-{angulo}-{EDICIONES[pose]}")
@@ -216,7 +235,7 @@ def plan_de_pose(personaje, referencia, angulo, pose, P, guias=None):
     if base and os.path.abspath(base) != os.path.abspath(referencia):
             partes.append(c["segunda_imagen"])
             entradas.append(base)
-    partes += [P["angulos"][angulo]["texto"], P["poses"][pose]["texto"], c["estilo"], c["encuadre"], c["fondo"]]
+    partes += [P["angulos"][angulo]["texto"], P["poses"][pose]["texto"], c["estilo"], c["encuadre"], P["fondos"][fondo]["texto"]]
     return limpiar(" ".join(partes)), entradas
 
 
@@ -313,6 +332,10 @@ def cmd_generar(args):
     for p in [referencia, *guias.values()]:
         if not os.path.exists(p):
             sys.exit(f"No encuentro {rel(p)}")
+    # el fondo: el que digas, o el de la referencia si ya es verde o magenta, o magenta
+    de_la_referencia = tipo_fondo(color_fondo(Image.open(referencia))[0])
+    fondo = args.fondo or de_la_referencia or "magenta"
+    origen = "lo pediste" if args.fondo else "el de la referencia" if de_la_referencia else "no se pudo saber de la referencia"
 
     todas = [f"{a}-{p}" for a in ANGULOS for p in POSES]
     if args.pose:
@@ -321,17 +344,17 @@ def cmd_generar(args):
             sys.exit(f"Pose desconocida: {', '.join(malas)}. Opciones: {', '.join(todas)}")
         pendientes = [p for p in todas if p in args.pose]          # en orden de dependencias
     else:
-        pendientes = [p for p in todas if p.split("-", 1)[1] in OBLIGATORIAS and not actual(personaje, f"{personaje}-{p}")]
+        pendientes = [p for p in todas if p.split("-", 1)[1] in DE_SIEMPRE and not actual(personaje, f"{personaje}-{p}")]
     if not pendientes:
-        print(f"No falta ningún cuadro obligatorio de {personaje}. Para rehacer uno o agregar espia: --pose <ángulo>-<cuadro>")
+        print(f"Ya están todos los cuadros de siempre de {personaje}. Para rehacer uno o agregar espia o gana: --pose <ángulo>-<cuadro>")
         return
 
     # costo estimado (los que dependen de un cuadro que aún no existe se estiman con 2 imágenes de entrada)
     total = 0
-    print(f"Modelo {cfg['modelo']}, {cfg['aspect_ratio']} {cfg['image_size']}. Por generar ({len(pendientes)}):")
+    print(f"Modelo {cfg['modelo']}, {cfg['aspect_ratio']} {cfg['image_size']}. Fondo {fondo} ({origen}). Por generar ({len(pendientes)}):")
     for clave in pendientes:
         angulo, pose = clave.split("-", 1)
-        prompt, entradas = plan_de_pose(personaje, referencia, angulo, pose, P, guias)
+        prompt, entradas = plan_de_pose(personaje, referencia, angulo, pose, P, guias, fondo)
         if prompt is None:
             prompt, entradas = "", [referencia, referencia]
         c = costo_estimado(cfg["modelo"], cfg["image_size"], len(entradas), prompt)
@@ -356,7 +379,7 @@ def cmd_generar(args):
     gastado, hechas = 0, []
     for clave in pendientes:
         angulo, pose = clave.split("-", 1)
-        prompt, entradas = plan_de_pose(personaje, referencia, angulo, pose, P, guias)
+        prompt, entradas = plan_de_pose(personaje, referencia, angulo, pose, P, guias, fondo)
         if prompt is None:
             print(f"  {clave}: me la salto, {entradas}.")
             continue
@@ -378,7 +401,7 @@ def cmd_generar(args):
         hechas.append(clave)
         print(f"    -> {rel(destino)}  {img.size[0]}x{img.size[1]}  {time.time() - t0:.0f}s"
               + (f"  ~${c:.3f}" if c is not None else ""))
-        for aviso in revisar_fondo(img):
+        for aviso in revisar_fondo(img, fondo):
             print(f"    AVISO: {aviso}")
         if pose in EDICIONES:
             base = Image.open(entradas[0])
@@ -440,10 +463,12 @@ def cmd_aprobar(args):
         elegidas[pose] = int(v)
 
     fuentes = {f"{personaje}-{a}-{p}": actual(personaje, f"{personaje}-{a}-{p}", elegidas) for a in ANGULOS for p in POSES}
-    faltan = [n for n, f in fuentes.items() if not f and n.rsplit("-", 1)[1] in OBLIGATORIAS]
+    if not fuentes[f"{personaje}-frente-espera"]:
+        sys.exit(f"Falta {personaje}-frente-espera: sin él no hay personaje.")
+    faltan = [n for n, f in fuentes.items() if not f and n.rsplit("-", 1)[1] in DE_SIEMPRE]
     if faltan:
-        sys.exit("Faltan cuadros: " + ", ".join(faltan))
-    fuentes = {n: f for n, f in fuentes.items() if f}   # espia, si no se hizo, se queda fuera
+        print("Todavía sin " + ", ".join(faltan) + " (mientras, el juego usa espera; los puedes aprobar después).")
+    fuentes = {n: f for n, f in fuentes.items() if f}   # lo que no se hizo se queda fuera
     salida = os.path.join(ARTE, "personajes", personaje)
     if os.path.isdir(salida) and os.listdir(salida) and not args.rehacer:
         sys.exit(f"{rel(salida)}/ ya tiene cuadros. Para reemplazarlos con la selección actual usa --rehacer.")
@@ -462,7 +487,7 @@ def cmd_aprobar(args):
 
     # aviso si el modelo dibujó al personaje a otra escala en algún cuadro del mismo ángulo
     for angulo in ANGULOS:
-        base = cajas[f"{personaje}-{angulo}-espera"]
+        base = cajas.get(f"{personaje}-{angulo}-espera")
         for pose in POSES[1:]:
             c = cajas.get(f"{personaje}-{angulo}-{pose}")
             if base and c and abs(c[1] - base[1]) > 0.03 * H:
@@ -478,10 +503,11 @@ def cmd_aprobar(args):
 def main():
     ap = argparse.ArgumentParser(description="Genera y aprueba los cuadros de un personaje con Gemini.")
     sub = ap.add_subparsers(dest="comando", required=True)
-    g = sub.add_parser("generar", help="genera los cuadros obligatorios que faltan (o los de --pose)")
+    g = sub.add_parser("generar", help="genera los cuadros de siempre que faltan (o los de --pose)")
     g.add_argument("personaje")
     g.add_argument("referencia", help="ilustración del personaje, por ejemplo arte/alien-referencia.png")
-    g.add_argument("--pose", action="append", help="solo este cuadro, como lado-espia (se puede repetir)")
+    g.add_argument("--pose", action="append", help="solo este cuadro, como lado-espia o frente-gana (se puede repetir)")
+    g.add_argument("--fondo", choices=FONDOS, help="color del fondo: el que no tenga el personaje (por omisión, el de la referencia)")
     g.add_argument("--ref-lado", help="dibujo del personaje ya en ángulo de lado, para guiar lado-espera")
     g.add_argument("--simular", action="store_true", help="muestra prompts y costo sin llamar a la API")
     g.add_argument("--si", action="store_true", help="no pedir confirmación")
