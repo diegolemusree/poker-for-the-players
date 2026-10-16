@@ -1,0 +1,21 @@
+# Ficha del nerd (El Profe) para scripts/generar-personaje.py.
+# Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
+pendiente = "borrador: revisar los textos y borrar esta línea"
+
+fondo = "verde"
+
+ojos = "two small eyes behind thick black-framed glasses"
+
+# parpadeo y espia (zona de la cara)
+parpadeo = "both eyes are fully closed behind the glasses, as in the middle of a blink: the eyelids come down and each eye becomes a short curved line; the glasses, their frames and their lenses stay exactly the same"
+mira_cartas = "both eyes look down at the cards in the hands, behind the glasses"
+
+# gana (segundo cambio, zona de la cara)
+sonrisa = "the mouth becomes a smug, satisfied closed-mouth smile"
+
+# apuesta, retirarse y gana (zona de brazos)
+manos = "human hands with light skin"
+fichas = "red and white poker chips"   # nunca del color del fondo: el chroma key las borraría
+
+opacas = ["the lenses of the glasses"]
+rasgos = ["the glasses", "the hair"]

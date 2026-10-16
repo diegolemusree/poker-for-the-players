@@ -1,0 +1,21 @@
+# Ficha del blob (Tío Glub) para scripts/generar-personaje.py.
+# Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
+pendiente = "borrador: revisar los textos y borrar esta línea"
+
+fondo = "magenta"
+
+ojos = "two big round yellow eyes with small black pupils"
+
+# parpadeo y espia (zona de la cara)
+parpadeo = "both big eyes are fully closed, as in the middle of a blink: blue eyelids (the same blue as the skin) come down over them, with a thin dark curved line where they close; no yellow shows"
+mira_cartas = "both big yellow eyes look down at the cards in the hands"
+
+# gana (segundo cambio, zona de la cara)
+sonrisa = "the grin becomes even wider and more satisfied"
+
+# apuesta, retirarse y gana (zona de brazos)
+manos = "soft, slimy blue hands with short stubby fingers"
+fichas = "dark blue and white poker chips"   # nunca del color del fondo: el chroma key las borraría
+
+opacas = []
+rasgos = ["the green cap", "the slime drops"]

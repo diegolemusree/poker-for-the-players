@@ -84,13 +84,17 @@ poker-for-the-players/
   referencia/
     poker-referencia.html
   scripts/
-    generar-personaje.py      # genera los cuadros con Gemini (arte/generadas/<id>/) y los aprueba a arte/personajes/<id>/
-    prompts-personaje.toml    # prompts en inglés de cada ángulo y cuadro, editables
+    generar-personaje.py      # genera cuadros con Gemini editando la base aprobada, una zona por llamada, con revisiones automáticas (arte/generadas/<id>/); aprobar los pasa a arte/personajes/<id>/
+    prompts-personaje.toml    # plantilla de edición y los cambios de cada cuadro, en inglés, editables
+    fichas/<id>.toml          # ficha de cada personaje para los prompts: fondo, cómo parpadea, a dónde mira, sonrisa, manos, fichas, partes opacas
+    ocr.swift                 # OCR de macOS para la revisión "sin texto" del generador (se compila solo en .venv-rembg/bin/)
     recortar.py       # quita un fondo GRIS con rembg (solo para arte viejo; el nuevo viene en verde o magenta)
     optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro
     generar-iconos.mjs # PNG del ícono de la app (32, 180, 192, 512) a partir de icono.svg, con Chrome sin ventana
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
     personajes/<id>/  # cuadros de cada personaje sobre verde o magenta: <id>-<ángulo>-<cuadro>.png
+    generadas/<id>/   # lo que hizo generar-personaje.py, por revisar: cuadro, lo crudo de Gemini, GIF, comparación y registro.jsonl (costos)
+    respaldos/        # los cuadros que se reemplazaron
     revision/         # GIF de revisión de cada personaje y ángulo (y los restos del fondo, si quedan)
 ```
 
@@ -192,7 +196,7 @@ Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `a
 
 **Receta para agregar un personaje**:
 
-1. Poner sus cuadros sobre verde o magenta (el color que no tenga el personaje) en `arte/personajes/<id>/<id>-<ángulo>-<cuadro>.png`, según `docs/ESPEC-PERSONAJES.md`. Se pueden generar con `scripts/generar-personaje.py` a partir de una ilustración de referencia (API key de Gemini en `.env`; ver el uso al inicio del script; `--fondo verde|magenta`); su comando `aprobar` los deja ahí.
+1. Poner su base `frente-espera` sobre verde o magenta (el color que no tenga el personaje) en `arte/personajes/<id>/<id>-frente-espera.png`, según `docs/ESPEC-PERSONAJES.md`; nunca se genera desde cero. Los demás cuadros se pueden generar después de los pasos 2 a 5 con `scripts/generar-personaje.py`, que edita esa base una zona a la vez (API key de Gemini en `.env`, ficha en `scripts/fichas/<id>.toml`; ver el uso al inicio del script); su comando `aprobar` los deja en `arte/personajes/<id>/`, y luego se vuelve a optimizar y registrar.
 2. Optimizar: `.venv-rembg/bin/python scripts/optimizar-arte.py personajes <id>`. Toma el color del fondo de las esquinas de cada imagen (verde o magenta) y lo quita con chroma key, también en los huecos encerrados (entre brazos, silla y tentáculos); avisa si quedan píxeles teñidos del fondo y deja `arte/revision/<cuadro>-restos.png` con los restos en rojo. Si algo sobra abajo (como la tarima del pulpo), se corta con `CORTE_ABAJO`. Luego, por cada ángulo aparte, escala todos los cuadros al mismo lienzo, los recorta con una sola caja común (para que al cambiar de cuadro nada brinque), los reduce (frente a 1000 px de alto como máximo, porque la mitad de abajo queda bajo la mesa; lado a 1200) y los exporta en WebP.
 3. Revisar: `.venv-rembg/bin/python scripts/optimizar-arte.py gif <id>` arma `arte/revision/<id>-<ángulo>.gif` alternando espera con cada cuadro, con la línea de la cintura y la caja de la cara.
 4. Registrar: `.venv-rembg/bin/python scripts/optimizar-arte.py registrar <id> --nombre "..."` lo agrega a `client/stage/personajes.json` (tamaño y cuadros). El nombre es el del bot que usa ese personaje. Ya entra a la mesa: el servidor le da a cada bot un personaje distinto (reinicia `npm run dev` para que lo vea). Volver a registrar nunca sobrescribe el nombre ni las medidas.

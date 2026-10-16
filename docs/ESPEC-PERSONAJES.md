@@ -21,7 +21,7 @@ siguen este documento).
 | `parpadeo` | no | idéntico a `espera`, solo con los ojos cerrados | 150 ms cada 3 a 6 s, solo en `espera` |
 | `apuesta` | no | cartas en una mano y fichas en la otra, estirada hacia adelante, a la altura del pecho | unos 2 s al igualar, apostar o subir |
 | `retirarse` | no | avienta sus cartas con desgano | al retirarse, antes de verse apagado |
-| `espia` | no | levanta la esquina de sus cartas para verlas | al repartir y de vez en cuando |
+| `espia` | no | mira sus cartas (solo cambian los ojos; las manos se quedan como en `espera`) | al repartir y de vez en cuando |
 | `gana` | no | sonrisa satisfecha, cartas al pecho y una pila de fichas en la mano | mientras se ve el resultado de una mano que ganó |
 
 Por ahora **solo `espera` es obligatorio**: mientras falte otro cuadro, el personaje se queda en
@@ -68,7 +68,8 @@ salta.
   magenta para uno verde. **Nada de ese color en el personaje ni en su silla**: el chroma key lo borraría.
 - No tiene que ser exacto: el optimizador toma el color de las cuatro esquinas de cada imagen (un verde
   amarillento también sirve).
-- Entregar en **PNG**. El JPEG ensucia la orilla.
+- Entregar en **PNG**. El JPEG ensucia la orilla. (La API de Gemini solo entrega JPEG: por eso el generador
+  toma de Gemini solo lo que cambia y todo lo demás sale de la base.)
 
 ## Estilo
 
@@ -97,5 +98,29 @@ public/assets/arte/<id>-<ángulo>-<cuadro>.webp  (+ -chico.webp)
 client/stage/personajes.json   medir a mano waist, face y height (ver CLAUDE.md); ya entra a la mesa
 ```
 
-Para generar los cuadros con Gemini: `scripts/generar-personaje.py` (ver su uso al inicio del archivo).
-Deja los cuadros aprobados directamente en `arte/personajes/<id>/`.
+## Cuadros generados con Gemini
+
+`scripts/generar-personaje.py` (ver su uso al inicio del archivo) hace los cuadros que faltan sin generar nada
+desde cero:
+
+- **La base es `frente-espera`, ya aprobada**, en `arte/personajes/<id>/`, con el personaje ya registrado y
+  medido en `personajes.json`. Cada cuadro es uno o dos cambios a esa base, **uno por llamada**. `gana` son dos
+  (los brazos con las fichas y luego la sonrisa), cada uno sobre la base.
+- **Ficha por personaje** en `scripts/fichas/<id>.toml`: fondo, ojos y cómo parpadea (la robot no tiene
+  párpados: se le oscurece el visor; el nerd cierra los ojos detrás de los lentes; el alien cierra sus cuatro
+  ojos), a dónde mira, sonrisa, manos, color de las fichas de póker (nunca el del fondo), partes opacas y rasgos
+  que deben quedar igual. Una ficha con `pendiente` no se usa para gastar.
+- **Por zonas**: de cada llamada solo se toma la zona que debe cambiar. Los ojos (la caja `face` de
+  `personajes.json`) en `parpadeo`, `espia` y la sonrisa de `gana`; los brazos, las manos y las cartas (de la
+  barbilla a un poco abajo de la cintura) en `apuesta`, `retirarse` y `gana`. Todo lo demás sale de la base
+  píxel por píxel.
+- **Revisiones automáticas** antes de enseñar nada: la silueta coincide con la base fuera de la zona, sin
+  costuras, sí hubo cambio (y en la cara no de más), sin colores cercanos al fondo ni restos ni manchas (con el
+  chroma key del juego), sin texto (OCR de macOS) y sin salirse de la caja de recorte. Si algo falla, reintenta
+  una vez; si vuelve a fallar, lo guarda como `-FALLA.png` y avisa. **Máximo 2 llamadas por cambio** (así que
+  `gana`, que son dos cambios, como mucho 4).
+- Deja en `arte/generadas/<id>/` el cuadro, su GIF como se verá en el juego y una hoja de comparación;
+  `aprobar` lo pasa a `arte/personajes/<id>/` (y respalda en `arte/respaldos/` lo que reemplace).
+- **Lado**: su base será la única excepción a "nunca desde cero". Se generará a partir de la base de frente
+  (para la robot, también de `robot-hoja.png`) y se aprueba antes de generar sus cuadros. Mientras no exista,
+  el juego usa `frente`.

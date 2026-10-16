@@ -1,0 +1,21 @@
+# Ficha de la turista (La Güera) para scripts/generar-personaje.py.
+# Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
+pendiente = "borrador: revisar los textos y borrar esta línea"
+
+fondo = "verde"
+
+ojos = "two eyes with heavy, bored eyelids and long lashes"
+
+# parpadeo y espia (zona de la cara)
+parpadeo = "both eyes are fully closed, as in the middle of a blink: the heavy eyelids come all the way down, each drawn as a curved line with its lashes"
+mira_cartas = "both eyes look down at the cards in the hands, with the same heavy, bored eyelids"
+
+# gana (segundo cambio, zona de la cara)
+sonrisa = "the lips become a smug, satisfied closed-mouth smile"
+
+# apuesta, retirarse y gana (zona de brazos)
+manos = "human hands with tanned skin"
+fichas = "red and white poker chips"   # nunca del color del fondo: el chroma key las borraría
+
+opacas = ["the lenses of the sunglasses"]
+rasgos = ["the sunglasses on top of the head", "the ponytail", "the shell necklace"]

@@ -1,0 +1,21 @@
+# Ficha del pulpo (Don Tentáculos) para scripts/generar-personaje.py.
+# Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
+pendiente = "borrador: revisar los textos y borrar esta línea"
+
+fondo = "verde"
+
+ojos = "two yellow eyes under heavy, frowning purple eyelids"
+
+# parpadeo y espia (zona de la cara)
+parpadeo = "both eyes are fully closed, as in the middle of a blink: the heavy purple eyelids come down over the yellow eyes, with a thin dark curved line where they close; no yellow shows"
+mira_cartas = "both yellow eyes look down at the cards held by the tentacles"
+
+# gana (segundo cambio, zona de la cara)
+sonrisa = "the mouth under the face tentacles becomes a smug, satisfied grin"
+
+# apuesta, retirarse y gana (zona de brazos)
+manos = "purple tentacles with pink suckers instead of hands, their tips curling around what they hold"
+fichas = "red and white poker chips"   # nunca del color del fondo: el chroma key las borraría
+
+opacas = []
+rasgos = ["the tentacles around the mouth", "the dark spots on the head"]

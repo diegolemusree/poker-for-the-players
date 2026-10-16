@@ -160,17 +160,24 @@ def croma(a, K, tipo):
     return (np.minimum(a[..., 0], a[..., 2]) - a[..., 1]) / max(1.0, min(K[0], K[2]) - K[1])
 
 
-def quitar_fondo(img, nombre):
-    a = np.asarray(img.convert("RGB")).astype(np.float32)
-    h, w = a.shape[:2]
-    # el color real del fondo de esta imagen (el generador no siempre da el verde o el magenta exacto)
+def fondo_de(a, nombre):
+    """El color real del fondo de una imagen (mediana de sus cuatro esquinas), si es 'verde' o 'magenta', y las
+    esquinas (el generador no siempre da el verde o el magenta exacto)."""
     partes = esquinas(a)
     K = np.median(np.concatenate(partes), axis=0)
     tipo = tipo_fondo(K)
     if not tipo:
         sys.exit(f"{nombre}: el fondo de las esquinas no es verde ni magenta (RGB {K.astype(int).tolist()}).")
+    return K, tipo, partes
+
+
+def quitar_fondo(img, nombre, reportar=True):
+    """RGBA sin el fondo. reportar: avisos de esquinas y de restos (generar-personaje.py hace sus propias revisiones)."""
+    a = np.asarray(img.convert("RGB")).astype(np.float32)
+    h, w = a.shape[:2]
+    K, tipo, partes = fondo_de(a, nombre)
     for lado, p in zip(["arriba a la izquierda", "arriba a la derecha", "abajo a la izquierda", "abajo a la derecha"], partes):
-        if np.abs(np.median(p, axis=0) - K).max() > 60:
+        if reportar and np.abs(np.median(p, axis=0) - K).max() > 60:
             print(f"  AVISO {nombre}: la esquina de {lado} no es del color del fondo; revisa el resultado")
     dist = np.linalg.norm(a - K, axis=2)
     cr = croma(a, K, tipo)
@@ -206,15 +213,21 @@ def quitar_fondo(img, nombre):
         alfa[np.isin(lab, np.arange(1, n + 1)[areas < MIN_MANCHA * h * w])] = 0
 
     color = np.clip(color, 0, 255)
-    revisar_restos(color, alfa, K, tipo, nombre)
+    if reportar:
+        revisar_restos(color, alfa, K, tipo, nombre)
     rgba = np.dstack([color, alfa * 255]).round().astype(np.uint8)
     return Image.fromarray(rgba, "RGBA")
 
 
+def mascara_restos(color, alfa, K, tipo):
+    """Lo visible que sigue teñido del fondo (por ejemplo un hueco que no se quitó)."""
+    return (alfa > 0.5) & (croma(color, K, tipo) > RESTO)
+
+
 def revisar_restos(color, alfa, K, tipo, nombre):
-    """Cuenta lo visible que sigue teñido del fondo (por ejemplo un hueco que no se quitó) y, si hay, deja una
-    imagen en arte/revision/ con los restos en rojo sobre el personaje en gris."""
-    restos = (alfa > 0.5) & (croma(color, K, tipo) > RESTO)
+    """Cuenta lo visible que sigue teñido del fondo y, si hay, deja una imagen en arte/revision/ con los restos en
+    rojo sobre el personaje en gris."""
+    restos = mascara_restos(color, alfa, K, tipo)
     n = int(restos.sum())
     if not n:
         print(f"  {nombre}: fondo {tipo}, sin restos")
@@ -230,14 +243,14 @@ def revisar_restos(color, alfa, K, tipo, nombre):
     print(f"    revisa {rel(destino)}")
 
 
-def cargar(path):
+def cargar(path, reportar=True):
     img = Image.open(path)
     nombre = os.path.basename(path)
     if ya_transparente(img):
         return img.convert("RGBA")
-    if path.lower().endswith((".jpg", ".jpeg")):
+    if reportar and path.lower().endswith((".jpg", ".jpeg")):
         print(f"  AVISO {nombre}: es JPEG; con PNG la orilla sale más limpia")
-    return quitar_fondo(img, nombre)
+    return quitar_fondo(img, nombre, reportar)
 
 
 # ---------- personajes ----------
@@ -275,7 +288,22 @@ def grupo(pid, angulo, paths):
     faltan = [c for c in COMPLETOS if c not in paths]
     if faltan:
         print(f"  {pid} {angulo}: todavía sin {', '.join(faltan)} (mientras, el juego usa espera)")
-    imgs = {c: cargar(paths[c]) for c in CUADROS if c in paths}
+    imgs, box, tam = preparar(pid, angulo, {c: cargar(paths[c]) for c in CUADROS if c in paths})
+    W, H = next(iter(imgs.values())).size
+    print(f"{pid} {angulo}: lienzo {W}x{H}, caja común {box}, final {tam[0]}x{tam[1]}")
+
+    for viejo in glob.glob(os.path.join(OUT, f"{pid}-{angulo}-*.webp")):   # por si se quitó un cuadro
+        os.remove(viejo)
+    for c, i in imgs.items():
+        img = escalar(i.crop(box), *tam)
+        guardar(img, os.path.join(OUT, f"{pid}-{angulo}-{c}.webp"), Q_PERSONAJE)
+        guardar(escalar(img, tam[0] // 2, tam[1] // 2), os.path.join(OUT, f"{pid}-{angulo}-{c}-chico.webp"), Q_PERSONAJE)
+
+
+def preparar(pid, angulo, imgs):
+    """Lleva los cuadros (RGBA, sin fondo) de un personaje en un ángulo al mismo lienzo, aplica CORTE_ABAJO y
+    calcula la caja común y el tamaño final. Regresa (cuadros en el lienzo común, caja, tamaño final).
+    generar-personaje.py también la usa, para ubicar en la imagen original las medidas de personajes.json."""
     proporciones = {round(i.size[0] / i.size[1], 3) for i in imgs.values()}
     if len(proporciones) > 1:
         sys.exit(f"Los cuadros de {pid} {angulo} tienen proporciones distintas: no se pueden alinear.")
@@ -302,15 +330,7 @@ def grupo(pid, angulo, paths):
     box = (max(0, int(xs.min()) - m), max(0, int(ys.min()) - m), min(W, int(xs.max()) + 1 + m), min(H, int(ys.max()) + 1))
     bw, bh = box[2] - box[0], box[3] - box[1]
     f = min(1, ALTO_MAX[angulo] / bh)
-    tam = (round(bw * f), round(bh * f))
-    print(f"{pid} {angulo}: lienzo {W}x{H}, caja común {box}, final {tam[0]}x{tam[1]}")
-
-    for viejo in glob.glob(os.path.join(OUT, f"{pid}-{angulo}-*.webp")):   # por si se quitó un cuadro
-        os.remove(viejo)
-    for c, i in imgs.items():
-        img = escalar(i.crop(box), *tam)
-        guardar(img, os.path.join(OUT, f"{pid}-{angulo}-{c}.webp"), Q_PERSONAJE)
-        guardar(escalar(img, tam[0] // 2, tam[1] // 2), os.path.join(OUT, f"{pid}-{angulo}-{c}-chico.webp"), Q_PERSONAJE)
+    return imgs, box, (round(bw * f), round(bh * f))
 
 
 def personajes(ids=None, angulo=None):
@@ -338,35 +358,41 @@ def gif(pid, angulo=None):
         # espera, parpadeo, espera, espia, espera, apuesta, ...: cada cuadro contra la base
         orden = ["espera"] + [x for c in cuadros if c != "espera" for x in (c, "espera")]
         imgs = {c: Image.open(os.path.join(OUT, f"{pid}-{ang}-{c}.webp")).convert("RGBA") for c in cuadros}
-        w, h = imgs["espera"].size
-        if h > 800:   # el GIF de lado se ve a menos tamaño; la alineación se nota igual
-            w, h = round(w * 800 / h), 800
-            imgs = {c: escalar(i, w, h) for c, i in imgs.items()}
-        pad = 24
-        cintura, cara = reg.get(ang, {}).get("waist"), reg.get(ang, {}).get("face")
-        fotos = []
-        for c in orden:
-            lienzo = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (117, 97, 76, 255))   # pared del garaje
-            lienzo.alpha_composite(imgs[c], (pad, pad))
-            d = ImageDraw.Draw(lienzo)
-            d.rectangle((pad - 1, pad - 1, pad + w, pad + h), outline=(239, 228, 200, 255))
-            if cintura:   # donde la corta la mesa (y el punto que va en la orilla)
-                y = pad + round(cintura[1] * h)
-                d.line((0, y, w + 2 * pad, y), fill=(201, 160, 58, 255), width=1)
-                x = pad + round(cintura[0] * w)
-                d.ellipse((x - 4, y - 4, x + 4, y + 4), outline=(201, 160, 58, 255), width=2)
-            if cara:      # la caja de la cabeza, que ninguna etiqueta tapa
-                d.rectangle((pad + round(cara[0] * w), pad + round(cara[1] * h), pad + round(cara[2] * w), pad + round(cara[3] * h)),
-                            outline=(164, 69, 47, 255), width=2)
-            d.text((6, 6), c, fill=(239, 228, 200, 255))
-            fotos.append(lienzo.convert("RGB"))
-        os.makedirs(REVISION, exist_ok=True)
         destino = os.path.join(REVISION, f"{pid}-{ang}.gif")
-        fotos[0].save(destino, save_all=True, append_images=fotos[1:], duration=600, loop=0)
+        dibujar_gif(imgs, orden, destino, reg.get(ang, {}).get("waist"), reg.get(ang, {}).get("face"))
         print(f"  {rel(destino)}  ({', '.join(orden)})")
         hechos += 1
     if not hechos:
         sys.exit(f"No hay cuadros optimizados de '{pid}' en {rel(OUT)}/: corre antes  personajes {pid}")
+
+
+def dibujar_gif(imgs, orden, destino, cintura=None, cara=None, duracion=600):
+    """GIF con los cuadros en ese orden sobre la pared del garaje, con el marco de la imagen, la línea de la cintura
+    y la caja de la cara. imgs: {cuadro: RGBA ya recortado como en el juego}; duracion: ms por foto, o una lista
+    (generar-personaje.py la usa con el ritmo del parpadeo del juego)."""
+    w, h = imgs[orden[0]].size
+    if h > 800:   # el GIF de lado se ve a menos tamaño; la alineación se nota igual
+        w, h = round(w * 800 / h), 800
+        imgs = {c: escalar(i, w, h) for c, i in imgs.items()}
+    pad = 24
+    fotos = []
+    for c in orden:
+        lienzo = Image.new("RGBA", (w + 2 * pad, h + 2 * pad), (117, 97, 76, 255))   # pared del garaje
+        lienzo.alpha_composite(imgs[c], (pad, pad))
+        d = ImageDraw.Draw(lienzo)
+        d.rectangle((pad - 1, pad - 1, pad + w, pad + h), outline=(239, 228, 200, 255))
+        if cintura:   # donde la corta la mesa (y el punto que va en la orilla)
+            y = pad + round(cintura[1] * h)
+            d.line((0, y, w + 2 * pad, y), fill=(201, 160, 58, 255), width=1)
+            x = pad + round(cintura[0] * w)
+            d.ellipse((x - 4, y - 4, x + 4, y + 4), outline=(201, 160, 58, 255), width=2)
+        if cara:      # la caja de la cabeza, que ninguna etiqueta tapa
+            d.rectangle((pad + round(cara[0] * w), pad + round(cara[1] * h), pad + round(cara[2] * w), pad + round(cara[3] * h)),
+                        outline=(164, 69, 47, 255), width=2)
+        d.text((6, 6), c, fill=(239, 228, 200, 255))
+        fotos.append(lienzo.convert("RGB"))
+    os.makedirs(os.path.dirname(destino), exist_ok=True)
+    fotos[0].save(destino, save_all=True, append_images=fotos[1:], duration=duracion, loop=0)
 
 
 # ---------- registro (client/stage/personajes.json) ----------

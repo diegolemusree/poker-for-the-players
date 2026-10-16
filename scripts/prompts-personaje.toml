@@ -1,121 +1,84 @@
 # Prompts para scripts/generar-personaje.py (siguen docs/ESPEC-PERSONAJES.md)
 #
-# Cada imagen se arma así (en este orden):
-#   [referencia] + [angulos.<ángulo>] + [poses.<cuadro>] + [comun.estilo] + [comun.encuadre] + [fondos.<verde|magenta>]
-# y el parpadeo se hace editando el cuadro espera con [ediciones.parpadeo].
-# El fondo es el que NO tenga el personaje: verde para uno morado o rosa, magenta para uno verde
-# (generar-personaje.py usa el de la referencia, o el que digas con --fondo).
+# Nunca se genera desde cero: cada cuadro es una lista de cambios, y cada cambio es UNA llamada que edita
+# la base aprobada del personaje (arte/personajes/<id>/<id>-<ángulo>-espera.png). De cada llamada solo se
+# toma su zona:
+#   cara    la caja "face" de client/stage/personajes.json
+#   brazos  de la barbilla a un poco abajo de la cintura ("waist" de personajes.json)
+# El prompt de un cambio es [edicion] con {cambio} (su texto) y {se_queda} (el de su zona). Lo que va
+# entre llaves sale de la ficha del personaje, scripts/fichas/<id>.toml: {parpadeo}, {mira_cartas},
+# {sonrisa}, {manos}, {fichas}, {fondo}, {rasgos} y {opacas}.
 #
-# Puedes cambiar cualquier texto entre las comillas triples ("""). Los textos van en inglés porque
-# el modelo los sigue mejor. Después de editar, prueba con:
-#   .venv-rembg/bin/python scripts/generar-personaje.py generar <personaje> <referencia> --simular
+# Puedes cambiar cualquier texto entre las comillas triples ("""). Los textos van en inglés porque el
+# modelo los sigue mejor. Después de editar, prueba sin gastar con:
+#   .venv-rembg/bin/python scripts/generar-personaje.py generar <personaje> --pose frente-<cuadro> --simular
 
 [config]
 modelo = "gemini-nano-banana-2.1"   # ver precios en ai.google.dev/gemini-api/docs/pricing
-aspect_ratio = "1:1"                # cuerpo completo sentado: cabe en un cuadro; el optimizador recorta lo que sobra
-image_size = "2K"                   # "1K", "2K" o "4K"; lado se usa hasta 1200 px de alto, así que 2K
+image_size = "1K"                   # las bases miden 1024 px de ancho: 1K regresa el mismo tamaño
 
-[comun]
-# Va en todos los cuadros base (no en el parpadeo, que es una edición de una imagen ya hecha).
-referencia = """
-The attached reference image shows the character. Use it ONLY for the character design (body shape, \
-skin color, face, number and shape of eyes, accessories, clothes, and their own chair if it is shown). \
-Do not copy its pose, camera angle, framing, background or drawing style: those are described below. \
-Keep the character exactly the same individual, with the same proportions and colors.
-"""
-
-estilo = """
-Style: original hand-drawn 2D animation for adults. Thin, uniform dark brown-black ink outline \
-(#1D1611) around every shape, the same line weight everywhere. Clean, flat colors with exactly one \
-flat, hard-edged shadow tone per color: no gradients, no highlights, no glow, no rim light, no \
-textures, no grime, no stains, no dirt. An original design that does not imitate any existing TV \
-show, character or franchise. No text, letters, numbers or logos anywhere, and no one-sided details \
-(badges, patches, a watch on one wrist, a parted hairstyle), because the image is also shown mirrored.
-"""
-
-encuadre = """
-Framing: full body, sitting on their own chair (always the same chair for this character, also seen \
-whole), from the top of the head down to the feet and the legs of the chair, centered horizontally, \
-the top of the head about 5% below the top edge of the image. The two playing cards are held in \
-front of the chest: everything the hands hold stays at chest height, never down in the lap, because \
-a table will hide the character from the waist down. Nothing else in the scene: no table, no floor \
-or platform under the chair, no other characters, no props other than the ones described.
-"""
-
-# Cuando el cuadro usa también el cuadro "espera" del mismo ángulo como segunda imagen
-# (para que el ángulo, el tamaño y el encuadre queden idénticos).
-segunda_imagen = """
-The second attached image shows this same character already drawn in the target camera angle and \
-framing. Match it exactly: same camera angle, same position in the frame, same size, same chair, same \
-waist height. Change only the pose and expression described here.
-"""
-
-[fondos.verde]
+[edicion]
 texto = """
-Background: a perfectly flat, uniform, solid pure green (#00FF00) filling the whole image. No \
-gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background. \
-Do not use green anywhere on the character or on the chair.
+Edit the attached image. Change only one thing: {cambio}. Everything else stays exactly identical, \
+pixel for pixel: {se_queda}, the line work, the colors, the framing, the size, the position and the \
+flat {fondo} background.{opacas} Do not add text, letters, numbers or logos anywhere. Do not move, \
+resize or redraw anything else.
 """
+# se agrega después de "background." solo si la ficha tiene partes opacas
+opacas = " These parts are solid and opaque, and the background never shows through them: {lista}."
 
-[fondos.magenta]
+[zonas.cara]
+se_queda = "the rest of the face and the expression, the head{rasgos}, the body, the pose, the hands, the cards, the chair"
+
+[zonas.brazos]
+se_queda = "the face and the expression, the head{rasgos}, the legs, the chair"
+
+# Una frase por revisión que falló, para el reintento (se agrega al final del prompt).
+[correcciones]
+alineacion = "Keep the character in exactly the same position, size and framing as in the attached image."
+costura = "Keep the colors and lines around the change exactly the same as in the attached image."
+sin_cambio = "Make sure the change is clearly visible."
+de_mas = "Change only what is described; the rest of the face stays exactly as it is."
+fondo = "Do not use the background color or anything close to it on the character, and keep the background flat."
+texto = "Do not draw any text, letters, numbers or symbols."
+caja = "Keep everything inside the same outline as in the attached image."
+sin_imagen = "Return the edited image."
+
+# ---------- cuadros ----------
+
+[[cuadros.parpadeo]]
+zona = "cara"
+texto = "{parpadeo}"
+
+[[cuadros.espia]]
+zona = "cara"
+texto = "{mira_cartas}"
+
+[[cuadros.apuesta]]
+zona = "brazos"
 texto = """
-Background: a perfectly flat, uniform, solid pure magenta (#FF00FF) filling the whole image. No \
-gradient, no vignette, no texture, no floor, no horizon line, and no cast shadow on the background. \
-Do not use magenta, pink or purple anywhere on the character or on the chair.
+the arms, hands and cards: the character holds the two face-down cards in one hand in front of the \
+chest and, with the other hand, reaches forward at chest height, palm up, holding a small stack of \
+{fichas}. The hands keep their design ({manos}) and the card backs stay navy blue with a white border
 """
 
-[angulos.frente]
+[[cuadros.retirarse]]
+zona = "brazos"
 texto = """
-Camera angle: front view. The character faces the viewer directly, body symmetrical and square to the \
-camera, seen slightly from above, as from across a poker table.
+the arms, hands and cards: with both hands at chest height, the character lazily tosses the two \
+face-down cards forward with a flick of the fingers, hands open. The hands keep their design ({manos}) \
+and the card backs stay navy blue with a white border
 """
 
-[angulos.lado]
+# gana son dos cambios, cada uno en su llamada y sobre la base: primero los brazos, luego la cara
+[[cuadros.gana]]
+zona = "brazos"
 texto = """
-Camera angle: three-quarter view facing right. The body and the chair are rotated about 35 degrees so \
-the character faces toward the right side of the image, with the near shoulder on the left. The head \
-is turned slightly toward the viewer so both eyes are still visible. Arms and hands reach toward the right.
+the arms, hands and cards: the character holds the two cards against the chest with one hand and \
+raises a small stack of {fichas} at chest height with the other, as if pulling the pot toward \
+themselves. The hands keep their design ({manos}) and the card backs stay navy blue with a white border
 """
 
-[poses.espera]
-texto = """
-Pose: waiting for their turn. Sitting relaxed and slightly slouched, holding two face-down playing \
-cards with both hands in front of the chest. Eyes open with heavy, droopy eyelids, a dry, bored, \
-unimpressed expression.
-"""
-
-[poses.espia]
-texto = """
-Pose: peeking at their cards. Holding two face-down playing cards in both hands in front of the \
-chest, bending one corner up with the thumb to peek at them. Head tilted down, eyes looking down at \
-the cards, suspicious expression.
-"""
-
-[poses.apuesta]
-texto = """
-Pose: betting. Holding two face-down playing cards in one hand in front of the chest, and with the \
-other hand reaching forward at chest height, palm up, holding a small stack of poker chips. \
-Confident, smug half-smile, eyes half-closed and looking at the viewer.
-"""
-
-[poses.retirarse]
-texto = """
-Pose: folding. Both hands at chest height, lazily tossing the two face-down cards forward with a \
-flick of the fingers, hands open. Annoyed, sour expression, eyes rolling, lips pressed in a grimace.
-"""
-
-[poses.gana]
-texto = """
-Pose: just won the hand. Sitting back in the chair, holding the two cards against the chest with one \
-hand and raising a small stack of poker chips at chest height with the other, as if pulling the pot \
-toward themselves. Smug, satisfied grin, eyes half-closed, looking at the viewer.
-"""
-
-[ediciones]
-# Se manda solo el cuadro espera del mismo ángulo y se pide cambiar únicamente los ojos.
-parpadeo = """
-Edit the attached image: reproduce it exactly, keeping every pixel the same (same pose, same \
-framing, same size, same position, same colors, same chair, same flat background color), and change \
-only one thing: all of the character's eyes are fully closed, as in the middle of a blink, with the \
-eyelids drawn down and relaxed. Do not move, resize or redraw anything else.
-"""
+[[cuadros.gana]]
+zona = "cara"
+texto = "{sonrisa}"

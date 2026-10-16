@@ -1,0 +1,20 @@
+# Ficha del alien (El Compadre Zorg) para scripts/generar-personaje.py.
+# Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
+
+fondo = "magenta"   # el color que no tiene el personaje (verde para uno morado o rosa; magenta para uno verde)
+
+ojos = "four large round orange eyes with black pupils, in two rows of two, under heavy green eyelids"
+
+# parpadeo y espia (zona de la cara)
+parpadeo = "all four eyes are fully closed, as in the middle of a blink: each one is covered by its green eyelid (the same green as the skin), with a thin dark curved line where the lid closes; no orange or black of the eyes shows"
+mira_cartas = "all four eyes look down at the cards in the hands"
+
+# gana (segundo cambio, zona de la cara)
+sonrisa = "the mouth becomes a smug, satisfied closed-mouth grin, and the four eyes look at the viewer with half-closed lids"
+
+# apuesta, retirarse y gana (zona de brazos)
+manos = "thin green hands with long fingers"
+fichas = "dark blue and white poker chips"   # nunca del color del fondo: el chroma key las borraría
+
+opacas = []   # partes que nunca dejan ver el fondo (el alien no tiene nada cercano al magenta)
+rasgos = ["the antennae"]   # lo propio del personaje que el prompt pide dejar igual

@@ -1,0 +1,21 @@
+# Ficha de la robot (La Chispa) para scripts/generar-personaje.py.
+# Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
+pendiente = "borrador: revisar los textos y borrar esta línea"
+
+fondo = "magenta"
+
+ojos = "no visible eyes and no eyelids: a wide amber visor across the face"
+
+# parpadeo y espia (zona de la cara)
+parpadeo = "the amber visor darkens to a deep smoky amber, as if it dimmed for a moment; the robot has no eyelids, so nothing else on the face changes"
+mira_cartas = "the lower edge of the amber visor becomes a flat, lighter yellow stripe, as if looking down at the cards in the hands; a solid flat color with no glow, no halo and no soft light around it; the head does not move"
+
+# gana (segundo cambio, zona de la cara)
+sonrisa = "the lips become a smug, satisfied closed-mouth smile"
+
+# apuesta, retirarse y gana (zona de brazos)
+manos = "grey robotic hands with segmented metal fingers"
+fichas = "dark blue and white poker chips"   # nunca del color del fondo: el chroma key las borraría
+
+opacas = ["the amber visor"]
+rasgos = ["the helmet"]
