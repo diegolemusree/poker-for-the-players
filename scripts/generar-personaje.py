@@ -46,7 +46,8 @@ retirarse (espia y gana son opcionales: solo con --pose <ángulo>-espia o <ángu
 arte/generadas/<personaje>/:
     <personaje>-<ángulo>-<cuadro>.png
 El juego solo necesita frente-espera; los demás se usan en cuanto existen.
-Un cuadro cuenta como hecho si ya existe en arte/ (por ejemplo la propia referencia) o en arte/generadas/.
+Un cuadro cuenta como hecho si ya está aprobado en arte/personajes/<personaje>/, si ya se generó en
+arte/generadas/ o si está suelto en arte/ (por ejemplo la propia referencia).
 Nada se sobrescribe: si se rehace un cuadro, sale como <nombre>-v2.png, -v3.png, etc.
 
 Orden, para que los cuadros de un ángulo queden alineados entre sí:
@@ -111,7 +112,8 @@ def versiones(personaje, nombre):
 
 
 def actual(personaje, nombre, elegidas=None):
-    """La imagen vigente de un cuadro: la versión elegida, la más reciente generada, o la que ya está en arte/."""
+    """La imagen vigente de un cuadro: la versión elegida, la más reciente generada, la ya aprobada en
+    arte/personajes/<personaje>/ o la que está suelta en arte/."""
     vs = versiones(personaje, nombre)
     clave = nombre[len(personaje) + 1:]
     if elegidas and clave in elegidas:
@@ -121,8 +123,10 @@ def actual(personaje, nombre, elegidas=None):
         return vs[v]
     if vs:
         return vs[max(vs)]
-    original = os.path.join(ARTE, nombre + ".png")
-    return original if os.path.exists(original) else None
+    for original in (os.path.join(ARTE, "personajes", personaje, nombre + ".png"), os.path.join(ARTE, nombre + ".png")):
+        if os.path.exists(original):
+            return original
+    return None
 
 
 def ruta_nueva(personaje, nombre):
