@@ -20,7 +20,7 @@
         "waist": [0.45, 0.62],
         "face": [0.2, 0, 0.76, 0.36],
         "height": 0.68,
-        "frames": ["espera"]
+        "frames": ["espera", "parpadeo"]
       }
     }
   },
