@@ -52,10 +52,12 @@ CÓMO SE ARMA CADA CUADRO
     fondo       con el chroma key del juego, ni restos teñidos del fondo ni manchas sueltas nuevas
     texto       el OCR de macOS (scripts/ocr.swift, se compila solo la primera vez) no lee letras ni números nuevos
     caja        lo visible no se sale de la caja de recorte (si no, cambiarían el recorte y las medidas del juego)
+- A la API siempre se le manda la base completada a cuadrado con su color de fondo (blob y turista miden 1024x559)
+  y se pide 1:1, la única salida que mide justo lo pedido; al regresar se recorta.
 - Solo el ángulo frente. La base de lado será la única excepción a "nunca desde cero": se generará a partir de la de
   frente y se aprueba antes de generar sus cuadros (ver docs/ESPEC-PERSONAJES.md).
 """
-import argparse, base64, glob, importlib.util, io, json, math, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
+import argparse, base64, glob, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
 from datetime import datetime
 
 sys.dont_write_bytecode = True   # optimizar-arte.py se carga como módulo: que no deje __pycache__ en scripts/
@@ -84,7 +86,6 @@ UMBRAL = 40            # diferencia por canal (0 a 255) para contar un píxel co
 MIN_PARTE = 40         # px: una parte cambiada más chica y suelta es ruido del JPEG, no el cambio pedido
 MARGEN_CINTURA = 0.06  # la zona de brazos baja esto de la cintura (fracción del alto de la caja de recorte)
 PARPADEO_MS = [1500, 150]   # GIF del parpadeo: ojos abiertos y cerrados (en el juego, 150 ms cada 3 a 6 s)
-PROPORCIONES = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]   # las que acepta la API
 
 # USD, de ai.google.dev/gemini-api/docs/pricing (octubre 2026). imagen: por imagen de salida (para estimar);
 # imagen_token, entrada y texto (incluye "thinking"): por millón de tokens (para el costo con la respuesta).
@@ -398,20 +399,19 @@ def cliente():
     return client
 
 
-def a_proporcion(img, K):
-    """La base completada con el color del fondo hasta la proporción aceptada más cercana (la API no acepta
-    cualquiera: blob y turista miden 1024x559). Regresa (imagen, proporción, dónde quedó la base adentro)."""
+def a_cuadrado(img, K):
+    """La base completada a cuadrado con el color del fondo (blob y turista miden 1024x559). Siempre se pide 1:1:
+    es la única proporción cuya salida mide justo lo que se pide (1K = 1024x1024); la de 16:9, por ejemplo, sale
+    de unos 1376x768, y al reescalarla el personaje se correría. Regresa (imagen, dónde quedó la base adentro)."""
     w, h = img.size
-    nombre = min(PROPORCIONES, key=lambda p: abs(math.log(w / h) - math.log(int(p.split(":")[0]) / int(p.split(":")[1]))))
-    rw, rh = (int(v) for v in nombre.split(":"))
-    W, H = (w, round(w * rh / rw)) if w / h > rw / rh else (round(h * rw / rh), h)
-    lienzo = Image.new("RGB", (W, H), tuple(int(c) for c in K))
-    x, y = (W - w) // 2, (H - h) // 2
+    n = max(w, h)
+    lienzo = Image.new("RGB", (n, n), tuple(int(c) for c in K))
+    x, y = (n - w) // 2, (n - h) // 2
     lienzo.paste(img, (x, y))
-    return lienzo, nombre, (x, y, x + w, y + h)
+    return lienzo, (x, y, x + w, y + h)
 
 
-def pedir(client, cfg, prompt, entrada_png, proporcion):
+def pedir(client, cfg, prompt, entrada_png):
     """UNA petición, sin reintentos (los decide generar_cuadro)."""
     listo = threading.Event()
     inicio = time.time()
@@ -425,7 +425,7 @@ def pedir(client, cfg, prompt, entrada_png, proporcion):
         return client.interactions.create(
             model=cfg["modelo"],
             input=[{"type": "text", "text": prompt}, {"type": "image", "data": entrada_png, "mime_type": "image/png"}],
-            response_format={"type": "image", "aspect_ratio": proporcion, "image_size": cfg["image_size"]},
+            response_format={"type": "image", "aspect_ratio": "1:1", "image_size": cfg["image_size"]},
             timeout=600,
         )
     finally:
@@ -570,7 +570,7 @@ def generar_cuadro(client, cfg, P, ficha, pid, angulo, pose, base, K, med):
     """Un cuadro: cada cambio edita la base (como mucho MAX_LLAMADAS peticiones) y aporta solo su zona."""
     nombre = f"{pid}-{angulo}-{pose}"
     prefijo = os.path.join(carpeta(pid), con_version(nombre, siguiente_version(pid, nombre)))
-    lienzo, proporcion, dentro = a_proporcion(base, K)
+    lienzo, dentro = a_cuadrado(base, K)
     buf = io.BytesIO()
     lienzo.save(buf, "PNG")
     entrada = base64.b64encode(buf.getvalue()).decode("ascii")
@@ -584,7 +584,7 @@ def generar_cuadro(client, cfg, P, ficha, pid, angulo, pose, base, K, med):
             t0, r, error, gen, crudo = time.time(), None, None, None, None
             llamadas += 1
             try:
-                r = pedir(client, cfg, prompt, entrada, proporcion)
+                r = pedir(client, cfg, prompt, entrada)
             except Exception as e:   # también cuenta como llamada: un tiempo agotado pudo cobrarse
                 error = f"{type(e).__name__} (código {getattr(e, 'status_code', None)}): {str(e)[:300]}"
                 if "Free Tier" in str(e):

@@ -1,6 +1,5 @@
 # Ficha de la turista (La Güera) para scripts/generar-personaje.py.
 # Los textos van en inglés porque entran tal cual a los prompts (ver scripts/prompts-personaje.toml).
-pendiente = "borrador: revisar los textos y borrar esta línea"
 
 fondo = "verde"
 
