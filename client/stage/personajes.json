@@ -32,7 +32,7 @@
         "waist": [0.52, 0.74],
         "face": [0.27, 0, 0.79, 0.47],
         "height": 0.55,
-        "frames": ["espera"]
+        "frames": ["espera", "parpadeo"]
       }
     }
   },
@@ -44,7 +44,7 @@
         "waist": [0.47, 0.72],
         "face": [0.22, 0, 0.66, 0.39],
         "height": 0.55,
-        "frames": ["espera"]
+        "frames": ["espera", "parpadeo"]
       }
     }
   },
@@ -56,7 +56,7 @@
         "waist": [0.51, 0.7],
         "face": [0.33, 0, 0.73, 0.36],
         "height": 0.62,
-        "frames": ["espera"]
+        "frames": ["espera", "parpadeo"]
       }
     }
   },
@@ -68,7 +68,7 @@
         "waist": [0.54, 0.66],
         "face": [0.28, 0, 0.75, 0.32],
         "height": 0.63,
-        "frames": ["espera"]
+        "frames": ["espera", "parpadeo"]
       }
     }
   },
@@ -80,7 +80,7 @@
         "waist": [0.55, 0.7],
         "face": [0.25, 0, 0.8, 0.43],
         "height": 0.52,
-        "frames": ["espera"]
+        "frames": ["espera", "parpadeo"]
       }
     }
   }
