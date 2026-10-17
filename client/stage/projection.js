@@ -6,13 +6,17 @@
 // x crece a la derecha, z hacia mí (mi lado es z > 0), y hacia arriba.
 
 import { TABLE_EDGE, LAYOUTS } from './config.js';
+import TABLE_ART from './mesa.json' with { type: 'json' };
 
+export { TABLE_ART };
 export const DEG = Math.PI / 180;
-export const RAIL_Y = 0.03;    // el riel de madera queda un poco más alto que el fieltro
-export const APRON = 0.1;      // grueso del canto de la mesa
-export const FELT_R = 0.85;    // donde termina la madera y empieza el fieltro (fracción de la orilla)
-export const TRACK_R = 0.66;   // línea dorada en forma de pista
-export const CENTER_R = 0.5;   // octágono central más oscuro
+// Calcados de la mesa ilustrada (scripts/calcar-mesa.py), como TABLE_EDGE:
+export const RAIL_Y = 0.046;   // el riel de madera queda un poco más alto que el fieltro
+export const APRON = 0.144;    // grueso del canto de la mesa
+export const FELT_R = 0.919;   // donde termina la madera y empieza el fieltro (fracción de la orilla)
+// Solo para la mesa de código:
+export const TRACK_R = 0.587;  // línea dorada en forma de pista
+export const CENTER_R = 0.45;  // octágono central más oscuro
 export const NEAR_Z = Math.max(...TABLE_EDGE.map(p => p.z)); // mi orilla
 export const FAR_Z = Math.min(...TABLE_EDGE.map(p => p.z));  // la orilla del fondo
 
@@ -58,7 +62,10 @@ export function makeView({ W, H, top, reserve, near, portrait, cam }) {
 
 // Ajusta escala y centro. La mesa es más ancha que la pantalla (`cam.width`) y se sale por los lados.
 // En horizontal la cabeza del rival más alto del fondo queda justo debajo de la franja de arriba y mi
-// orilla de la mesa se sale por abajo (si la pantalla es muy alta, se acerca más para que no quede flotando).
+// orilla de la mesa se sale por abajo (si la pantalla es muy alta, se acerca más para que no quede flotando);
+// con `cam.art` (la mesa ilustrada) lo que se sale por abajo es la orilla de abajo del dibujo, donde se corta el
+// frente; con `cam.rail`, la orilla de afuera de mi riel queda esos px arriba de la orilla de la pantalla (si la
+// pantalla es muy ancha, la mesa no queda más angosta que `cam.width` y el riel baja).
 // En vertical la mesa queda limitada por el ancho: mi orilla se esconde detrás de la barra y los rivales
 // se agrandan (`v.grow`) para llenar el espacio de arriba.
 export function fit(v, headWorld, cam) {
@@ -67,11 +74,14 @@ export function fit(v, headWorld, cam) {
   v.F = 1; v.cx = 0; v.cy = 0;
   const halfWidth = Math.max(...TABLE_EDGE.map(p => Math.abs(v.project(p.x, RAIL_Y, p.z).x)));
   const headY = Math.min(...backs.map(p => { const q = v.project(p.x, RAIL_Y, p.z); return q.y - q.s * headWorld; }));
-  const nearY = v.project(0, RAIL_Y, NEAR_Z).y;
+  // con la mesa ilustrada, la fila de abajo del dibujo (en px de la vista con F = 1)
+  const art = !portrait && cam.art;
+  const nearY = art ? (TABLE_ART.sizes[TABLE_ART.sizes.length - 1][1] - TABLE_ART.cy) / TABLE_ART.F : v.project(0, RAIL_Y, NEAR_Z).y;
   const wantHead = top + cam.headGap;
-  // en horizontal mi orilla queda debajo de la pantalla; en vertical, escondida detrás de la barra
-  // (en el celular, detrás de mis cartas: `near`)
-  const wantNear = v.near ?? (portrait ? H - reserve * 0.62 : H + 8);
+  // en horizontal mi orilla queda debajo de la pantalla, o mi riel a la vista abajo (`cam.rail`), o la orilla de
+  // abajo del dibujo justo en la de la pantalla (`cam.art`); en vertical, escondida detrás de la barra (en el
+  // celular, detrás de mis cartas: `near`)
+  const wantNear = v.near ?? (portrait ? H - reserve * 0.62 : art ? H : cam.rail != null ? H - cam.rail : H + 8);
   const byWidth = (cam.width * W) / 2 / halfWidth;
   const byHeight = (wantNear - wantHead) / (nearY - headY);
   v.cx = W / 2;
@@ -96,6 +106,12 @@ export function fit(v, headWorld, cam) {
 export function headTop(v, headWorld) {
   const backs = LAYOUTS.flat().filter(s => s.row === 'back').map(s => rimPoint(s.ang));
   return Math.min(...backs.map(p => { const q = v.project(p.x, RAIL_Y, p.z); return q.y - q.s * headWorld * v.grow; }));
+}
+
+// La silueta de la mesa ilustrada en pantalla (su orilla dibujada; mesa.json la trae en px del dibujo grande).
+export function artOutline(v) {
+  const k = v.F / TABLE_ART.F;
+  return TABLE_ART.silueta.map(([x, y]) => ({ x: v.cx + (x - TABLE_ART.cx) * k, y: v.cy + (y - TABLE_ART.cy) * k }));
 }
 
 // Polígono convexo de la silueta de la mesa en pantalla (riel arriba + canto abajo).

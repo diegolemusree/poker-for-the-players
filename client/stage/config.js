@@ -1,33 +1,54 @@
 // Configuración de la escena: la orilla de la mesa, las cámaras y dónde se sienta cada rival.
 //
 // Todo va en coordenadas de la mesa (ver projection.js): x a la derecha, z hacia mí, el fieltro en y = 0,
-// y la unidad es el radio de la mesa a sus esquinas. Así todo pasa por la misma perspectiva.
+// y la unidad es el ancho de la mesa de su centro a la orilla de un lado. Así todo pasa por la misma perspectiva.
 //
-// La mesa provisional se dibuja con código a partir de TABLE_EDGE, y a cada rival se le recorta en la
-// línea de esa orilla. Cuando la mesa sea una ilustración, se dibujará con esta misma cámara (para que
-// las fichas y las cartas caigan sobre su fieltro); entonces se calca su orilla sobre la imagen, se pasa a
-// coordenadas de la mesa con view.unproject() de projection.js y se pegan aquí los puntos.
+// En la computadora la mesa es una ilustración (la de referencia/composicion.png, extraída con
+// scripts/extraer-mesa.py) y todo lo demás tiene que caer en su perspectiva: TABLE_EDGE, RAIL_Y, APRON, FELT_R y
+// el `pitch` y la `dist` de CAMERAS.landscape salen de calcarla (scripts/calcar-mesa.py, que los imprime) y se
+// copian aquí y en projection.js; mesa.json trae los mismos números con la ilustración (scripts/optimizar-arte.py
+// mesa) y test/mesa.test.js revisa que coincidan. Cambiar cualquiera de ellos pide volver a calcar. A los rivales se
+// les recorta en la orilla del propio dibujo (su silueta en mesa.json). La mesa de código queda de respaldo (vista
+// en vertical y si la ilustración no carga), con esta misma orilla.
 
-// Orilla de afuera de la mesa (arriba del riel), en orden. Octágono más ancho que profundo, como el de la
-// composición de referencia: un lado plano largo frente a mí (z = 0.62), sus dos vecinos abriéndose en
-// diagonal hacia los lados, dos lados cortos a la izquierda y la derecha, y otro lado plano largo al fondo.
+// Orilla de afuera de la mesa (arriba del riel), en orden, calcada de la ilustración: un lado plano frente a mí
+// (z = 1.034), sus dos vecinos abriéndose en diagonal hacia los lados, dos lados a la izquierda y la derecha y otro
+// lado plano al fondo. Más honda que ancha: la cámara de la ilustración es baja (19°) y la ve de lejos.
 export const TABLE_EDGE = [
-  { x: 1, z: 0.2 }, { x: 0.58, z: 0.62 }, { x: -0.58, z: 0.62 }, { x: -1, z: 0.2 },
-  { x: -1, z: -0.2 }, { x: -0.58, z: -0.62 }, { x: 0.58, z: -0.62 }, { x: 1, z: -0.2 },
+  { x: 1, z: 0.382 }, { x: 0.421, z: 1.034 }, { x: -0.421, z: 1.034 }, { x: -1, z: 0.382 },
+  { x: -1, z: -0.382 }, { x: -0.421, z: -1.034 }, { x: 0.421, z: -1.034 }, { x: 1, z: -0.382 },
 ];
 
-// Cámara de toma de serie, sin girar (mira al centro de la mesa) y cerca de mi orilla, como en la
-// composición de referencia: la mitad lejana de la mesa se ve comprimida y la cercana amplia.
+// Cámara de toma de serie, sin girar (mira al centro de la mesa). En la computadora, la de la ilustración: 19° hacia
+// abajo (lo dicen las fichas dibujadas en la referencia) y lejos, con los ojos a 0.65 del fieltro; mi riel se ve
+// pasando por abajo de la pantalla. En vertical (celular) ve más desde arriba y un poco más lejos.
 //   pitch    grados hacia abajo
 //   dist     distancia al centro de la mesa
 //   width    ancho de la mesa en pantalla, en veces el ancho de la pantalla: más de 1 para que su
-//            orilla se salga por los dos lados
+//            orilla se salga por los dos lados (es lo más angosta que puede quedar)
+//   art      (horizontal) con la mesa ilustrada: el frente de la mesa no está en el dibujo (la referencia lo corta),
+//            así que la orilla de abajo del dibujo queda en la orilla de abajo de la pantalla o más abajo; de mi
+//            riel se ve la banda que sale por abajo
+//   rail     (sin `art`) a cuántos px de la orilla de abajo de la pantalla queda la orilla de afuera de mi riel; sin
+//            `rail` ni `art`, mi orilla se sale por abajo
 //   headGap  espacio en px entre la franja de arriba y la cabeza del rival más alto del fondo
+//   rivals   cuánto más grandes se dibujan los rivales que lo que mide su `height` (personajes.json): con la cámara
+//            de la mesa ilustrada, baja y lejana, se verían chicos junto a la mesa; en la referencia son grandes
+//   lean     grados que se levantan de más las cartas sobre la mesa, para que con una cámara más baja se
+//            sigan leyendo igual
+//   board    las cartas comunitarias: `scale` su tamaño (en el celular siempre son más grandes) y `z` lo más
+//            que se acercan a mí desde el centro de la mesa (con la cámara baja, para que su orilla de arriba no
+//            tape las fichas de los del fondo)
+//   mine     mis dos cartas sobre la mesa: `scale` su tamaño y `x` dónde van, en fracción del ancho de la
+//            pantalla (con la cámara baja se ven más grandes y van más a la orilla, para no tocar las comunitarias)
 //   maxGrow  (vertical) cuánto pueden agrandarse los rivales para llenar el espacio de arriba
 // En vertical la cámara se aleja un poco para que quepan los de los lados.
 export const CAMERAS = {
-  landscape: { pitch: 30, dist: 1.3, width: 1.16, headGap: 62 },
-  portrait: { pitch: 64, dist: 2.1, width: 1.18, headGap: 118, maxGrow: 2.6 },
+  landscape: {
+    pitch: 19, dist: 1.997, width: 0.9, art: true, headGap: 62, rivals: 1.6,
+    lean: 6, board: { scale: 1.25, z: 0 }, mine: { scale: 1, x: 0.17 },
+  },
+  portrait: { pitch: 50, dist: 2.4, width: 1.18, headGap: 118, maxGrow: 2.6 },
 };
 
 // Fondo del garaje: dónde está la lámpara en la imagen (`lamp`: centro del domo y su orilla de abajo, en

@@ -4,6 +4,7 @@ USO (desde la carpeta poker-for-the-players/, con el entorno de recortar.py)
 --------------------------------------------------------------------------
     .venv-rembg/bin/python scripts/optimizar-arte.py                     # fondos y todos los personajes
     .venv-rembg/bin/python scripts/optimizar-arte.py fondos
+    .venv-rembg/bin/python scripts/optimizar-arte.py mesa                # la mesa ilustrada (después de calcar-mesa.py)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien    # uno o varios (o todos sin nombre, menos los retirados)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien --angulo lado
     .venv-rembg/bin/python scripts/optimizar-arte.py gif alien           # GIF de revisión por ángulo
@@ -15,6 +16,12 @@ La especificación del arte está en docs/ESPEC-PERSONAJES.md.
 QUÉ HACE
 --------
 - fondos: arte/fondo-*.png -> public/assets/arte/fondo-*-3840.webp y fondo-*-1920.webp
+
+- mesa: arte/mesa/mesa-horizontal.png (sobre magenta) y su calco (mesa-horizontal.json, de scripts/calcar-mesa.py)
+  -> public/assets/arte/mesa-<ancho>.webp en dos tamaños (recortada a la mesa; abajo llega a la orilla de la imagen
+  porque el frente se sale) y client/stage/mesa.json: los tamaños, la proyección del dibujo en px del grande (F, cx,
+  cy), la cámara con que se calcó y su silueta (ahí se recorta a los rivales). El juego la pone a la escala
+  view.F / F con (cx, cy) como ancla.
 
 - personajes: arte/personajes/<id>/<id>-<ángulo>-<cuadro>.png -> public/assets/arte/<id>-<ángulo>-<cuadro>.webp
   (grande) y <id>-<ángulo>-<cuadro>-chico.webp (mitad, para calidad baja). Ángulos: frente y lado.
@@ -122,6 +129,40 @@ def fondos():
         for w in (3840, 1920):
             h = round(img.size[1] * w / img.size[0])
             guardar(escalar(img, w, h), os.path.join(OUT, f"{name}-{w}.webp"), Q_FONDO)
+
+
+# ---------- mesa ----------
+
+MESA = os.path.join(SRC, "mesa", "mesa-horizontal.png")
+MESA_JSON = os.path.join(ROOT, "client", "stage", "mesa.json")
+
+
+def mesa():
+    calco_path = MESA.replace(".png", ".json")
+    if not os.path.exists(calco_path):
+        sys.exit("Falta el calco: corre primero  .venv-rembg/bin/python scripts/calcar-mesa.py")
+    calco = json.load(open(calco_path))
+    img = cargar(MESA)
+    alfa = np.asarray(img)[..., 3]
+    ys, xs = np.nonzero(alfa > 8)
+    x0, x1, y0 = max(0, xs.min() - 4), min(img.size[0], xs.max() + 5), max(0, ys.min() - 4)
+    img = img.crop((x0, y0, x1, img.size[1]))
+    sizes = []
+    for f in (1, 0.5):
+        w, h = round(img.size[0] * f), round(img.size[1] * f)
+        guardar(escalar(img, w, h), os.path.join(OUT, f"mesa-{w}.webp"), Q_PERSONAJE)
+        sizes.append([w, h])
+    pr = calco["proyeccion"]
+    datos = {
+        "file": "mesa", "sizes": sizes[::-1],
+        "F": pr["F"], "cx": round(pr["cx"] - x0, 2), "cy": round(pr["cy"] - y0, 2),
+        "camara": calco["camara"], "mesa": calco["mesa"],
+        "silueta": (np.array(calco["silueta"]) - [x0, y0]).round(1).tolist(),
+    }
+    with open(MESA_JSON, "w") as f:
+        json.dump(datos, f, separators=(",", ":"))
+        f.write("\n")
+    print(f"  {rel(MESA_JSON)}: F {datos['F']}, cx {datos['cx']}, cy {datos['cy']}, cámara {datos['camara']}")
 
 
 # ---------- chroma key ----------
@@ -450,6 +491,7 @@ def main():
     ap = argparse.ArgumentParser(description="Optimiza el arte para el juego (sin comando: fondos y todos los personajes).")
     sub = ap.add_subparsers(dest="comando")
     sub.add_parser("fondos", help="fondos del cuarto")
+    sub.add_parser("mesa", help="la mesa ilustrada (después de scripts/calcar-mesa.py)")
     p = sub.add_parser("personajes", help="quita el fondo verde o magenta, recorta, reduce y exporta en WebP")
     p.add_argument("ids", nargs="*", help="personajes a procesar (todos si no se pone ninguno)")
     p.add_argument("--angulo", choices=ANGULOS)
@@ -464,6 +506,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     if args.comando in (None, "fondos"):
         fondos()
+    if args.comando == "mesa":
+        mesa()
     if args.comando in (None, "personajes"):
         personajes(getattr(args, "ids", None) or None, getattr(args, "angulo", None))
     if args.comando == "gif":

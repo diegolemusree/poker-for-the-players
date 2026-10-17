@@ -14,6 +14,7 @@
 // Un personaje con "retirado": true se queda en el registro (y sus imágenes en su lugar), pero no se usa.
 
 import DATA from './personajes.json' with { type: 'json' };
+import TABLE_ART from './mesa.json' with { type: 'json' };
 
 // La misma lista que scripts/optimizar-arte.py. Solo espera es obligatorio: mientras falte otro cuadro,
 // el personaje se queda en espera (no parpadea, no apuesta...); cuando se registra, se usa solo.
@@ -52,6 +53,13 @@ export function backgroundUrl(h, dpr) {
   return `/assets/arte/${BACKGROUND.file}-${w}.webp`;
 }
 
+// La mesa ilustrada (horizontal): dos tamaños; el grande cuando la mesa se ve más ancha que el chico.
+// `w` es el ancho de la pantalla en px de CSS: la mesa se ve un poco más ancha (se sale por los lados).
+export function tableArtUrl(w, dpr) {
+  const [aw] = TABLE_ART.sizes.find(([sw]) => sw >= w * 1.1 * dpr) || TABLE_ART.sizes[TABLE_ART.sizes.length - 1];
+  return `/assets/arte/${TABLE_ART.file}-${aw}.webp`;
+}
+
 // Carga y decodifica una imagen (para que el cambio de pose sea instantáneo).
 const cache = new Map(), loaded = new Map();
 export function loadImage(url) {
@@ -66,9 +74,11 @@ export function loadImage(url) {
 }
 export const loadedImage = url => loaded.get(url) || null;
 
-// Todos los cuadros que existen de todos los ángulos de todos los personajes (son pocos) más el fondo.
-export function preloadArt({ small = false, h = innerHeight, dpr = devicePixelRatio || 1 } = {}) {
+// Todos los cuadros que existen de todos los ángulos de todos los personajes (son pocos) más el fondo y la mesa
+// (si la mesa no carga no pasa nada: se dibuja la de código). `dpr`: la resolución con que dibujará la escena.
+export function preloadArt({ small = false, w = innerWidth, h = innerHeight, dpr = devicePixelRatio || 1 } = {}) {
   const urls = [backgroundUrl(h, dpr)];
   for (const c of Object.values(CHARACTERS)) for (const a of Object.values(c.angles)) for (const f of Object.values(a.poses)) urls.push(artUrl(f, small));
-  return Promise.all(urls.map(loadImage));
+  const table = loadImage(tableArtUrl(w, dpr)).catch(() => null);
+  return Promise.all([...urls.map(loadImage), table]);
 }
