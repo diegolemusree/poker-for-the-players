@@ -60,7 +60,8 @@ export const BACKDROP = { lamp: [0.5, 0.23], gap: 10 };
 // Lugares para los rivales, por el ángulo desde el centro de la mesa (90° = mi lado, 270° = el fondo).
 // Cada rival se sienta con la cintura en la orilla, en ese ángulo.
 //   row    'back' (fila del fondo, de frente) o 'side' (los de los lados, más cerca y más grandes)
-//   side   'left' o 'right': usan la imagen de lado (tres cuartos); la de la derecha va en espejo
+//   side   'left' o 'right': usan la imagen de lado (tres cuartos). Cada rival ve hacia el centro de la mesa: va
+//          en espejo si su imagen ve hacia el otro lado (`mira` en personajes.json), en cualquier asiento
 //   scale  cuánto más grandes se dibujan (los de los lados están más cerca de la cámara que la mesa)
 //   out    cuánto se sientan detrás de la orilla, en unidades de la mesa, hacia afuera en la dirección `ang`
 //   cut    'edge': se recortan justo en la línea de la orilla de afuera del riel, con la cintura en esa

@@ -79,7 +79,8 @@ poker-for-the-players/
     engine.test.js  # simulación de manos aleatorias
     resultado.test.js # final de la mano: lo que recibe cada quien y el botón Listo
     bots.test.js    # bots: jugadas legales, sin cartas ajenas, y un personaje distinto con su nombre
-    personajes.test.js # personajes registrados, cuadros que faltan, poses
+    personajes.test.js # personajes registrados, cuadros que faltan, poses, hacia dónde miran
+    asientos.test.js # Don Tentáculos al centro del fondo (práctica y quien creó la mesa)
   docs/
     ESPEC-PERSONAJES.md # cómo debe venir el arte de cada personaje (ángulos, cuadros, encuadre, fondo, estilo)
   referencia/
@@ -144,7 +145,7 @@ Dos formas de jugar con bots:
 - Tienen un pequeño componente aleatorio para no ser predecibles.
 - Esperan entre 1 y 3 segundos antes de actuar, para que se sienta natural y se vean las animaciones.
 - Siempre envían jugadas legales a través del mismo `act()` del motor que usan los humanos.
-- Cada bot es uno de los personajes del cuarto de juego y lleva siempre el nombre de ese personaje (el `name` de `personajes.json`): alien = El Compadre Zorg, blob = Tío Glub, turista = La Güera, robot = La Chispa, nerd = El Profe, pulpo = Don Tentáculos. Al agregar bots, el servidor le da a cada uno un personaje distinto, al azar entre los que no usa ningún otro bot (con 6 rivales o menos nunca se repite); si se acabaran los personajes, usa los nombres de repuesto (`BOT_NAMES`). Los humanos siguen con su apodo y se dibujan con los personajes que no usa ningún bot (si ya no queda ninguno, se repite uno; uno nunca se ve a sí mismo). Junto al nombre, un ícono de bot discreto, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el cabezón de cables es calculador, el del casco es impulsivo). El servidor lee los nombres al arrancar: si cambias un nombre o retiras un personaje, reinicia `npm run dev`.
+- Cada bot es uno de los personajes del cuarto de juego y lleva siempre el nombre de ese personaje (el `name` de `personajes.json`): alien = El Compadre Zorg, blob = Tío Glub, turista = La Güera, robot = La Chispa, nerd = El Profe, pulpo = Don Tentáculos. Al agregar bots, el servidor le da a cada uno un personaje distinto, al azar entre los que no usa ningún otro bot (con 6 rivales o menos nunca se repite); si se acabaran los personajes, usa los nombres de repuesto (`BOT_NAMES`). Los humanos siguen con su apodo y se dibujan con los personajes que no usa ningún bot (si ya no queda ninguno, se repite uno; uno nunca se ve a sí mismo; Don Tentáculos solo lo usa el humano que le queda al centro a quien creó la mesa: ver "Asientos"). Junto al nombre, un ícono de bot discreto, para que siempre quede claro quién es bot. Su personalidad de juego puede ir con su personaje (el cabezón de cables es calculador, el del casco es impulsivo). El servidor lee los nombres al arrancar: si cambias un nombre o retiras un personaje, reinicia `npm run dev`.
 - Si se quedan sin fichas, usan su única recompra casi siempre; si no, quedan eliminados.
 - En práctica en solitario, si el humano se queda sin fichas, ofrecer "Recomprar" (si le queda) o quedar fuera y ver cómo termina; al final, "Volver al inicio" para una nueva partida.
 
@@ -210,8 +211,10 @@ Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `a
    - `waist: [x, y]`: el punto donde la mesa corta al personaje y que se pone en la orilla de la mesa. `y`, justo debajo de la mano más baja que sostiene cartas (más grande = más abajo = se ve más cuerpo; si queda arriba de las manos, la mesa tapa las cartas). `x`, el centro del cuerpo a esa altura.
    - `face: [izquierda, arriba, derecha, abajo]`: la caja de la cabeza; ninguna etiqueta la tapa y los rivales de los lados no se le encima.
    - `height`: el alto de toda la imagen en unidades de la mesa (más grande = personaje más grande). Lo que se ve es `height × y` de la cintura; con los seis actuales va de 0.36 a 0.43.
+   - `mira`: hacia dónde ve la imagen, `izquierda`, `derecha` o `frente` (la cara y el cuerpo; varias bases quedaron un poco giradas). El juego la pone en espejo en los asientos del otro lado para que siempre vea hacia el centro de la mesa; una de `frente` nunca va en espejo. La de `lado` ve a la derecha.
+   - Del personaje (no de un ángulo), `sillas`: 2 si ocupa dos sillas (Don Tentáculos); sin ella, 1.
    - Para verlo: guarda el archivo, recarga la página y abre una mesa con `?medidas` en la dirección (por ejemplo `http://localhost:3000/?medidas` y luego "Jugar contra la compu"). Sobre cada rival se dibujan el marco de su imagen, la caja de la cara (roja, punteada) y la línea de la cintura con su punto (mostaza). Cambiar las medidas no necesita reiniciar el servidor.
-   - Si un personaje no tiene `lado`, se usa `frente`; el rival de la derecha se dibuja en espejo.
+   - Si un personaje no tiene `lado`, se usa `frente`.
 6. Para dejar de usar un personaje sin borrar nada, ponle `"retirado": true` en `personajes.json` (y reinicia el servidor). `optimizar-arte.py` sin nombres se lo salta, así sus WebP se quedan como están; para reprocesarlo hay que nombrarlo (`personajes blorp`).
 
 ### Asientos
@@ -219,7 +222,15 @@ Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `a
 Mi lugar es el lado cercano del octágono. Hasta 6 rivales, acomodados como en la composición de referencia (`LAYOUTS` en `config.js`):
 
 - **Fondo**: hasta 4 en fila detrás del borde lejano, de frente. En horizontal se reparten a lo ancho (los de las puntas sobre las diagonales lejanas) para que el espacio entre todos los rivales se vea parejo; en vertical van más juntos (`portrait` en `config.js`).
-- **Lados**: uno a la izquierda y otro a la derecha, más cerca de la cámara y más grandes, cortados por la orilla de la pantalla (en horizontal se les ve casi toda la cara) y girados hacia el centro (imagen `lado`; el de la derecha en espejo).
+- **Lados**: uno a la izquierda y otro a la derecha, más cerca de la cámara y más grandes, cortados por la orilla de la pantalla (en horizontal se les ve casi toda la cara) y girados hacia el centro (imagen `lado`).
+
+Cada rival ve hacia el centro de la mesa: si su imagen ve hacia el otro lado (`mira` en `personajes.json`), se dibuja en espejo, en cualquier asiento; al centro y con imagen de frente, nunca.
+
+**Don Tentáculos** ocupa dos sillas (`sillas: 2`) y necesita más espacio:
+
+- En práctica, cuando sale entre los bots (los personajes siguen al azar), se sienta en el asiento que me queda al centro del fondo (con 2, 4 o 6 rivales, el de la izquierda de los dos de en medio).
+- En mesas con amigos, cada quien ve la mesa girada desde su asiento, así que solo se puede para uno: quien creó la mesa. Antes de que empiece el torneo, cada vez que alguien se sienta o se levanta o cambian los bots, el servidor (`arrange()` en `server/room.js`) busca el asiento que le queda al centro a quien creó la mesa (con el mismo orden que la pantalla) y, si ahí hay otro bot, cambian de silla (cada uno conserva su nombre, su personaje y su dificultad). A los humanos nunca se les mueve: si ahí hay un humano, va al asiento de bot más cercano al centro. Ya empezado el torneo los asientos no cambian; si quien creó la mesa se va antes, el siguiente humano toma su lugar y se recalcula. Si ningún bot es Don Tentáculos, lo usa el humano que le queda más al centro a quien creó la mesa (los demás humanos, nunca).
+- En cualquier asiento (para los demás jugadores puede quedar en una diagonal o en un lado), lo que se ve de él no se encima con lo que se ve de sus vecinos (`makeRoom` en `client/stage/index.js`): se recorre sobre la orilla hacia donde hay más espacio y sus vecinos del fondo se recorren hacia afuera (sin que el de un lado les tape la cara y sin que su cabeza suba más que la más alta); en un lado, se recorre hacia la orilla de la pantalla mientras se le vea la cara. Si ni así cabe, se achica solo él, hasta 85 %.
 
 El orden visual respeta el orden real de juego: el primero es el que habla después de mí (a mi izquierda) y sigue el reloj por el fondo hasta el de mi derecha. Con menos rivales se llena primero el fondo desde el centro (1 al centro, 2, 3 y 4 en fila) y luego los dos lados a la vez (5: 3 al fondo y los dos lados; 6: 4 al fondo y los dos lados), para que nunca quede un lado vacío y el otro lleno. Los lugares no cambian durante el torneo aunque alguien quede eliminado. Sin asiento y antes de empezar, los 6 lugares quedan fijos con su botón "Sentarme aquí".
 
@@ -356,7 +367,9 @@ En esas simulaciones, el resultado de cada mano cuadra: botes + devoluciones = l
 
 `test/mesa.test.js`: la cámara de la computadora y la orilla del juego son las de la mesa ilustrada (las de `mesa.json`), sus imágenes existen, y en pantallas horizontales de 4:3 a 21:9 la orilla de abajo del dibujo queda siempre en la de la pantalla o más abajo y la orilla dibujada cruza toda la pantalla (ahí se recorta a los rivales).
 
-`test/personajes.test.js`: cada personaje en uso de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico); los retirados no se usan y el juego dibuja el personaje que manda el servidor; un cuadro que falta se dibuja con espera; con solo `espera` no parpadea, no espía, no apuesta ni se retira con pose, y en cuanto llega otro cuadro se usa; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina; con cuadro `gana`, el que gana lo enseña mientras dura el resultado (sin él se queda en espera) y deja de celebrar con la mano nueva.
+`test/asientos.test.js`: Don Tentáculos es el único de dos sillas; en práctica, cuando sale, se sienta al centro del fondo con 1 a 6 rivales; en mesas con amigos, al centro de quien creó la mesa, sin mover a ningún humano y sin cambios ya empezado el torneo; con un humano en ese lugar, en el asiento de bot más cercano; y si ningún bot es él, lo usa el humano del centro.
+
+`test/personajes.test.js`: cada personaje en uso de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico); los retirados no se usan y el juego dibuja el personaje que manda el servidor; cada uno dice hacia dónde mira y cuántas sillas ocupa, y va en espejo solo en el lado contrario a donde mira (al centro y de frente, nunca); un cuadro que falta se dibuja con espera; con solo `espera` no parpadea, no espía, no apuesta ni se retira con pose, y en cuanto llega otro cuadro se usa; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina; con cuadro `gana`, el que gana lo enseña mientras dura el resultado (sin él se queda en espera) y deja de celebrar con la mano nueva.
 
 `test/bots.test.js`, además de las jugadas: cada personaje tiene siempre el mismo nombre de bot y Madame Blorp ya no sale; con 1 a 6 bots, cada uno con un personaje distinto y su nombre; nunca repite el personaje de otro bot ni un nombre que ya se use (si se acaban, nombres de repuesto); en la mesa, los humanos se dibujan con los personajes que sobran y todos ven lo mismo.
 

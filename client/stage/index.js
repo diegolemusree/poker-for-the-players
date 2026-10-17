@@ -7,7 +7,10 @@
 //   5. etiquetas y montos en HTML, y encima la interfaz (main.js)
 // Recibe la misma vista filtrada del servidor que la vista 2D simple.
 
-import { CHARACTERS, characterFor, artOf, angleOf, backgroundUrl, preloadArt, BACKGROUND, tableArtUrl, loadImage, loadedImage } from './characters.js';
+import {
+  CHARACTERS, characterFor, artOf, angleOf, needsMirror, visibleSpan, backgroundUrl, preloadArt, BACKGROUND, tableArtUrl, loadImage,
+  loadedImage,
+} from './characters.js';
 import { makeView, fit, headTop, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z, DEG } from './projection.js';
 import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
 import { drawTable, INK } from './table.js';
@@ -184,18 +187,17 @@ export function createTableScene(container, ui) {
     if (L.portrait && seat.portrait) seat = { ...seat, ...seat.portrait, portrait: undefined };
     const want = seat.row === 'side' ? 'lado' : 'frente';
     const angle = angleOf(charId, want), art = artOf(charId, want);
-    // el rival de la derecha va en espejo (la imagen de lado ve hacia la derecha; mientras se usa la de
-    // frente, el espejo deja a los dos de los lados simétricos)
-    const mirror = seat.side === 'right';
     // `rim`: su lugar en la orilla (de ahí salen sus fichas); `at`: donde se sienta, `out` detrás de la orilla
     const rim = rimPoint(seat.ang), k = 1 + (seat.out || 0) / Math.hypot(rim.x, rim.z);
+    // cada quien ve hacia el centro de la mesa: va en espejo si su imagen ve hacia el otro lado (`mira`)
+    const mirror = needsMirror(charId, want, rim.x);
     const p = L.v.project(rim.x * k, RAIL_Y, rim.z * k);
     // recortado en la orilla: la cintura va justo en la línea de la orilla, en su columna
     const y = seat.cut === 'edge' ? edgeYAt(L.front, p.x) ?? p.y : p.y;
     const hpx = p.s * art.height * (seat.scale || 1) * L.rivals * L.v.grow * shrink, wpx = (hpx * art.size[0]) / art.size[1];
     const f = art.face;
     return placeAt({
-      seat, rim, angle, mirror, hpx, wpx, x: p.x, y, depth: p.depth, waist: art.waist[1],
+      seat, charId, sillas: CHARACTERS[charId].sillas, rim, angle, mirror, hpx, wpx, x: p.x, y, depth: p.depth, waist: art.waist[1],
       wx: mirror ? 1 - art.waist[0] : art.waist[0],
       face: mirror ? [1 - f[2], f[1], 1 - f[0], f[3]] : f,
     });
@@ -217,6 +219,19 @@ export function createTableScene(container, ui) {
   const layerOf = s => (s.seat.row === 'side' ? 1 : 0);
   const drawOrder = (a, b) => layerOf(a) - layerOf(b) || b.depth - a.depth;
 
+  // Recorre a un rival sobre la orilla hasta la columna x: su cintura sigue en la línea de la orilla y, si es del fondo,
+  // su lugar en la orilla (de ahí salen sus fichas y su apuesta) lo sigue. Los de los lados se sientan detrás de la
+  // orilla, sobre la diagonal de mi lado: sus fichas se quedan donde estaban (si no, se irían junto a las mías).
+  function slideTo(s, x) {
+    s.x = x;
+    s.y = edgeYAt(L.front, x) ?? s.y;
+    if (s.seat.row === 'back') {
+      const q = L.v.unproject(x, s.y, RAIL_Y);
+      s.rim = rimPoint(Math.atan2(q.z, q.x) / DEG);
+    }
+    return placeAt(s);
+  }
+
   // Los de los lados van delante y pueden tapar un poco los hombros de los del fondo, nunca la cara:
   // si la tapan, el del fondo se recorre hacia el centro sobre la orilla.
   function protectFaces(spots) {
@@ -228,23 +243,111 @@ export function createTableScene(container, ui) {
         const over = coverBoxes(s).filter(c => hit(c, f));
         if (!over.length) continue;
         const dx = s.seat.side === 'left' ? Math.max(...over.map(c => c.x1 + gap - f.x0)) : Math.min(...over.map(c => c.x0 - gap - f.x1));
-        b.x += dx;
-        b.y = edgeYAt(L.front, b.x) ?? b.y;
-        placeAt(b);
+        slideTo(b, b.x + dx);
       }
     }
   }
-  // Acomoda a todos los rivales. Si aun así alguno le tapa la cara a otro (pasa en pantallas angostas,
-  // donde los del fondo quedan muy juntos), se achican todos un poco hasta que ya no.
+
+  // Don Tentáculos ocupa dos sillas (`sillas` en personajes.json): lo que se ve de él no se encima con lo que se ve
+  // de sus vecinos. En la fila de rivales, de izquierda a derecha: si va en el fondo, se recorre sobre la orilla hacia
+  // donde hay más espacio, y sus vecinos del fondo se recorren hacia afuera (cada uno, a lo más ROOM_MOVE de su
+  // ancho, nunca hasta donde el de un lado le taparía la cara, y sin que su cabeza suba más que la más alta: en las
+  // diagonales la orilla sube hacia el centro y arriba ya no cabría su etiqueta); si él va en un lado, se recorre hacia
+  // la orilla de la pantalla mientras se le vea la cara, y los demás de los lados no se mueven. Si ni así cabe,
+  // regresa [él, cuánto achicarlo]; si cabe, null.
+  const ROOM_GAP = 6, ROOM_MOVE = 0.6, ROOM_MIN = 0.85;
+  function makeRoom(spots) {
+    const row = spots.slice().sort((a, b) => a.x - b.x), n = row.length;
+    const j = row.findIndex(s => s.sillas > 1);
+    if (j < 0) return null;
+    // lo que se ve de cada uno (visibleSpan), relativo a su cintura
+    const span = row.map(s => {
+      const [a, b] = visibleSpan(s.charId, s.angle), [u, v] = s.mirror ? [1 - b, 1 - a] : [a, b];
+      return [s.left + u * s.wpx - s.x, s.left + v * s.wpx - s.x];
+    });
+    const X = row.map(s => s.x);
+    const lo = row.map(s => s.x - (s.seat.row === 'back' ? ROOM_MOVE * s.wpx : 0));
+    const hi = row.map(s => s.x + (s.seat.row === 'back' ? ROOM_MOVE * s.wpx : 0));
+    row.forEach((b, i) => {
+      if (b.seat.row !== 'back') return;
+      const f = faceBox(b);
+      for (const s of row) {
+        if (s.seat.row !== 'side') continue;
+        const over = coverBoxes(s).filter(c => c.y0 < f.y1 && f.y0 < c.y1); // lo del de un lado a la altura de su cara
+        if (!over.length) continue;
+        if (s.seat.side === 'left') lo[i] = Math.max(lo[i], Math.max(...over.map(c => c.x1)) + ROOM_GAP - (f.x0 - b.x));
+        else hi[i] = Math.min(hi[i], Math.min(...over.map(c => c.x0)) - ROOM_GAP - (f.x1 - b.x));
+      }
+      lo[i] = Math.min(lo[i], b.x); hi[i] = Math.max(hi[i], b.x); // donde ya está siempre se vale
+    });
+    // él, si va en un lado, puede irse un poco hacia la orilla de la pantalla, mientras se le vea toda la cara
+    if (row[j].seat.row === 'side') {
+      const f = faceBox(row[j]);
+      if (row[j].seat.side === 'left') lo[j] = row[j].x - Math.max(0, f.x0 - 8);
+      else hi[j] = row[j].x + Math.max(0, L.W - 8 - f.x1);
+    }
+    const top = Math.min(...row.map(s => faceBox(s).y0)); // la cabeza más alta
+    const headAt = (s, x) => (edgeYAt(L.front, x) ?? s.y) - s.waist * s.hpx + s.face[1] * s.hpx;
+    row.forEach((b, i) => {
+      if (b.seat.row !== 'back') return;
+      let a = b.x, c = b.x;
+      while (a - 2 >= lo[i] && headAt(b, a - 2) >= top - 0.5) a -= 2;
+      while (c + 2 <= hi[i] && headAt(b, c + 2) >= top - 0.5) c += 2;
+      lo[i] = a; hi[i] = c;
+    });
+    const gap = i => X[i + 1] + span[i + 1][0] - (X[i] + span[i][1]); // entre el i y el que sigue
+    // junto a él, ROOM_GAP; entre los demás, que no se encimen más que antes
+    const need = row.slice(0, -1).map((_, i) => (i === j - 1 || i === j ? ROOM_GAP : Math.min(ROOM_GAP, gap(i))));
+    const push = () => {
+      // desde él hacia afuera, a cada lado, solo alejándose y cada quien hasta donde puede
+      for (let i = j - 1; i >= 0; i--) X[i] = Math.max(lo[i], Math.min(X[i], X[i + 1] + span[i + 1][0] - need[i] - span[i][1]));
+      for (let i = j + 1; i < n; i++) X[i] = Math.min(hi[i], Math.max(X[i], X[i - 1] + span[i - 1][1] + need[i - 1] - span[i][0]));
+      // y de regreso: a quien ya no pudo recorrerse más no se le encima el siguiente (lo que falte, le falta a él)
+      for (let i = 1; i < j; i++) X[i] = Math.max(X[i], X[i - 1] + span[i - 1][1] + need[i - 1] - span[i][0]);
+      for (let i = n - 2; i > j; i--) X[i] = Math.min(X[i], X[i + 1] + span[i + 1][0] - need[i] - span[i][1]);
+    };
+    const short = () => [j > 0 ? need[j - 1] - gap(j - 1) : -Infinity, j < n - 1 ? need[j] - gap(j) : -Infinity];
+    if (row[j].seat.row === 'back' && j > 0 && j < n - 1) { // entre sus vecinos, donde le sobre lo mismo de cada lado
+      const mid = (X[j - 1] + span[j - 1][1] + X[j + 1] + span[j + 1][0]) / 2 - (span[j][0] + span[j][1]) / 2;
+      X[j] = Math.max(lo[j], Math.min(hi[j], mid));
+    }
+    push();
+    for (let t = 0; t < 3; t++) { // si de un lado no cupo y del otro sobra, se recorre él hacia allá
+      const [fl, fr] = short();
+      if (fl > 0.5 && fr < -0.5) X[j] = Math.min(hi[j], X[j] + Math.min(fl, -fr));
+      else if (fr > 0.5 && fl < -0.5) X[j] = Math.max(lo[j], X[j] - Math.min(fr, -fl));
+      else break;
+      push();
+    }
+    row.forEach((s, i) => { if (Math.abs(X[i] - s.x) > 0.5) slideTo(s, X[i]); });
+    const falta = short().reduce((a, f) => a + Math.max(0, f), 0);
+    if (falta < 1) return null;
+    const w = span[j][1] - span[j][0];
+    return [row[j], Math.max(0, (w - falta) / w)];
+  }
+
+  // Acomoda a todos los rivales: el de dos sillas con su espacio (y, si no cabe, un poco más chico, hasta ROOM_MIN).
+  // Si aun así alguno le tapa la cara a otro (pasa en pantallas angostas, donde los del fondo quedan muy juntos),
+  // se achican todos un poco hasta que ya no.
   function placeSeats(seatOf, players) {
     let spots;
+    const extra = new Map(); // asiento -> cuánto más chico va el de dos sillas
     for (let k = 0, shrink = 1; k < 15; k++, shrink *= 0.93) {
-      spots = new Map();
-      for (const [seat, cfg] of seatOf) {
-        const p = players.find(q => q.seat === seat);
-        spots.set(seat, seatPlace(cfg, characterFor(p), shrink)); // un asiento vacío se acomoda como el primero
+      for (let t = 0; t < 4; t++) {
+        spots = new Map();
+        for (const [seat, cfg] of seatOf) {
+          const p = players.find(q => q.seat === seat);
+          const s = seatPlace(cfg, characterFor(p), shrink * (extra.get(seat) || 1)); // un asiento vacío se acomoda como el primero
+          s.key = seat;
+          spots.set(seat, s);
+        }
+        protectFaces([...spots.values()]);
+        const tight = makeRoom([...spots.values()]);
+        if (!tight) break;
+        const [big, f] = tight, now = extra.get(big.key) || 1;
+        if (now <= ROOM_MIN + 1e-3) break;
+        extra.set(big.key, Math.max(ROOM_MIN, now * f));
       }
-      protectFaces([...spots.values()]);
       const list = [...spots.values()].sort(drawOrder);
       if (!list.some((a, i) => list.slice(i + 1).some(b => covers(b, a)))) break;
     }

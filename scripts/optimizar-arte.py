@@ -40,7 +40,7 @@ QUÉ HACE
 
 - registrar: agrega o actualiza el personaje en client/stage/personajes.json (lo leen el juego y el
   servidor). Solo escribe el tamaño y la lista de cuadros; el nombre (el que usa el bot de ese personaje),
-  la cintura, la cabeza y el alto se miden o ponen a mano y nunca se sobrescriben. Un personaje nuevo
+  la cintura, la cabeza, el alto, hacia dónde mira y las sillas se miden o ponen a mano y nunca se sobrescriben. Un personaje nuevo
   entra con valores provisionales y la marca "pendiente". Entra solo a la mesa: cada bot toma un personaje
   distinto (salvo los que tengan "retirado": true).
 
@@ -89,11 +89,12 @@ MIN_MANCHA = 0.0005 # pedazos visibles más chicos que esto (fracción de la ima
 
 # Valores provisionales al registrar un ángulo nuevo, para un personaje de cuerpo completo sentado (hay que
 # medirlos sobre la imagen; ver CLAUDE.md).
+# `mira`: hacia dónde ve la imagen (izquierda, derecha o frente); la de lado, por regla, ve a la derecha.
 PROVISIONAL = {
-    "frente": {"waist": [0.5, 0.6], "face": [0.25, 0, 0.75, 0.3], "height": 0.8},
-    "lado": {"waist": [0.5, 0.6], "face": [0.25, 0, 0.75, 0.3], "height": 0.8},
+    "frente": {"waist": [0.5, 0.6], "face": [0.25, 0, 0.75, 0.3], "height": 0.8, "mira": "frente"},
+    "lado": {"waist": [0.5, 0.6], "face": [0.25, 0, 0.75, 0.3], "height": 0.8, "mira": "derecha"},
 }
-PENDIENTE = "medir waist, face y height y luego borrar esta línea"
+PENDIENTE = "medir waist, face, height y mira y luego borrar esta línea"
 
 
 def rel(path):
@@ -470,7 +471,8 @@ def registrar(pid, nombre=None):
         size = list(Image.open(os.path.join(OUT, f"{pid}-{ang}-espera.webp")).size)
         previo = c["angles"].get(ang) or {**PROVISIONAL[ang], "pendiente": PENDIENTE}
         c["angles"][ang] = {"size": size, "waist": previo["waist"], "face": previo["face"], "height": previo["height"],
-                            "frames": cuadros, **({"pendiente": previo["pendiente"]} if "pendiente" in previo else {})}
+                            "mira": previo.get("mira", PROVISIONAL[ang]["mira"]), "frames": cuadros,
+                            **({"pendiente": previo["pendiente"]} if "pendiente" in previo else {})}
         faltan = [x for x in COMPLETOS if x not in cuadros]
         print(f"  {pid} {ang}: {size[0]}x{size[1]}, cuadros {', '.join(cuadros)}"
               + (f"  (todavía sin {', '.join(faltan)}: mientras, se usa espera)" if faltan else ""))
@@ -480,7 +482,7 @@ def registrar(pid, nombre=None):
     print(f"{'Agregado' if nuevo else 'Actualizado'} {pid} ({c['name']}) en {rel(REGISTRO)}")
     for ang, a in c["angles"].items():
         if "pendiente" in a:
-            print(f"  PENDIENTE {ang}: waist, face y height son provisionales; mídelos y borra \"pendiente\".")
+            print(f"  PENDIENTE {ang}: waist, face, height y mira son provisionales; mídelos y borra \"pendiente\".")
     if c.get("retirado"):
         print("  Está marcado \"retirado\": el juego no lo usa hasta que quites esa línea.")
     else:

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { CHARACTERS, POSES, poseFile, hasPose, characterFor } from '../client/stage/characters.js';
+import { CHARACTERS, POSES, poseFile, hasPose, characterFor, needsMirror } from '../client/stage/characters.js';
 import { RivalAnim } from '../client/stage/rivals.js';
 
 const arte = file => new URL(`../public/assets/arte/${file}.webp`, import.meta.url);
@@ -33,6 +33,32 @@ test('los retirados se quedan en el registro pero el juego no los usa', () => {
   assert.equal(characterFor({ character: 'blorp' }), primero);
   assert.equal(characterFor({}), primero);
   assert.equal(characterFor(null), primero);
+});
+
+test('cada personaje dice hacia dónde mira su imagen y cuántas sillas ocupa', () => {
+  for (const [id, c] of registrados) {
+    for (const [angle, a] of Object.entries(c.angles)) {
+      assert.ok(['izquierda', 'derecha', 'frente'].includes(a.mira), `${id} ${angle}: falta "mira" o no es izquierda, derecha ni frente`);
+    }
+    assert.ok(Number.isInteger(c.sillas) && c.sillas >= 1, `${id}: sillas`);
+  }
+  assert.equal(CHARACTERS.pulpo.sillas, 2, 'Don Tentáculos ocupa dos sillas');
+});
+
+test('cada quien ve hacia el centro de la mesa: en espejo solo si su imagen ve hacia el otro lado', () => {
+  // La Güera ve a la derecha: a la izquierda del centro, tal cual; a la derecha, en espejo; al centro, tal cual
+  assert.equal(REGISTRO.turista.angles.frente.mira, 'derecha');
+  assert.equal(needsMirror('turista', 'frente', -0.8), false);
+  assert.equal(needsMirror('turista', 'frente', 0.8), true);
+  assert.equal(needsMirror('turista', 'frente', 0), false);
+  // El Profe ve de frente: nunca en espejo, tampoco en el lado derecho
+  assert.equal(needsMirror('nerd', 'frente', 0.8), false);
+  assert.equal(needsMirror('nerd', 'lado', 0.8), false); // sin imagen de lado se usa la de frente
+  // una imagen de lado ve a la derecha por regla: la del lado derecho va en espejo
+  CHARACTERS.deLado = { name: 'De lado', angles: { frente: { mira: 'frente', poses: {} }, lado: { poses: {} } } };
+  assert.equal(needsMirror('deLado', 'lado', -0.9), false);
+  assert.equal(needsMirror('deLado', 'lado', 0.9), true);
+  delete CHARACTERS.deLado;
 });
 
 // personajes de prueba: uno con todos los cuadros, uno con retirarse y sin espia ni apuesta, uno con solo espera

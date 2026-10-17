@@ -11,6 +11,7 @@ import { decide, makeBots, botDelay, botWantsRebuy, DIFFICULTIES, CAST } from '.
 export const LEVEL_CHOICES = [2, 5, 10, 15, 20, 30];
 
 const rid = () => randomBytes(5).toString('hex');
+const SILLAS = Object.fromEntries(CAST.map(c => [c.id, c.sillas]));
 
 export function cleanNick(nick) {
   const n = String(nick ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 16);
@@ -158,14 +159,46 @@ export class Room {
 
   // Qué personaje dibuja a cada jugador. El de cada bot es fijo (lleva el nombre de su personaje); los humanos
   // toman, en el orden en que se sentaron, los que no usa ningún bot, y si ya no queda ninguno se repite uno
-  // (en práctica con 6 rivales: el humano nunca se ve a sí mismo).
+  // (en práctica con 6 rivales: el humano nunca se ve a sí mismo). Uno de dos sillas (Don Tentáculos) que no usa
+  // ningún bot es para el humano que le queda más al centro a quien creó la mesa; los demás humanos, nunca.
   characters() {
     const out = new Map(), deBots = new Set();
     for (const [id, b] of this.bots) if (b.character) { out.set(id, b.character); deBots.add(b.character); }
-    const todos = CAST.map(c => c.id), libres = todos.filter(c => !deBots.has(c));
-    const lista = libres.length ? libres : todos;
-    this.humans().forEach((p, i) => { if (lista.length) out.set(p.id, lista[i % lista.length]); });
+    const libres = CAST.map(c => c.id).filter(c => !deBots.has(c));
+    const grande = libres.find(c => SILLAS[c] > 1);
+    const alCentro = grande && this.byCenter().find(p => !this.bots.has(p.id));
+    if (alCentro) out.set(alCentro.id, grande);
+    const chicos = libres.filter(c => SILLAS[c] === 1);
+    const lista = chicos.length ? chicos : CAST.map(c => c.id).filter(c => SILLAS[c] === 1);
+    this.humans().filter(p => p !== alCentro).forEach((p, i) => { if (lista.length) out.set(p.id, lista[i % lista.length]); });
     return out;
+  }
+
+  // Los demás jugadores, del que le queda más al centro del fondo a quien creó la mesa al que menos. Cada quien ve la
+  // mesa girada desde su asiento: los demás se acomodan en su pantalla en el orden de juego desde él (como
+  // client/stage/index.js), y el del centro es el de en medio (con un número par, primero el de la izquierda de los
+  // dos de en medio).
+  byCenter() {
+    const owner = this.player(this.ownerId);
+    if (!owner) return [];
+    const rel = p => (p.seat - owner.seat + MAXP) % MAXP;
+    const others = this.state.players.filter(p => p !== owner).sort((a, b) => rel(a) - rel(b));
+    const mid = (others.length - 1) / 2;
+    return others.map((p, i) => ({ p, i, d: Math.abs(i - mid) })).sort((a, b) => a.d - b.d || a.i - b.i).map(x => x.p);
+  }
+
+  // Don Tentáculos ocupa dos sillas y necesita más espacio: se sienta al centro del fondo de quien creó la mesa (en
+  // práctica, el jugador). Solo se puede para uno, porque cada quien ve la mesa girada desde su asiento. Antes de que
+  // empiece el torneo, si en ese asiento hay otro bot, cambian de silla (cada uno conserva su nombre, su personaje y
+  // su dificultad); a los humanos nunca se les mueve: si ahí hay un humano, va al asiento de bot más cercano al
+  // centro. Ya empezado el torneo, los asientos no cambian.
+  arrange() {
+    if (this.started()) return;
+    const grande = this.state.players.find(p => SILLAS[this.bots.get(p.id)?.character] > 1);
+    if (!grande) return;
+    const lugar = this.byCenter().find(p => this.bots.has(p.id));
+    if (!lugar || lugar === grande) return;
+    [grande.seat, lugar.seat] = [lugar.seat, grande.seat];
   }
 
   /* ---------- Listo: pasar a la siguiente mano ---------- */
@@ -185,6 +218,7 @@ export class Room {
 
   changed() {
     if (this.closed) return;
+    this.arrange();
     this.runBots();
     this.schedule();
     this.onChange(this);

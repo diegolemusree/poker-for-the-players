@@ -12,6 +12,11 @@ siguen este documento).
   - **`frente`**: para los asientos del fondo. De frente a la cámara, simétrico.
   - **`lado`**: tres cuartos **mirando a la derecha**, para el asiento de la izquierda. El asiento de
     la derecha usa **la misma imagen en espejo**. Mientras no exista, se usa `frente`.
+- Si una imagen de `frente` quedó un poco girada, no hay que rehacerla: en `personajes.json` se anota hacia
+  dónde mira (`"mira"`: `izquierda`, `derecha` o `frente`) y el juego la pone en espejo en los asientos del
+  otro lado, para que siempre vea hacia el centro de la mesa.
+- Un personaje que ocupa **dos sillas** (como Don Tentáculos) lleva `"sillas": 2`: el juego le da más espacio
+  y lo sienta al centro del fondo (ver CLAUDE.md, "Asientos").
 
 ## Cuadros
 
@@ -79,7 +84,8 @@ salta.
   reflejos, luz de borde, texturas, mugre ni manchas.
 - **Todo original**: nada que se parezca a personajes, logos o diseños de series o franquicias existentes.
 - **Sin texto** (letras, números, logos) **ni detalles de un solo lado** (un parche, un reloj en una
-  muñeca, el peinado de lado): la imagen de `lado` también se ve en espejo y se notaría.
+  muñeca, el peinado de lado): la imagen de `lado`, y la de `frente` si está girada, también se ven en espejo
+  y se notaría.
 
 ## Del arte al juego
 

@@ -8,6 +8,7 @@
         "waist": [0.52, 0.835],
         "face": [0.25, 0, 0.82, 0.38],
         "height": 0.54,
+        "mira": "frente",
         "frames": ["espera", "parpadeo", "espia", "apuesta"]
       }
     }
@@ -20,6 +21,7 @@
         "waist": [0.45, 0.62],
         "face": [0.2, 0, 0.76, 0.36],
         "height": 0.68,
+        "mira": "derecha",
         "frames": ["espera", "parpadeo"]
       }
     }
@@ -32,6 +34,7 @@
         "waist": [0.52, 0.74],
         "face": [0.27, 0, 0.79, 0.47],
         "height": 0.55,
+        "mira": "derecha",
         "frames": ["espera", "parpadeo"]
       }
     }
@@ -44,18 +47,21 @@
         "waist": [0.47, 0.72],
         "face": [0.22, 0, 0.66, 0.39],
         "height": 0.55,
+        "mira": "frente",
         "frames": ["espera", "parpadeo"]
       }
     }
   },
   "pulpo": {
     "name": "Don Tentáculos",
+    "sillas": 2,
     "angles": {
       "frente": {
         "size": [713, 841],
         "waist": [0.51, 0.7],
         "face": [0.33, 0, 0.73, 0.36],
         "height": 0.62,
+        "mira": "frente",
         "frames": ["espera", "parpadeo"]
       }
     }
@@ -68,6 +74,7 @@
         "waist": [0.54, 0.66],
         "face": [0.28, 0, 0.75, 0.32],
         "height": 0.63,
+        "mira": "derecha",
         "frames": ["espera", "parpadeo"]
       }
     }
@@ -80,6 +87,7 @@
         "waist": [0.51, 0.68],
         "face": [0.25, 0, 0.8, 0.43],
         "height": 0.58,
+        "mira": "derecha",
         "frames": ["espera", "parpadeo"]
       }
     }

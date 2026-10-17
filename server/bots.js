@@ -18,9 +18,10 @@ const LEVELS = {
 };
 
 // Los personajes del cuarto (client/stage/personajes.json, el mismo registro que dibuja el juego), cada uno con
-// el nombre que lleva el bot que lo usa. Los marcados "retirado" ya no salen.
+// el nombre que lleva el bot que lo usa y cuántas sillas ocupa (Don Tentáculos, 2: se sienta al centro). Los
+// marcados "retirado" ya no salen.
 const REGISTRO = JSON.parse(readFileSync(new URL('../client/stage/personajes.json', import.meta.url), 'utf8'));
-export const CAST = Object.entries(REGISTRO).filter(([, c]) => !c.retirado).map(([id, c]) => ({ id, name: c.name }));
+export const CAST = Object.entries(REGISTRO).filter(([, c]) => !c.retirado).map(([id, c]) => ({ id, name: c.name, sillas: c.sillas || 1 }));
 
 // Nombres de repuesto, por si un bot se queda sin personaje (más bots que personajes, o un humano ya usa
 // el nombre de uno).
