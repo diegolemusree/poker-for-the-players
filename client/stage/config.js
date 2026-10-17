@@ -73,7 +73,10 @@ export const BACKDROP = { lamp: [0.5, 0.23], gap: 10 };
 // casi toda la cara (86 % en 1440 x 900, más en pantallas más anchas).
 // En horizontal los del fondo se reparten a lo ancho para que el espacio entre todos los rivales (los de
 // los lados incluidos) se vea parejo; los de las puntas quedan sobre las diagonales lejanas.
-const back = (ang, portrait) => (portrait ? { ang, row: 'back', portrait: { ang: portrait } } : { ang, row: 'back' });
+// En horizontal los del fondo también se recortan en la orilla (`cut: 'edge'`): la de la ilustración no coincide
+// exacto con TABLE_EDGE (en las diagonales lejanas el riel dibujado queda hasta ~10 px más arriba) y, con el corte en
+// su cintura, se veían sentados encima del riel. En vertical (mesa de código) su cintura ya cae en la orilla.
+const back = (ang, portrait) => ({ ang, row: 'back', cut: 'edge', portrait: { ang: portrait ?? ang, cut: undefined } });
 const LEFT = { ang: 197, out: 0.22, row: 'side', side: 'left', scale: 1.15, cut: 'edge', portrait: { ang: 205, out: 0.02 } };
 const RIGHT = { ang: 343, out: 0.22, row: 'side', side: 'right', scale: 1.15, cut: 'edge', portrait: { ang: 335, out: 0.02 } };
 
