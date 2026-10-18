@@ -8,15 +8,15 @@ import { cardImage as cartaVieja } from './stage/cards.js';
 import { PALOS, COLOR_PALO } from './ui/palos.js';
 import marco from '../arte/baraja/reverso-carta.png';
 import marcoDatos from '../arte/baraja/reverso-carta.json';
-import reyH from '../arte/generadas/baraja/rey-1-carta-h.png';
-import reyD from '../arte/generadas/baraja/rey-1-carta-d.png';
-import reyC from '../arte/generadas/baraja/rey-1-carta-c.png';
-import reyS from '../arte/generadas/baraja/rey-1-carta-s.png';
-import rey3Crudo from '../arte/generadas/baraja/rey-3-crudo.png';
-import rey3H from '../arte/generadas/baraja/rey-3-carta-h.png';
-import rey3D from '../arte/generadas/baraja/rey-3-carta-d.png';
-import rey3C from '../arte/generadas/baraja/rey-3-carta-c.png';
-import rey3S from '../arte/generadas/baraja/rey-3-carta-s.png';
+import reyH from '../arte/baraja/rey-carta-h.png';
+import reyD from '../arte/baraja/rey-carta-d.png';
+import reyC from '../arte/baraja/rey-carta-c.png';
+import reyS from '../arte/baraja/rey-carta-s.png';
+import reinaCrudo from '../arte/generadas/baraja/reina-1-crudo.png';
+import reinaH from '../arte/generadas/baraja/reina-1-carta-h.png';
+import reinaD from '../arte/generadas/baraja/reina-1-carta-d.png';
+import reinaC from '../arte/generadas/baraja/reina-1-carta-c.png';
+import reinaS from '../arte/generadas/baraja/reina-1-carta-s.png';
 import adornoFlor from '../arte/baraja/adorno-flor.png';
 import adornoBanda from '../arte/baraja/adorno-banda.png';
 
@@ -76,28 +76,24 @@ function mini(code) {
 async function armar() {
   await Promise.all([document.fonts.load('94px Chewy'), document.fonts.load('18px "Patrick Hand"')]);
 
-  // 0. el rey, por aprobar: el anterior y el ornamentado, lado a lado, a 150, 72 y 27 px
-  const viejo = await Promise.all([reyH, reyD, reyC, reyS].map(cargar));
-  const nuevo = await Promise.all([rey3H, rey3D, rey3C, rey3S].map(cargar));
+  // 0. la reina, por aprobar, junto al rey aprobado, en los cuatro palos y a 150, 72 y 27 px
+  const rey = await Promise.all([reyH, reyD, reyC, reyS].map(cargar));
+  const reina = await Promise.all([reinaH, reinaD, reinaC, reinaS].map(cargar));
   const adornos = { flor: await cargar(adornoFlor), banda: await cargar(adornoBanda) };
-  const reyes = ['Kh', 'Kd', 'Kc', 'Ks'];
-  const con = arr => ({ K: { h: arr[0], d: arr[1], c: arr[2], s: arr[3] } });
-  const sk = seccion('Rey ornamentado (por aprobar)', 'Arriba de cada tamaño, el rey anterior; abajo, el nuevo: la túnica cubierta de '
-    + 'patrones, joyas en la corona y el cetro más trabajado (edición de Gemini sobre la imagen anterior), y el marco de doble línea '
-    + 'con flores en las esquinas y la línea del centro con las volutas del reverso (código).');
+  const porPalo = arr => ({ h: arr[0], d: arr[1], c: arr[2], s: arr[3] });
+  setArt({ reverso: await cargar(marco), libre: marcoDatos.libre, figuras: { K: porPalo(rey), Q: porPalo(reina) }, adornos });
+  const sq = seccion('Reina (por aprobar), junto al rey', 'Cada pareja: el rey y la reina del mismo palo. La reina la dibujó Gemini ya '
+    + 'ornamentada, con el rey aprobado como referencia de estilo; el marco, la línea del centro, el palo y los índices los pone el código.');
   const crudo = el('img');
-  crudo.src = rey3Crudo; crudo.style.width = '230px'; crudo.style.border = '2px solid #1d1611'; crudo.alt = 'Rey nuevo, crudo de Gemini';
-  sk.append(figura(crudo, 'El nuevo, como lo regresó Gemini'));
+  crudo.src = reinaCrudo; crudo.style.width = '230px'; crudo.style.border = '2px solid #1d1611'; crudo.alt = 'Reina, cruda de Gemini';
+  sq.append(figura(crudo, 'La reina, como la regresó Gemini'));
+  const parejas = ['h', 'd', 'c', 's'].flatMap(p => ['K' + p, 'Q' + p]);
   for (const w of [150, 72, 27]) {
-    const fila = el('div', 'op');
-    for (const [arte, ad, pie] of [[viejo, null, 'Antes'], [nuevo, adornos, 'Ahora']]) {
-      setArt({ figuras: con(arte), adornos: ad });
-      const cartas = reyes.map(k => carta(k, w, { k: w > 100 ? 2 : 1 }));
-      fila.append(figura(w > 100 ? (() => { const d = el('div', 'fila'); d.append(...cartas); return d; })() : fieltro(...cartas), `${pie}, ${w} px`));
-    }
-    sk.append(fila);
+    const cartas = parejas.map(c => carta(c, w, { k: w > 100 ? 2 : 1 }));
+    const caja = w > 100 ? el('div', 'fila') : fieltro();
+    caja.append(...cartas);
+    sq.append(figura(caja, `${w} px`));
   }
-  setArt({ reverso: await cargar(marco), libre: marcoDatos.libre, figuras: con(nuevo), adornos });
 
   // 1. reverso: el marco de Gemini, limpio, y la etiqueta de código
   const sr = seccion('Reverso', `El marco lo dibujó Gemini (opción 2, con el centro borrado por código); la etiqueta y las letras `

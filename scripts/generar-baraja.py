@@ -57,7 +57,7 @@ FONDO = os.path.join(ROOT, "arte", "fondo-garaje.png")
 PID = "baraja"
 DIR = GP.carpeta(PID)                                   # arte/generadas/baraja
 APROBADAS = os.path.join(ROOT, "arte", "baraja")
-FIGURAS = ["rey"]      # la reina y la jota, cuando toque
+FIGURAS = ["rey", "reina", "jota"]
 PIEZAS = ["reverso"] + FIGURAS
 MAX_LLAMADAS = 2       # por imagen, cuenten o no
 
@@ -597,9 +597,63 @@ def carta_reverso(limpio, marco, destino_png, destino_json):
 
 # ---------- figuras ----------
 
-def revisar_figura(img, con_ocr=True, rombos=False):
+def grupos_de_tres(C):
+    """Grupitos de exactamente tres puntos claros y redondos, pegados entre sí y acomodados en triángulo (en la corona
+    del rey se veían como un trébol sin tallo). Regresa sus cajas."""
+    claro = (C["V"] > 0.78) & (C["S"] < 0.35)
+    lab, n = ndi.label(claro)
+    puntos = []
+    for i, sl in enumerate(ndi.find_objects(lab)):
+        comp = lab[sl] == i + 1
+        area, (h, w) = int(comp.sum()), comp.shape
+        if 30 <= area <= 900 and 0.6 <= w / h <= 1.6 and 0.6 <= area / (w * h) <= 0.9:   # redondo (un cuadrado llena 1)
+            cy, cx = ndi.center_of_mass(comp)
+            puntos.append((sl[1].start + cx, sl[0].start + cy, 2 * math.sqrt(area / math.pi)))
+    padre = list(range(len(puntos)))
+
+    def raiz(i):
+        while padre[i] != i:
+            padre[i] = padre[padre[i]]
+            i = padre[i]
+        return i
+
+    for i, (x1, y1, d1) in enumerate(puntos):
+        for j in range(i + 1, len(puntos)):
+            x2, y2, d2 = puntos[j]
+            if math.hypot(x1 - x2, y1 - y2) <= 1.5 * max(d1, d2) and 0.6 <= d1 / d2 <= 1.6:
+                padre[raiz(i)] = raiz(j)
+    grupos = {}
+    for i in range(len(puntos)):
+        grupos.setdefault(raiz(i), []).append(puntos[i])
+    def en_triangulo(g):   # no en fila: el área del triángulo contra su lado más largo
+        (ax, ay, _), (bx, by, _), (cx, cy, _) = g
+        lado = max(math.hypot(ax - bx, ay - by), math.hypot(bx - cx, by - cy), math.hypot(cx - ax, cy - ay))
+        return abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / 2 / max(1e-6, lado ** 2) >= 0.2
+
+    return [(round(min(p[0] for p in g) - 15), round(min(p[1] for p in g) - 15), round(max(p[0] for p in g) + 15),
+             round(max(p[1] for p in g) + 15)) for g in grupos.values() if len(g) == 3 and en_triangulo(g)]
+
+
+PATRONES_MIN = 0.60   # figuras ornamentadas: del rojo de la túnica, qué fracción va en pedacitos entre los patrones (el
+                      # rey sencillo: 0.17; los ornamentados: 0.82 y 0.92)
+
+
+def cobertura_patrones(C, figura):
+    """Qué tan cubierta de patrones está la túnica: la fracción de su rojo ladrillo que va en pedacitos (cada uno de menos
+    del 1 % de la figura). En una túnica lisa el rojo son unas cuantas manchas grandes."""
+    base_t = rgb2lab(np.array(TUNICA, np.float32)[None, None, :] / 255)[0, 0]
+    tun = (np.linalg.norm(rgb2lab(C["a"]) - base_t, axis=2) <= TUNICA_TOL) & figura
+    lab, n = ndi.label(tun)
+    if not n:
+        return 0.0
+    areas = ndi.sum(tun, lab, range(1, n + 1))
+    return float(sum(x for x in areas if x < 0.01 * figura.sum()) / tun.sum())
+
+
+def revisar_figura(img, con_ocr=True, rombos=False, ornamentada=False):
     """Las revisiones de una figura (la mitad de arriba). Regresa ({revisión: motivo}, {medida: valor}, extras).
-    `rombos`: los rombos de la ropa (que el usuario pidió en el rey ornamentado) no cuentan como diamantes."""
+    `rombos`: los rombos de la ropa (que el usuario pidió en las figuras ornamentadas) no cuentan como diamantes.
+    `ornamentada`: la túnica debe venir cubierta de patrones, como la del rey ornamentado."""
     W, H = img.size
     m = min(W, H)
     C = clases(img)
@@ -679,6 +733,16 @@ def revisar_figura(img, con_ocr=True, rombos=False):
         fallas["plano"] = (f"los colores no son planos ({v['textura']:.0%} de la figura con textura, "
                            f"{v['degradado']:.0%} de la túnica fuera de sus dos tonos)")
 
+    # sin grupitos de tres puntos (parecen un trébol sin tallo)
+    extra["tres"] = grupos_de_tres(C)
+    v["grupos_de_tres"] = len(extra["tres"])
+    if extra["tres"]:
+        fallas["tres_puntos"] = f"hay {len(extra['tres'])} grupito(s) de tres puntos, que parecen un trébol"
+    if ornamentada:
+        v["patrones"] = round(cobertura_patrones(C, figura), 3)
+        if v["patrones"] < PATRONES_MIN:
+            fallas["adornos"] = f"la túnica no está cubierta de patrones (solo {v['patrones']:.0%} de su rojo va entre patrones)"
+
     if con_ocr:
         revisar_texto([img.resize((W * 2, H * 2), Image.LANCZOS)], [{}], fallas, v)
     return fallas, v, extra
@@ -756,6 +820,47 @@ def revisar_edicion(base, gen, con_ocr=True):
     return fallas, v, extra
 
 
+def zona_corona(base):
+    """La caja de la corona: lo de la figura arriba de la cara (con un margen)."""
+    C = clases(base)
+    W, H = base.size
+    fig = silueta(C)
+    caras = zonas_piel(C, W, H)
+    y1 = min(z[1] for z in caras) + round(0.02 * H) if caras else round(0.25 * H)
+    filas, cols = np.nonzero(fig[:y1].any(axis=1))[0], np.nonzero(fig[:y1].any(axis=0))[0]
+    m = round(0.015 * W)
+    return (int(max(0, cols.min() - m)), int(max(0, filas.min() - m)), int(min(W, cols.max() + m)), int(y1))
+
+
+def componer_zona(base, gen, caja):
+    """La base con lo que cambió Gemini dentro de la caja (y nada de afuera), con la orilla suave."""
+    A = np.asarray(base).astype(np.float32)
+    G = np.asarray(gen.resize(base.size, Image.LANCZOS)).astype(np.float32)
+    z = np.zeros(A.shape[:2], bool)
+    z[caja[1]:caja[3], caja[0]:caja[2]] = True
+    cambio = ndi.binary_opening((np.abs(A - G).max(axis=2) > 30) & z)
+    peso = ndi.gaussian_filter((ndi.binary_dilation(cambio, iterations=3) & z).astype(np.float32), 1.5) * z
+    return Image.fromarray((A * (1 - peso[..., None]) + G * peso[..., None]).round().astype(np.uint8)), int(cambio.sum())
+
+
+def revisar_retoque(base, gen, caja):
+    """Un retoque de una zona de una figura aprobada: se toma de Gemini solo lo que cambió en la zona y se revisa el
+    resultado como figura; además, que afuera de la zona Gemini no haya movido nada (alineación) y que sí cambió algo."""
+    cand, cambiados = componer_zona(base, gen, caja)
+    fallas, v, extra = revisar_figura(cand, rombos=True)
+    extra["compuesta"], extra["zona_retoque"] = cand, caja
+    sb, sg = silueta(clases(base)), silueta(clases(gen.resize(base.size)))
+    fuera = np.ones(sb.shape, bool)
+    fuera[caja[1]:caja[3], caja[0]:caja[2]] = False
+    v["silueta_fuera"] = round(float((sb & sg & fuera).sum() / max(1, ((sb | sg) & fuera).sum())), 4)
+    v["cambiados"] = cambiados
+    if v["silueta_fuera"] < 0.97:
+        fallas["alineacion"] = f"afuera de la zona, Gemini movió la figura ({v['silueta_fuera']:.1%} igual)"
+    if cambiados < 100:
+        fallas["sin_cambio"] = f"casi nada cambió en la zona ({cambiados} px)"
+    return fallas, v, extra
+
+
 def dos_tonos(L):
     """Fracción de los valores de luz (L de Lab) que no caen cerca (±4) de los dos tonos más comunes: en un color plano
     con una sombra plana es casi nada; en un degradado, mucho."""
@@ -802,10 +907,15 @@ def hoja(img, fallas, v, extra, titulo, destino, claves):
         t.rectangle([c[0] * k - 4, c[1] * k - 4, c[2] * k + 4, c[3] * k + 4], outline=(230, 0, 200), width=4)
     for c in extra.get("zonas", []):
         t.rectangle([c[0] * k, c[1] * k, c[2] * k, c[3] * k], outline=(0, 90, 220), width=3)
+    for c in extra.get("tres", []):
+        t.rectangle([c[0] * k, c[1] * k, c[2] * k, c[3] * k], outline=(255, 130, 0), width=4)
+    if "zona_retoque" in extra:
+        c = extra["zona_retoque"]
+        t.rectangle([c[0] * k, c[1] * k, c[2] * k, c[3] * k], outline=(0, 170, 220), width=3)
     lineas = [titulo, ""] + [f"{'FALLA' if c in fallas else 'bien '}  {c}" + (f": {fallas[c]}" if c in fallas else "")
                              for c in claves]
     lineas += [""] + [f"{c}: {v[c]}" for c in ("marco_color", "blanco", "tunica", "textura", "corte", "aire_arriba",
-                                                "corrida", "silueta", "cara_manos", "patrones_antes", "patrones_ahora",
+                                                "corrida", "silueta", "silueta_fuera", "cambiados", "cara_manos", "patrones", "patrones_antes", "patrones_ahora",
                                                 "palos", "texto") if c in v]
     texto_alto = 30 + 24 * len(lineas)
     out = Image.new("RGB", (a.size[0] * 2 + 48, alto + 32 + texto_alto), "white")
@@ -892,9 +1002,12 @@ def costo_estimado(cfg, prompt, n_imagenes):
 
 # ---------- comandos ----------
 
-REVISAR = {"reverso": revisar_reverso, **{f: revisar_figura for f in FIGURAS}}
+REVISAR = {"reverso": revisar_reverso, "rey": revisar_figura,
+           **{f: lambda img: revisar_figura(img, rombos=True, ornamentada=True) for f in ("reina", "jota")}}
 CLAVES = {"reverso": ["marco", "centro", "palos", "texto", "colores", "plano"],
-          **{f: ["fondo", "encuadre", "tunica", "palos", "texto", "colores", "plano"] for f in FIGURAS}}
+          **{f: ["fondo", "encuadre", "tunica", "palos", "tres_puntos", "texto", "colores", "plano"] for f in FIGURAS}}
+for _f in ("reina", "jota"):
+    CLAVES[_f] = CLAVES[_f] + ["adornos"]
 
 
 def entradas_de(P, pieza):
@@ -902,8 +1015,11 @@ def entradas_de(P, pieza):
     for r in P["piezas"][pieza].get("referencias", []):
         if r == "garaje":
             img, ruta = referencia_garaje()
-            imgs.append(img)
-            rutas.append(ruta)
+        else:   # una figura aprobada (el rey), como referencia de estilo
+            ruta = os.path.join(APROBADAS, f"{r}.png")
+            img = Image.open(ruta).convert("RGB")
+        imgs.append(img)
+        rutas.append(ruta)
     return imgs, rutas
 
 
@@ -980,16 +1096,32 @@ def cmd_editar(args):
     [ediciones.<pieza>] de prompts-baraja.toml."""
     P = cargar_toml()
     pieza = args.pieza
-    ed = P["ediciones"][pieza]
-    ruta = os.path.join(DIR, f"{pieza}-{args.intento}-crudo.png")
+    ed = P["ediciones"][f"{pieza}-{args.cambio}" if args.cambio else pieza]
+    ruta = imagen_de(f"{pieza}-{args.intento}")
     base = Image.open(ruta).convert("RGB")
     armar = lambda c: " ".join([limpiar(ed["texto"])] + [P["correcciones"][k] for k in c if k in P["correcciones"]])
-    correr(P, dict(P["config"]), pieza, [base], [ruta], ed["aspecto"], armar, lambda g: revisar_edicion(base, g),
-           CLAVES[pieza] + ["igual", "adornos"], args, f"{pieza} (edición de {pieza}-{args.intento})")
+    if ed.get("zona") == "corona":   # un retoque: de Gemini solo se toma la corona
+        caja = zona_corona(base)
+        print(f"  zona del retoque (la corona): {caja}")
+        revisar, claves = (lambda g: revisar_retoque(base, g, caja)), CLAVES[pieza] + ["alineacion", "sin_cambio"]
+    else:
+        revisar, claves = (lambda g: revisar_edicion(base, g)), CLAVES[pieza] + ["igual", "adornos"]
+    correr(P, dict(P["config"]), pieza, [base], [ruta], ed["aspecto"], armar, revisar, claves, args,
+           f"{pieza} ({args.cambio or 'edición'} de {pieza}-{args.intento})")
+
+
+def imagen_de(nombre):
+    """La imagen de una figura: la compuesta de un retoque si la hay; si no, lo crudo de Gemini."""
+    compuesta = os.path.join(DIR, f"{nombre}-compuesta.png")
+    return compuesta if os.path.exists(compuesta) else os.path.join(DIR, f"{nombre}-crudo.png")
 
 
 def salidas(pieza, img, fallas, v, extra, nombre, titulo, claves=None):
-    """Las medidas, la hoja y, del reverso, el marco solo; de una figura, la mitad lista para el código."""
+    """Las medidas, la hoja y, del reverso, el marco solo; de una figura, la mitad lista para el código (de un retoque,
+    con la imagen compuesta)."""
+    if "compuesta" in extra:
+        img = extra["compuesta"]
+        img.save(os.path.join(DIR, f"{nombre}-compuesta.png"))
     with open(os.path.join(DIR, f"{nombre}.json"), "w") as f:
         json.dump({"revisiones": fallas, "medidas": v}, f, ensure_ascii=False, indent=2, default=str)
     hoja(img, fallas, v, extra, f"{nombre} ({titulo})", os.path.join(DIR, f"{nombre}-hoja.jpg"), claves or CLAVES[pieza])
@@ -1102,7 +1234,7 @@ def cmd_adornos(args):
 def cmd_carta(args):
     """De una figura: arma la mitad lista para el código, aunque alguna revisión haya fallado (para verla; gratis)."""
     nombre = f"{args.pieza}-{args.intento}"
-    carta_figura(Image.open(os.path.join(DIR, f"{nombre}-crudo.png")).convert("RGB"), nombre)
+    carta_figura(Image.open(imagen_de(nombre)).convert("RGB"), nombre)
 
 
 def cmd_revisar(args):
@@ -1136,7 +1268,9 @@ def cmd_aprobar(args):
         sys.exit(f"No existe {rel(os.path.join(DIR, nombre + '-crudo.png'))}.")
     os.makedirs(APROBADAS, exist_ok=True)
     sufijos = ([("-crudo.png", "-crudo.png"), ("-limpio.png", ".png"), ("-carta.png", "-carta.png"),
-                ("-carta.json", "-carta.json")] if args.pieza == "reverso" else [("-crudo.png", ".png")])
+                ("-carta.json", "-carta.json")] if args.pieza == "reverso"
+               else [(os.path.basename(imagen_de(nombre))[len(nombre):], ".png")]
+               + [(f"-carta-{p}.png", f"-carta-{p}.png") for p in "hdcs"])
     for sufijo, dest in sufijos:
         src = os.path.join(DIR, nombre + sufijo)
         if not os.path.exists(src):
@@ -1259,6 +1393,9 @@ def _maqueta_figura(variante, W=928, H=1152):
     t.ellipse([cx + 40, 760 + dy, cx + 130, 850 + dy], fill=piel, outline=TINTA_M, width=4)
     if variante == "texto":
         t.text((cx - 90, 738 + dy), "REX", fill=crema, font=ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 70))
+    if variante == "tres_puntos":   # tres puntos crema en triángulo, como en la corona del rey ornamentado
+        for ddx, ddy in ((0, -10), (-9, 6), (9, 6)):   # pegados entre sí, como en la corona
+            t.ellipse([cx + 150 + ddx - 10, 880 + dy + ddy - 10, cx + 150 + ddx + 10, 880 + dy + ddy + 10], fill=crema, outline=TINTA_M, width=3)
     if variante == "palos":
         mk = Image.fromarray((mascara_palo(palos_js()["d"], 70) * 255).astype(np.uint8))
         img.paste(Image.new("RGB", mk.size, mostaza), (round(cx) - 150, 858 + dy), mk)
@@ -1306,7 +1443,8 @@ def cmd_probar(args):
     print("Figuras:")
     for variante, quiero in {"buena": set(), "fondo_gris": {"fondo"}, "corona_cortada": {"encuadre"},
                              "flotando": {"encuadre"}, "corrida": {"encuadre"}, "texto": {"texto"}, "palos": {"palos"},
-                             "neon": {"colores", "tunica"}, "tunica_azul": {"tunica"}, "degradado": {"plano"}}.items():
+                             "neon": {"colores", "tunica"}, "tunica_azul": {"tunica"}, "degradado": {"plano"},
+                             "tres_puntos": {"tres_puntos"}}.items():
         correr(f"figura-{variante}", _maqueta_figura(variante), revisar_figura, quiero, CLAVES["rey"])
     # plano, con los personajes del juego (sobre verde o magenta: la figura es lo que no es fondo)
     texturas = []
@@ -1349,7 +1487,8 @@ def main():
     a.add_argument("--intento", type=int, required=True, help="el número de la imagen (<pieza>-<n>-crudo.png)")
     ed = sub.add_parser("editar", help="edita con Gemini una figura ya aprobada (máximo MAX_LLAMADAS llamadas)")
     ed.add_argument("pieza", choices=FIGURAS)
-    ed.add_argument("--intento", type=int, required=True, help="la imagen cruda que se edita (<pieza>-<n>-crudo.png)")
+    ed.add_argument("--intento", type=int, required=True, help="la imagen que se edita (<pieza>-<n>)")
+    ed.add_argument("--cambio", help="un retoque de [ediciones.<pieza>-<cambio>] (por ejemplo corona)")
     ed.add_argument("--simular", action="store_true", help="muestra el prompt y el costo sin llamar a la API")
     ed.add_argument("--si", action="store_true", help="no pedir confirmación")
     cf = sub.add_parser("carta", help="de una figura: la mitad lista para el código, en sus cuatro palos (gratis)")

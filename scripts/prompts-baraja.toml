@@ -22,6 +22,11 @@ The attached picture is only a reference for the drawing style (the thin, unifor
 the clean, flat, muted colors). Do not copy its scene, its objects, its background or its composition.
 """
 
+[referencias.rey]
+texto = """
+The attached picture is the king of the same deck: use it only as the reference for the drawing style, the line work, the colors and the level of ornament. Do not copy his face, his crown or his scepter.
+"""
+
 # El reverso es solo el marco: el centro va en blanco. La etiqueta en diagonal con "Poker for the Players" la dibuja
 # el código (ETIQUETA en client/stage/baraja.js). El reverso aprobado salió de una versión anterior de este prompt
 # (con dibujitos y etiqueta), limpiada por código con `limpiar`.
@@ -75,6 +80,23 @@ Never draw letters, numbers, monograms or logos, and no heart, diamond, spade or
 crown, not on the robe and not next to his head. No diamond-shaped lozenges in the patterns.
 """
 
+# La mitad de arriba de la reina, ya ornamentada como el rey aprobado (que se manda de referencia de estilo). El
+# código pone la de abajo, el marco, la línea del centro, el palo y los índices, y recolorea el rojo ladrillo por palo.
+[piezas.reina]
+aspecto = "4:5"
+referencias = ["rey"]
+texto = """
+Create a new illustration: the upper half of an original queen for the same classic deck of playing cards as the attached king, drawn in exactly the same style: a 2D adult animated TV series caricature with the same thin, uniform dark brown-black outline, the same flat colors and the same level of ornament. Show only the top half of the figure, from the top of her headdress down to the waist: the waist is cut straight by the bottom edge of the image, across the whole width of her body (on the card this half is repeated upside down below it). Front view, perfectly frontal and stiff, solemn and symmetric like the figures on antique playing cards. One hand holds a flower diagonally across her body; the other hand rests flat on her chest.
+
+Character: an original queen, not based on any existing character and not a copy of the king. A long neck and a tall headdress: a crown with a tall decorated cone and veil. Heavy eyelids and the same bored, fed-up expression as the king, as if she can't wait to leave; exaggerated cartoon features.
+
+Clothes: like the king's robe, her gown is almost completely covered with bold classic patterns: embroidered motifs, stripes, rows of rhombuses and decorated bands, drawn in mustard yellow (#C99A35) and cream (#EFE4C8) with the dark outline over brick red (#A8352A), which stays the main color showing between the patterns. Jewels in brick red and cream. Her skin is pale peach, not red. Use only these colors and the dark outline. Bold, chunky shapes with strong contrast and thick lines, never hairline lines, so the patterns still read when the card is printed very small.
+
+Plain flat white background and nothing else in the image: no frame, no border, no floor, no shadow.
+
+Never draw letters, numbers, monograms or logos, no heart, spade or club shapes anywhere, and no groups of three dots.
+"""
+
 # Ediciones de una figura ya aprobada, sobre su imagen cruda (comando `editar`): la misma figura, más ornamentada, como
 # las figuras de las barajas reales. Los rombos los pidió el usuario: en las ediciones no cuentan como diamantes.
 [ediciones.rey]
@@ -92,6 +114,14 @@ with strong contrast and thick lines, never hairline lines, so the patterns stil
 small. No new colors. No letters, numbers, monograms or logos, and no heart, spade or club shapes.
 """
 
+# Un retoque de la corona del rey ornamentado: solo se toma la corona (zona = "corona"); lo demás sale igual.
+[ediciones.rey-corona]
+aspecto = "4:5"
+zona = "corona"
+texto = """
+Edit the attached illustration. Change only one small thing on the crown: each little group of three cream dots on the red velvet of the crown becomes a group of four cream dots arranged in a small square. Everything else stays exactly identical, pixel for pixel: the whole king, his face, the crown's shape, its gems and colors, the robe, the hands, the scepter, the line work, the framing and the white background.
+"""
+
 # Una frase por revisión que falló, para el reintento (se agrega al final del prompt).
 [correcciones]
 texto = "Draw no letters, words, numbers, monograms or logos anywhere."
@@ -105,3 +135,6 @@ encuadre = "Center the figure, keep the whole crown inside the image with empty 
 tunica = "The robe's main color must be brick red (#A8352A), covering most of the robe."
 igual = "Keep the face, the expression, the mustache, the beard, the hands, the pose and the silhouette exactly as in the attached image: change only the patterns on the robe, the jewels on the crown and the scepter."
 adornos = "Cover much more of the robe with bold patterns: embroidered motifs, stripes, rows of rhombuses and decorated bands in mustard and cream over the brick red."
+tres_puntos = "Do not draw groups of three dots anywhere: use pairs or groups of four instead."
+alineacion = "Keep everything outside the crown exactly in the same place, size and framing as in the attached image."
+sin_cambio = "Make sure the change is clearly visible."
