@@ -306,6 +306,10 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .mini svg{width:16px;height:16px;overflow:visible}
 .mini path{fill:currentColor;stroke:var(--ink);stroke-width:9;stroke-linejoin:round;paint-order:stroke}
 .mini.red{color:#a8352a}
+/* baraja nueva (en revisión, ?baraja=nueva): palos clásicos sin contorno, en dos colores (los de ui/palos.js) */
+.mini.p{background:#f8f2e4}
+.mini.p path{stroke:none}
+.mini.p-s,.mini.p-c{color:#231c17}.mini.p-h,.mini.p-d{color:#a8352a}
 .mini.off{opacity:.45}
 /* vista 2D: las cartas de la mano ganadora se resaltan y las demás se apagan */
 .card.win{outline:3px solid var(--mustard2);outline-offset:1px}

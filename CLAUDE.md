@@ -56,6 +56,7 @@ poker-for-the-players/
   client/
     index.html
     main.js         # arranque, conexión con Socket.IO
+    hoja-baraja.html # hoja de revisión de la baraja nueva (solo en desarrollo, /hoja-baraja.html; lee el arte de arte/)
     stage/          # mesa ilustrada por capas (ver "Estilo visual")
       index.js        # arma las capas, acomoda la vista del servidor, etiquetas y ciclo de animación
       config.js       # orilla de la mesa (lista de puntos), cámaras y acomodo de los rivales
@@ -64,10 +65,11 @@ poker-for-the-players/
       mesa.json       # la mesa ilustrada: tamaños, su proyección (F, cx, cy), la cámara y la orilla con que se calcó, y su silueta (lo escribe el script)
       items.js        # fichas, cartas y botón del dealer en perspectiva
       cards.js        # caras y reversos de las cartas (canvas)
+      baraja.js       # la baraja nueva, en revisión: el juego la usa solo con ?baraja=nueva (ver "Pendientes")
       rivals.js       # poses, parpadeo, respiración de los rivales
       characters.js   # personajes (lee personajes.json) y precarga del arte
       personajes.json # registro de personajes: tamaño y cuadros (los escribe el script); nombre de su bot, cintura, cabeza y alto (a mano); "retirado"
-    ui/             # palos dibujados, nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
+    ui/             # palos dibujados (suits.js; los clásicos de la baraja nueva en palos.js), nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
     audio/
   public/
     assets/         # logo, sonidos, íconos, imagen para compartir
@@ -91,6 +93,8 @@ poker-for-the-players/
     fichas/<id>.toml          # ficha de cada personaje para los prompts: fondo, cómo parpadea, a dónde mira, sonrisa, manos, fichas, partes opacas
     ocr.swift                 # OCR de macOS para la revisión "sin texto" del generador (se compila solo en .venv-rembg/bin/)
     extraer-mesa.py           # saca la mesa de referencia/composicion.png: la sube a 4K, Gemini quita los objetos por zonas (con revisiones y tope de llamadas), limpia sin IA lo que quedó, recorta el garaje por la silueta de la mesa y arma la hoja para aprobar; aprobar la pasa a arte/mesa/
+    generar-baraja.py         # el arte de la baraja nueva con Gemini, una imagen por corrida con revisiones y tope de llamadas: el reverso (y `limpiar`, que deja solo su marco), las figuras (y `editar`, que las ornamenta conservando cara y pose), la mitad de cada figura en sus cuatro palos (`carta`) y los adornos del reverso para el marco de las figuras (`adornos`); `probar` revisa las revisiones (arte/generadas/baraja/; aprobar pasa a arte/baraja/)
+    prompts-baraja.toml       # los prompts de la baraja, en inglés, editables
     calcar-mesa.py            # calca la mesa aprobada: la cámara de la computadora (pitch dado, dist) y la orilla del juego (TABLE_EDGE, RAIL_Y, APRON, FELT_R) que la reproducen, y su proyección (arte/mesa/mesa-horizontal.json)
     recortar.py       # quita un fondo GRIS con rembg (solo para arte viejo; el nuevo viene en verde o magenta)
     optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro; `mesa` exporta la mesa ilustrada y escribe client/stage/mesa.json
@@ -98,6 +102,7 @@ poker-for-the-players/
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
     personajes/<id>/  # cuadros de cada personaje sobre verde o magenta: <id>-<ángulo>-<cuadro>.png
     generadas/<id>/   # lo que hizo generar-personaje.py, por revisar: cuadro, lo crudo de Gemini, GIF, comparación y registro.jsonl (costos); generadas/mesa/, lo de extraer-mesa.py (zonas/: cada paso y lo crudo de cada llamada; descartadas/: los intentos anteriores)
+    baraja/           # el arte aprobado de la baraja nueva: el reverso (solo el marco, y su carta con la zona libre para la etiqueta), los adornos y las figuras
     mesa/             # la mesa ilustrada aprobada (mesa-horizontal.png sobre magenta, su silueta, su calco .json) y la calibración de la referencia
     respaldos/        # los cuadros que se reemplazaron
     revision/         # GIF de revisión de cada personaje y ángulo (y los restos del fondo, si quedan); camaras/, las capturas con que se eligió la cámara; mesa-*, las hojas y capturas de la mesa ilustrada
@@ -386,6 +391,8 @@ npm start       # producción: sirve dist/ (corre antes npm run build)
 `npm run dev` levanta el servidor y Vite juntos en el mismo puerto. Para probar multijugador en local, abrir varias pestañas o ventanas de incógnito. Para probar desde el celular en la misma red WiFi, usar la IP local de la Mac (por ejemplo `http://192.168.1.50:3000`).
 
 ## Pendientes
+
+- **Baraja nueva (en revisión, sin integrar)**: el juego la usa solo con `?baraja=nueva` en la dirección; sin eso no cambia nada. Aprobado hasta ahora: el reverso (el marco de Gemini con el centro limpiado por código y la etiqueta en diagonal de código: texto, ángulo y tamaño en `ETIQUETA` de `client/stage/baraja.js`, porque el logo se va a rediseñar), papel blanco cálido, palos clásicos en dos colores (corazones y diamantes rojo ladrillo, picas y tréboles tinta), índices grandes y el rey ornamentado (la mitad de arriba girada 180°, marco de doble línea con las volutas del reverso y la túnica recoloreada por palo: diamantes marino, tréboles oliva, picas gris pizarra). Falta: la reina, la jota, el as de picas, la hoja final a tamaño real y la integración (exportar el arte de `arte/baraja/` a `public/assets/arte/`, precargarlo, quitar `?baraja=nueva` y las cartas viejas, y actualizar "Cartas" en "Dirección de arte").
 
 - **Celular con la mesa nueva**: en vertical sigue la mesa de código, pero con la orilla nueva (más honda que ancha, calcada de la ilustración), así que su cámara se bajó a 50° (`CAMERAS.portrait`) para que los rivales no se vieran diminutos. Falta decidir si el celular usa una segunda ilustración (vista más desde arriba) o la misma adaptada, y revisar sus asientos y etiquetas.
 - **Memoria en iPhone con todos los cuadros**: el máximo de frente subió a 1000 px de alto (la mitad de abajo queda bajo la mesa). Cuando cada personaje tenga todos sus cuadros de frente y de lado, revisar cuánta memoria usa la mesa en un iPhone: hoy se precargan y decodifican todos los cuadros de todos los personajes en uso (6 personajes × hasta 6 cuadros × 2 ángulos, más los reducidos al tamaño en que se ven). Si pesa, cargar solo los personajes que están en la mesa o bajar el máximo.

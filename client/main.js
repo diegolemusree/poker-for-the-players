@@ -6,6 +6,7 @@ import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel, winningCards } from './ui/hand.js';
 import { isPhone, phoneQuery } from './ui/phone.js';
 import { SUIT_PATH } from './ui/suits.js';
+import { PALOS, BARAJA_NUEVA } from './ui/palos.js';
 
 const MAXP = 7;
 const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
@@ -143,9 +144,10 @@ function miniCard(c, cls) {
   svg.setAttribute('viewBox', '0 0 100 100');
   svg.setAttribute('aria-hidden', 'true');
   const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('d', SUIT_PATH[c[1]]);
+  path.setAttribute('d', BARAJA_NUEVA ? PALOS[c[1]] : SUIT_PATH[c[1]]);
   svg.append(path);
-  return h('span', { class: 'mini' + ('hd'.includes(c[1]) ? ' red' : '') + (cls ? ' ' + cls : ''), role: 'img', 'aria-label': cardName(c) },
+  const color = BARAJA_NUEVA ? ` p p-${c[1]}` : 'hd'.includes(c[1]) ? ' red' : '';   // la nueva: cuatro colores
+  return h('span', { class: 'mini' + color + (cls ? ' ' + cls : ''), role: 'img', 'aria-label': cardName(c) },
     h('b', {}, c[0] === 'T' ? '10' : c[0]), svg);
 }
 

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Baraja nueva: hoja de revisión</title>
+<!-- Página de revisión de la baraja nueva (solo en desarrollo: no está ligada al juego ni entra al build). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chewy&family=Patrick+Hand&display=swap">
+<style>
+  :root{--ink:#1d1611;--paper:#efe4c8;--felt:#577a3d;--bg:#2a1a12}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Patrick Hand',cursive;font-size:18px;padding:16px}
+  h1,h2{font-family:'Chewy',cursive;font-weight:400;margin:0 0 6px}
+  h1{color:var(--paper);font-size:34px}
+  .nota{color:var(--paper);margin:0 0 14px;max-width:900px}
+  section{background:var(--paper);border:3px solid var(--ink);border-radius:20px 24px 18px 22px;padding:12px 14px 14px;margin:0 0 16px;max-width:1240px}
+  section p{margin:0 0 10px}
+  .fila{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end}
+  .fieltro{background:var(--felt);border-radius:12px;padding:10px;margin:4px 0}
+  .op{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end}
+  .op figure{margin:0;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  figcaption{font-size:16px}
+  canvas.carta{display:block;filter:drop-shadow(1px 2px 0 rgba(14,8,4,.45))}
+  .palos{display:flex;gap:22px;flex-wrap:wrap}
+  .palos div{display:flex;flex-direction:column;align-items:center;font-size:16px}
+  .mini{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:33px;height:46px;flex:none;
+    background:#f8f2e4;border:2px solid var(--ink);border-radius:7px;box-shadow:1px 2px 0 rgba(29,22,17,.4);line-height:1}
+  .mini b{font-family:'Chewy',cursive;font-weight:400;font-size:20px;letter-spacing:-.02em}
+  .mini svg{width:16px;height:16px;overflow:visible}
+  .mini path{fill:currentColor}
+  .antes{display:flex;gap:28px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<h1>Baraja nueva: hoja de revisión</h1>
+<p class="nota">Cada carta se dibuja igual que en el juego y a su tamaño real en la pantalla. Las figuras (J, Q y K) y el as
+de picas todavía no tienen su dibujo: por ahora llevan un marco y un palo grande.</p>
+<div id="hoja"></div>
+<script type="module" src="./hoja-baraja.js"></script>
+</body>
+</html>

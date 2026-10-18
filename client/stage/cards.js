@@ -4,6 +4,8 @@
 // El reverso lleva el logo de Poker for the Players.
 
 import { SUIT_PATH } from '../ui/suits.js';
+import { BARAJA_NUEVA } from '../ui/palos.js';
+import { cardImage as cartaNueva } from './baraja.js';
 import { INK } from './table.js';
 
 export const CARD_PX = [256, 368];
@@ -76,6 +78,7 @@ function figure(g, rank, x, y, col) {
 const faces = new Map();
 // Cara de una carta ('Ah', 'Td'...) o el reverso (code = null).
 export function cardImage(code) {
+  if (BARAJA_NUEVA) return cartaNueva(code);   // la baraja nueva, en revisión (?baraja=nueva)
   const key = code || 'back';
   if (faces.has(key)) return faces.get(key);
   const [W, H] = CARD_PX;

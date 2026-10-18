@@ -1,0 +1,107 @@
+# Prompts para scripts/generar-baraja.py (la baraja nueva).
+#
+# Reglas de todas las piezas:
+#   - Gemini nunca dibuja letras, números ni palos: los índices, los palos, la etiqueta del reverso con su texto, la
+#     mitad de abajo de las figuras (la de arriba girada 180°) y el recorte en forma de pica los pone el código
+#     (client/stage/baraja.js).
+#   - Ningún nombre de marca ni de serie en los prompts.
+#   - Como referencia de estilo, solo el recorte del garaje (nunca el arte de los rivales).
+#
+# Puedes cambiar cualquier texto entre las comillas triples ("""). Van en inglés porque el modelo los sigue mejor.
+# Después de editar, prueba sin gastar con:
+#   .venv-rembg/bin/python scripts/generar-baraja.py generar <pieza> --simular
+
+[config]
+modelo = "gemini-nano-banana-2.1"   # ver precios en ai.google.dev/gemini-api/docs/pricing
+image_size = "1K"                   # cada carta se dibuja a 256 px de ancho en el juego: 1K sobra
+
+# Lo que se agrega al prompt por cada imagen de referencia que se manda.
+[referencias.garaje]
+texto = """
+The attached picture is only a reference for the drawing style (the thin, uniform dark brown-black line work and \
+the clean, flat, muted colors). Do not copy its scene, its objects, its background or its composition.
+"""
+
+# El reverso es solo el marco: el centro va en blanco. La etiqueta en diagonal con "Poker for the Players" la dibuja
+# el código (ETIQUETA en client/stage/baraja.js). El reverso aprobado salió de una versión anterior de este prompt
+# (con dibujitos y etiqueta), limpiada por código con `limpiar`.
+[piezas.reverso]
+aspecto = "2:3"
+referencias = ["garaje"]
+texto = """
+Create a new, flat graphic design: the back of a playing card, seen perfectly flat and straight on, filling the \
+whole image edge to edge. Only the artwork: no table, no shadow, no perspective and no card outline around it.
+
+Layout. (1) A plain white margin runs all around the outer edge. (2) Inside it, an ornamental border frame in deep \
+brick red on white, in the spirit of antique playing-card backs: scrolls, curls and leafy flourishes, with larger \
+ornaments in the four corners, symmetric left to right and top to bottom. It is an original design. Use few, bold, \
+simple shapes and thick strokes, so the frame still reads when the card is shown very small, about 3 cm tall. \
+(3) Inside the frame, the whole center is completely empty, plain flat white: nothing at all inside the frame.
+
+Style: clean flat colors, no gradients, no textures, no glow and no shine.
+
+Never draw letters, words, numbers, monograms or logos anywhere. Do not draw any heart, diamond, spade or club \
+shapes, not even hidden inside the ornaments. No people, faces, cherubs, angels, animals or vehicles, and no \
+medallion.
+"""
+
+# La mitad de arriba del rey. El código pone la de abajo (la misma girada 180°), el marco, el palo y los índices, y
+# cambia el rojo ladrillo de la túnica por el color de cada palo (diamantes marino, tréboles oliva, picas gris pizarra).
+[piezas.rey]
+aspecto = "4:5"
+referencias = ["garaje"]
+texto = """
+Create a new illustration: the upper half of an original king for a classic deck of playing cards, drawn as a 2D \
+adult animated TV series caricature. Show only the top half of the figure, from the top of the crown down to the \
+waist: the waist is cut straight by the bottom edge of the image, across the whole width of his body (on the card \
+this half is repeated upside down below it). Front view, perfectly frontal and stiff, solemn and symmetric like the \
+figures on antique playing cards. One hand holds a scepter diagonally across his body; the other hand rests flat on \
+his chest.
+
+Character: an original king, not based on any existing character. A very wide head and a long, drooping mustache, \
+heavy eyelids and a bored, fed-up expression, as if he can't wait to leave; exaggerated cartoon features. A big, \
+symmetric crown, complete and with some empty space above it.
+
+Clothes: a robe covered in flat geometric patterns like old playing-card court figures: stripes, borders made of \
+little squares, and an ermine collar (white with small black dots). Colors: the robe's main color is brick red \
+(#A8352A); the stripes, borders and trims are mustard yellow (#C99A35) and cream (#EFE4C8); his skin is a pale peach, \
+not red. Use only these colors and the dark outline.
+
+Style: thin, uniform dark brown-black outlines (#1D1611), the same thin line everywhere, clean flat colors with at \
+most one flat shadow, no gradients, no textures and no shine. Plain flat white background and nothing else in the \
+image: no frame, no border, no floor, no shadow.
+
+Never draw letters, numbers, monograms or logos, and no heart, diamond, spade or club shapes anywhere: not on the \
+crown, not on the robe and not next to his head. No diamond-shaped lozenges in the patterns.
+"""
+
+# Ediciones de una figura ya aprobada, sobre su imagen cruda (comando `editar`): la misma figura, más ornamentada, como
+# las figuras de las barajas reales. Los rombos los pidió el usuario: en las ediciones no cuentan como diamantes.
+[ediciones.rey]
+aspecto = "4:5"
+texto = """
+Edit the attached illustration of a playing-card king. Keep exactly the same character and drawing: the same face, \
+expression, heavy eyelids, eyes, nose, mustache and beard, the same pose and hands, the same framing, size and \
+position, the same thin dark brown-black outline style, the same flat colors, the straight cut at the waist and the \
+plain white background. Make him more ornate, like the court figures on real antique playing cards. (1) Cover the robe \
+almost completely with bold classic patterns: embroidered motifs, stripes, rows of rhombuses and decorated bands, drawn \
+in mustard yellow (#C99A35) and cream (#EFE4C8) with the dark outline over the brick red (#A8352A) robe, which stays the \
+main color showing between the patterns. (2) Add jewels to the crown: round and oval gems in brick red and cream. \
+(3) Make the scepter more elaborate: an ornate head with rings and knobs, in mustard and cream. Use bold, chunky shapes \
+with strong contrast and thick lines, never hairline lines, so the patterns still read when the card is printed very \
+small. No new colors. No letters, numbers, monograms or logos, and no heart, spade or club shapes.
+"""
+
+# Una frase por revisión que falló, para el reintento (se agrega al final del prompt).
+[correcciones]
+texto = "Draw no letters, words, numbers, monograms or logos anywhere."
+palos = "Do not draw any heart, diamond, spade or club shape anywhere, not even inside the ornaments or the patterns, and no diamond-shaped lozenges either."
+marco = "The ornamental frame must run continuously along all four sides, with a plain white margin outside it, and the design must fill the whole image edge to edge."
+centro = "Inside the frame the center is completely empty, plain flat white: nothing at all inside the frame."
+colores = "Use only flat, muted colors: brick red, mustard, cream, pale peach skin and the dark brown-black outline; no bright or neon colors."
+plano = "Use clean flat colors with no gradients, textures, shading or vignette; the background is plain flat white."
+fondo = "The background is plain flat white, with no floor, frame, border, shadow or vignette, and nothing touches the top or the sides of the image."
+encuadre = "Center the figure, keep the whole crown inside the image with empty space above it, and cut the body straight at the waist with the bottom edge of the image, across the whole width of the body."
+tunica = "The robe's main color must be brick red (#A8352A), covering most of the robe."
+igual = "Keep the face, the expression, the mustache, the beard, the hands, the pose and the silhouette exactly as in the attached image: change only the patterns on the robe, the jewels on the crown and the scepter."
+adornos = "Cover much more of the robe with bold patterns: embroidered motifs, stripes, rows of rhombuses and decorated bands in mustard and cream over the brick red."
