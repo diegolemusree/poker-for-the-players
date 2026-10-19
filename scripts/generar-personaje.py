@@ -700,11 +700,31 @@ def cmd_aprobar(args):
 
 # ---------- cartas: el reverso de la baraja, del mismo tamaño en la mesa para todos ----------
 
-def _rojo(a):
-    """El marco del reverso nuevo: rojo ladrillo y lo oscuro de sus volutas (no el coral de la ropa ni el rosa de la
-    piel, que son más claros)."""
+def _marco(a):
+    """Las líneas del marco del reverso nuevo tal como las dibuja Gemini a este tamaño: delgadas, de rojo ladrillo a
+    café rojizo claro (en el blob, mediana (164, 128, 116)). Lo rojizo oscuro y apagado no cuenta: es la orilla del
+    contorno de tinta, que si contara uniría las dos cartas."""
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
-    return (R - np.maximum(G, B) > 35) & (R > 80) & (G < 140) & (a @ LUMA < 150)
+    lum = a @ LUMA
+    return (R > G + 20) & (R > B + 25) & (lum < 200) & ((lum >= 90) | (R - G > 60))
+
+
+def _caras_nuevas(a, z):
+    """Las caras de las cartas con el reverso nuevo: el papel crema y el marco que lo toca (4-conexos, con los huecos
+    rellenos), hasta la tinta del contorno, así que no se le suma margen. Cuenta si tiene marco y al menos una cuarta
+    parte de papel: la ropa crema no tiene marco y la piel (que se parece al marco claro) casi no tiene papel. Sirve
+    con marco delgado y claro (como lo dibujó Gemini en el blob: solo, se parte en pedazos) y con marco grueso (parte
+    al papel en dos)."""
+    papel = (a @ LUMA > 170) & (a.max(axis=2) - a.min(axis=2) < 60) & (a[..., 0] >= a[..., 2]) & z
+    marco = _marco(a) & z
+    # la apertura corta los puentes de un píxel por donde el marco cruza el contorno delgado entre las dos cartas
+    lab, n = ndi.label(ndi.binary_opening(papel | marco))
+    caras = np.zeros(papel.shape, bool)
+    for i in range(1, n + 1):
+        m = lab == i
+        if m.sum() >= 150 and (m & marco).sum() >= 30 and (m & papel).sum() >= 0.25 * m.sum():
+            caras |= ndi.binary_fill_holes(m)
+    return caras
 
 
 def _azul(a):
@@ -719,34 +739,29 @@ def _papel(a):
 
 def medir_cartas(img, zona, diseno):
     """Las cartas de la zona, de la más ancha a la más angosta (la primera es la de enfrente: la de atrás queda tapada
-    de un lado). Cada carta sale de su núcleo de color: el azul marino del reverso viejo ("azul") o el marco rojo del
-    nuevo, con papel adentro ("rojo"). Su orilla de arriba da la inclinación; el ancho se mide en una franja cerca de
-    arriba (las manos tapan la parte de abajo), más el margen claro de cada lado hasta la tinta del contorno: es el
-    ancho de la cara, sin el contorno. Probado con las cartas de las seis bases y con cartas sintéticas del reverso
-    pegadas en las mismas bases: ±2 %."""
+    de un lado). Cada carta sale de su núcleo: el azul marino del reverso viejo ("azul", más su borde blanco) o la cara
+    de papel del nuevo ("rojo", ver _caras_nuevas). Su orilla de arriba da la inclinación y el ancho se mide en una
+    franja cerca de arriba (las manos tapan la parte de abajo): es el ancho de la cara, sin el contorno. Probado con
+    las cartas de las seis bases, con las dos respuestas reales del blob (el contorno, en los mismos píxeles que la
+    base) y con cartas sintéticas del reverso pegadas en las seis bases: ±2 %."""
     a = np.asarray(img.convert("RGB")).astype(np.float32)
     x0, y0, x1, y1 = zona
     z = np.zeros(a.shape[:2], bool)
     z[y0:y1, x0:x1] = True
     papel = _papel(a)
     h, w = papel.shape
-    if diseno == "azul":   # entre el azul y el borde blanco hay una línea oscura: se salta
+    if diseno == "azul":   # entre el azul y el borde blanco hay una línea oscura: se salta, y se suma el borde
         nucleo, salto = _azul(a) & z, 6
-    else:                  # las volutas, juntas en un marco
-        nucleo, salto = ndi.binary_closing(_rojo(a) & z, iterations=1) & z, 3
-    lab, n = ndi.label(nucleo, structure=np.ones((3, 3)))
+    else:                  # el papel ya llega hasta el contorno: nada que sumar
+        nucleo, salto = _caras_nuevas(a, z), 0
+    # las caras nuevas, 4-conexas como salieron (así dos cartas que se tocan en diagonal no se juntan)
+    lab, n = ndi.label(nucleo, structure=np.ones((3, 3)) if diseno == "azul" else None)
     cartas = []
     for i in range(1, n + 1):
         m = lab == i
         if m.sum() < 40:
             continue
         ys, xs = np.where(m)
-        if diseno == "rojo":   # un marco tiene papel adentro; lo rojo sin papel adentro (ropa) no es carta
-            caja = np.zeros_like(m)
-            caja[ys.min():ys.max() + 1, xs.min():xs.max() + 1] = True
-            adentro = caja & ~ndi.binary_dilation(m)
-            if adentro.sum() < 20 or papel[adentro].mean() < 0.35:
-                continue
         # inclinación: la pendiente mediana (Theil-Sen) de la orilla de arriba, en la mitad de en medio
         cols = np.arange(xs.min(), xs.max() + 1)
         tope = np.array([ys[xs == c].min() if (xs == c).any() else np.nan for c in cols])
@@ -890,7 +905,7 @@ def revisar_cartas(base, cand, info, med, parpadeo, ficha):
     # rojo: el chroma key del juego no vuelve transparente el marco (lejos de la orilla del fondo, donde es normal)
     rgba = sin_fondo(cand)[0]
     alfa = np.asarray(rgba)[..., 3]
-    v["rojo_comido"] = int((_rojo(C) & z & ~ndi.binary_dilation(alfa == 0, iterations=2) & (alfa < 250)).sum())
+    v["rojo_comido"] = int((_marco(C) & z & ~ndi.binary_dilation(alfa == 0, iterations=2) & (alfa < 250)).sum())
     if v["rojo_comido"] > ROJO_MAX:
         fallas["rojo"] = f"el chroma key se come {v['rojo_comido']} px del rojo de las cartas"
     # caja: con la espera y el parpadeo nuevos, la caja de recorte del juego es la misma (si cambia, cambian las medidas)
