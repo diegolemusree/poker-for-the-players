@@ -84,32 +84,31 @@ zona = "cara"
 texto = "{sonrisa}"
 
 # ---------- cartas: el reverso de la baraja en las cartas de la mano (comando cartas) ----------
-# UNA llamada edita la espera aprobada con dos imágenes: la base y el reverso aprobado (arte/baraja/reverso-carta.png,
-# el marco sin la etiqueta). Las cartas toman ese reverso y, si hace falta, cambian de tamaño para que en la mesa todos
-# tengan cartas del mismo ancho (CARTA_MESA en generar-personaje.py). Solo se toma la zona de las cartas; si el
-# tamaño cambia mucho, también la de las manos y los antebrazos. {tamano} es una de igual, mas_grandes o mas_chicas.
+# La entrada es un dibujo: la espera aprobada con las cartas viejas tapadas y las nuevas dibujadas por código (el reverso
+# aprobado, arte/baraja/reverso-carta.png, y la franja de la etiqueta vacía) al ancho de la mesa (CARTA_MESA en
+# generar-personaje.py), con los dedos que estaban sobre las viejas encima. Gemini respeta la forma de lo que recibe, así
+# que solo redibuja las manos y los antebrazos alrededor de esas cartas; de su respuesta solo se toma la zona, y de las
+# cartas, lo que no cambió sigue siendo el dibujo. Las letras de la franja las pone el juego.
 [cartas]
 texto = """
-Edit the first attached image. Change only one thing: the two face-down playing cards held in the hands. Their \
-backs now look like the card back in the second attached image: white, with an ornate brick-red scroll frame along \
-the edges and a plain white center, with no text, letters or logo. {tamano}{manos_frase} {agarre} Everything \
-else stays exactly identical, pixel for pixel: {se_queda}, the line work, the colors, the framing, the size, the position \
-and the flat {fondo} background.{opacas} Do not add text, letters, numbers or logos anywhere. Do not move, resize \
-or redraw anything else.
+Edit the attached image. It is a draft: the two face-down playing cards held in the hands are already drawn with \
+their final size, position, angle and design (white backs with an ornate brick-red frame and an empty red band \
+across the middle). Redraw only the hands and the forearms so they hold these two cards naturally: {agarre} The \
+hands keep their design ({manos}) and their size. Clean up any smudged area around the cards so the body behind them \
+looks naturally drawn, in the same style as the rest of the image. Keep the two cards exactly as they are in the \
+draft: the same size, position, angle, frame and empty red band, with no letters on the band. Everything else stays \
+exactly identical, pixel for pixel: {se_queda}, the line work, the colors, the framing, the size, the position and \
+the flat {fondo} background.{opacas} Do not add text, letters, numbers or logos anywhere.
 """
-igual = "The cards keep their size, position and angle."
-mas_grandes = "The cards become about {pct}% larger than now (each card about {px} pixels wide, including its dark outline, in this {lado}-pixel-wide image), in the same position and angle."
-mas_chicas = "The cards become about {pct}% smaller than now (each card about {px} pixels wide, including its dark outline, in this {lado}-pixel-wide image), in the same position and angle."
-# cómo sostienen las cartas, para los seis: por abajo y los lados, para que se vea casi todo el reverso
-agarre = "The hands hold the cards only by their bottom edge and sides, with the fingers covering as little of the card backs as possible, so most of each card back stays visible."
-# solo si el tamaño cambia mucho (la zona incluye las manos y los antebrazos)
-manos_frase = " The hands and forearms adjust so they hold the resized cards naturally; the hands keep their design ({manos}) and their size."
-se_queda = "the face and the expression, the head{rasgos}, the body, the arms, the hands, the legs, the chair"
-se_queda_manos = "the face and the expression, the head{rasgos}, the body, the upper arms, the legs, the chair"
+# cómo sostienen las cartas, para los seis: los dedos van encima, por la orilla de abajo y los lados
+agarre = "the fingers are in front of the cards, gripping them by the bottom edge and the sides, covering as little of the card backs as possible and never covering the red bands."
+se_queda = "the face and the expression, the head{rasgos}, the body, the upper arms, the legs, the chair"
 
-# las frases de las revisiones propias de este comando, para el reintento ({sentido} es "too big" o "too small")
+# las frases de las revisiones propias de este comando, para el reintento
 [cartas.correcciones]
-tamano = "The cards came out {sentido}: each card must be about {px} pixels wide, including its dark outline, in this {lado}-pixel-wide image."
-sin_cartas = "The card backs must clearly be white with the brick-red ornate frame of the second image."
+tamano = "Keep the two cards exactly the size they have in the draft."
+sin_cartas = "Keep the two cards exactly as they are drawn in the draft."
+franja = "Keep the empty red band across the middle of each card fully visible and unchanged: no fingers over it and no letters on it."
+dedos = "The fingers must be in front of the cards, visibly gripping their bottom edge and sides."
 azul = "No part of the old navy blue card backs remains."
-rojo = "Keep the red of the card frames a pure brick red, never pink or purple."
+rojo = "Keep the red of the cards a pure brick red, never pink or purple."

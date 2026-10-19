@@ -517,6 +517,8 @@ def registrar(pid, nombre=None):
         c["angles"][ang] = {"size": size, "waist": previo["waist"], "face": previo["face"], "height": previo["height"],
                             "mira": previo.get("mira", PROVISIONAL[ang]["mira"]), "frames": cuadros,
                             **({"pendiente": previo["pendiente"]} if "pendiente" in previo else {})}
+        # lo que el registro no calcula (como las franjas de las cartas, de generar-personaje.py aprobar-cartas) se queda
+        c["angles"][ang].update({k: v for k, v in previo.items() if k not in c["angles"][ang]})
         faltan = [x for x in COMPLETOS if x not in cuadros]
         print(f"  {pid} {ang}: {size[0]}x{size[1]}, cuadros {', '.join(cuadros)}"
               + (f"  (todavía sin {', '.join(faltan)}: mientras, se usa espera)" if faltan else ""))
