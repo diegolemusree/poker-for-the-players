@@ -281,6 +281,27 @@ def componer(base, gen, zona, sobre=None):
     return Image.fromarray(final), {"d": d, "z": z, "cambio": cambio, "tomado": tomado}
 
 
+
+CARTA_IGUAL = 60   # dentro de las cartas nuevas: diferencia por canal hasta la que Gemini se quedó con la carta del dibujo
+
+
+def componer_cartas(base, entrada, gen, zona, datos):
+    """La combinada de cartas. De la respuesta de Gemini se toma lo que cambió contra la base dentro de la zona, como en
+    componer (las manos redibujadas, el cuerpo donde estaban las cartas viejas y las cartas nuevas), y todo lo demás es
+    la base píxel por píxel; luego, dentro de las cartas nuevas, donde Gemini dejó la carta (no puso un dedo encima) va
+    la carta exacta del dibujo. (Componer contra el dibujo dejaba parches del relleno: donde Gemini pintó el cuerpo
+    limpio con un color parecido al del relleno, no pasaba del umbral.)"""
+    cand, mz = componer(base, gen, zona)
+    E, G, C = (np.asarray(i).astype(np.float32) for i in (entrada, gen, cand))
+    en_cartas = np.zeros(E.shape[:2], bool)
+    for n in datos["nuevas"]:   # cada carta con su contorno
+        en_cartas |= _mascara_poligono(poligono_carta({**n, "u0": n["u0"] - CONTORNO, "v0": n["v0"] - CONTORNO,
+                                                       "W": n["W"] + 2 * CONTORNO, "H": n["H"] + 2 * CONTORNO}), base.size)
+    carta = en_cartas & (np.abs(G - E).max(axis=2) <= CARTA_IGUAL)
+    M = np.asarray(Image.fromarray(carta.astype(np.uint8) * 255).filter(ImageFilter.GaussianBlur(0.7))).astype(np.float32)
+    M = (M / 255 * en_cartas)[..., None]
+    return Image.fromarray((C * (1 - M) + E * M).round().astype(np.uint8)), mz
+
 # ---------- revisiones ----------
 
 def sin_fondo(img):
@@ -1375,8 +1396,8 @@ def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, ent
         if gen is None:
             fallas, v = {"sin_imagen": f"no regresó imagen ({error or r.status})"}, {}
         else:
-            cand, mz = componer(entrada, gen, zona)   # contra el dibujo: lo que Gemini no cambió sigue siendo el dibujo
-            fallas, v = revisar(entrada, gen, cand, "cartas", zona, mz, med, cache)
+            cand, mz = componer_cartas(base, entrada, gen, zona, datos)
+            fallas, v = revisar(base, gen, cand, "cartas", zona, mz, med, cache)
             f2, v2 = revisar_cartas(base, cand, info, med, parpadeo, ficha, datos)
             fallas.update(f2)
             v.update(v2)
@@ -1400,27 +1421,78 @@ def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, ent
         correcciones = correcciones_cartas(P, fallas)
     if fallas:   # se acabaron las llamadas
         if cand is not None:
-            cand.save(f"{prefijo}-FALLA.png")
-            hoja_comparacion(base, crudos, cand, [zona], f"{prefijo}-FALLA-comparacion.jpg")
-            detalle_cartas(cand, info, f"{prefijo}-FALLA-detalle.png", pid)
-            gif_antes_ahora(pid, base, cand, med, f"{prefijo}-FALLA.gif")
+            guardar_cartas(pid, prefijo, n, base, crudos, cand, info, med, parpadeo, falla=True)
         print(f"  {os.path.basename(prefijo)}: no pasó las revisiones en {MAX_LLAMADAS} llamadas. "
               + (f"Lo último quedó en {rel(prefijo)}-FALLA.png (y su -comparacion, -detalle y GIF). " if cand is not None else "")
               + f"Costo: ${gastado:.4f} USD.")
         return
-    cand.save(f"{prefijo}.png")
-    hoja_comparacion(base, crudos, cand, [zona], f"{prefijo}-comparacion.jpg")
-    detalle_cartas(cand, info, f"{prefijo}-detalle.png", pid)
-    gif_antes_ahora(pid, base, cand, med, f"{prefijo}.gif")
-    print(f"  Listo, por revisar: {rel(prefijo)}.png\n    antes y ahora, como en el juego: {rel(prefijo)}.gif\n"
-          f"    las cartas de cerca (medida y sin fondo): {rel(prefijo)}-detalle.png\n"
-          f"    comparación (base, dibujo, Gemini, final): {rel(prefijo)}-comparacion.jpg")
+    guardar_cartas(pid, prefijo, n, base, crudos, cand, info, med, parpadeo)
+    print(f"    costo: ${gastado:.4f} USD")
+
+
+def guardar_cartas(pid, prefijo, n, base, crudos, cand, info, med, parpadeo, falla=False):
+    """Lo que se deja para revisar: el cuadro (o -FALLA), la hoja de comparación contra la base, las cartas de cerca,
+    el GIF antes/ahora y, si pasó, el parpadeo con los ojos cerrados de antes y su GIF."""
+    p = f"{prefijo}-FALLA" if falla else prefijo
+    cand.save(f"{p}.png")
+    hoja_comparacion(base, crudos, cand, [info["zona"]], f"{p}-comparacion.jpg")
+    detalle_cartas(cand, info, f"{p}-detalle.png", pid)
+    gif_antes_ahora(pid, base, cand, med, f"{p}.gif")
+    if falla:
+        return
+    print(f"  Listo, por revisar: {rel(p)}.png\n    antes y ahora, como en el juego: {rel(p)}.gif\n"
+          f"    las cartas de cerca (medida y sin fondo): {rel(p)}-detalle.png\n"
+          f"    comparación (base, dibujo, Gemini, final): {rel(p)}-comparacion.jpg")
     if parpadeo is not None:
         nombre_p = os.path.join(carpeta(pid), con_version(f"{pid}-frente-parpadeo-cartas", n))
         pegar_ojos(base, parpadeo, cand).save(f"{nombre_p}.png")
         gif_revision(pid, "frente", cand, Image.open(f"{nombre_p}.png").convert("RGB"), "parpadeo", med, f"{nombre_p}.gif")
         print(f"    parpadeo (los ojos cerrados de antes, sin gastar): {rel(nombre_p)}.png y su GIF {rel(nombre_p)}.gif")
-    print(f"    costo: ${gastado:.4f} USD")
+
+
+def cmd_recomponer_cartas(args):
+    """Vuelve a armar el cuadro de una versión con las respuestas de Gemini ya pagadas (sus -crudoN.png), sin llamar a
+    la API: la combinada y las revisiones de hoy. Si una pasa, deja esa versión como si hubiera salido así (para
+    aprobar-cartas); si no, rehace sus -FALLA."""
+    pid = args.personaje
+    ficha = cargar_ficha(pid)
+    base, K, med, info, parpadeo = preparar_cartas(pid, ficha)
+    entrada, datos = entrada_dibujada(base, ficha, info)
+    prefijo = os.path.join(carpeta(pid), con_version(f"{pid}-frente-espera-cartas", args.version))
+    if not os.path.exists(f"{prefijo}-entrada.png"):
+        sys.exit(f"No encuentro {rel(prefijo)}-entrada.png: esa versión no es del método de cartas dibujadas.")
+    if (np.asarray(Image.open(f"{prefijo}-entrada.png").convert("RGB")) != np.asarray(entrada)).any():
+        sys.exit("El dibujo de hoy no es el que se mandó en esa versión: no se puede recomponer con él.")
+    lienzo, dentro = a_cuadrado(entrada, K)
+    crudos, pasa, ultima = [("dibujo enviado", entrada)], None, None
+    patron = re.compile(re.escape(os.path.basename(prefijo)) + r"-crudo(\d+)\.png")
+    for k in sorted(int(m.group(1)) for f in os.listdir(carpeta(pid)) if (m := patron.fullmatch(f))):
+        gen = Image.open(f"{prefijo}-crudo{k}.png").convert("RGB")
+        if gen.size != lienzo.size:
+            gen = gen.resize(lienzo.size, Image.LANCZOS)
+        gen = gen.crop(dentro)
+        crudos.append((f"Gemini, llamada {k}", gen))
+        cand, mz = componer_cartas(base, entrada, gen, info["zona"], datos)
+        fallas, v = revisar(base, gen, cand, "cartas", info["zona"], mz, med, {})
+        f2, v2 = revisar_cartas(base, cand, info, med, parpadeo, ficha, datos)
+        fallas.update(f2)
+        v.update(v2)
+        print(f"  llamada {k}: " + ("revisiones: todas bien  " + ", ".join(
+            f"{a} {x:.3g}" if isinstance(x, float) else f"{a} {x}" for a, x in v.items() if a != "caja")
+            if not fallas else "FALLA: " + "; ".join(fallas.values())), flush=True)
+        if not fallas and (pasa is None or args.llamada == k):
+            pasa = (k, cand)
+        ultima = cand
+    if ultima is None:
+        sys.exit(f"No hay respuestas guardadas ({os.path.basename(prefijo)}-crudoN.png).")
+    if args.llamada and (pasa is None or pasa[0] != args.llamada):
+        sys.exit(f"La llamada {args.llamada} no pasa las revisiones.")
+    if pasa is None:
+        guardar_cartas(pid, prefijo, args.version, base, crudos, ultima, info, med, parpadeo, falla=True)
+        print(f"  Ninguna pasa: rehice {rel(prefijo)}-FALLA.png y sus hojas.")
+        return
+    print(f"  Uso la llamada {pasa[0]}.")
+    guardar_cartas(pid, prefijo, args.version, base, crudos, pasa[1], info, med, parpadeo)
 
 
 def cmd_aprobar_cartas(args):
@@ -1481,11 +1553,16 @@ def main():
     c.add_argument("--si", action="store_true", help="no pedir confirmación")
     c.add_argument("--modelo", help="otro modelo en vez del de prompts-personaje.toml")
     c.add_argument("--tamano", choices=["1K", "2K", "4K"], help="otro tamaño en vez del de prompts-personaje.toml")
+    rc = sub.add_parser("recomponer-cartas", help="rearma una versión con sus respuestas ya pagadas, sin llamar a la API")
+    rc.add_argument("personaje")
+    rc.add_argument("--version", type=int, required=True, help="la versión de <id>-frente-espera-cartas, por ejemplo 2")
+    rc.add_argument("--llamada", type=int, help="usar la respuesta de esta llamada (sin esto, la primera que pase)")
     ac = sub.add_parser("aprobar-cartas", help="pasa la espera con el reverso nuevo y su parpadeo a arte/personajes/")
     ac.add_argument("personaje")
     ac.add_argument("--version", type=int, help="otra versión en vez de la más reciente, por ejemplo 2")
     args = ap.parse_args()
-    {"generar": cmd_generar, "aprobar": cmd_aprobar, "cartas": cmd_cartas, "aprobar-cartas": cmd_aprobar_cartas}[args.comando](args)
+    {"generar": cmd_generar, "aprobar": cmd_aprobar, "cartas": cmd_cartas, "recomponer-cartas": cmd_recomponer_cartas,
+     "aprobar-cartas": cmd_aprobar_cartas}[args.comando](args)
 
 
 if __name__ == "__main__":
