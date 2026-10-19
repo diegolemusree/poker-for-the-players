@@ -5,6 +5,7 @@ USO (desde la carpeta poker-for-the-players/, con el entorno de recortar.py)
     .venv-rembg/bin/python scripts/optimizar-arte.py                     # fondos y todos los personajes
     .venv-rembg/bin/python scripts/optimizar-arte.py fondos
     .venv-rembg/bin/python scripts/optimizar-arte.py mesa                # la mesa ilustrada (después de calcar-mesa.py)
+    .venv-rembg/bin/python scripts/optimizar-arte.py baraja              # el arte de la baraja (de generar-baraja.py)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien    # uno o varios (o todos sin nombre, menos los retirados)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien --angulo lado
     .venv-rembg/bin/python scripts/optimizar-arte.py gif alien           # GIF de revisión por ángulo
@@ -22,6 +23,11 @@ QUÉ HACE
   porque el frente se sale) y client/stage/mesa.json: los tamaños, la proyección del dibujo en px del grande (F, cx,
   cy), la cámara con que se calcó y su silueta (ahí se recorta a los rivales). El juego la pone a la escala
   view.F / F con (cx, cy) como ancla.
+
+- baraja: el arte aprobado de arte/baraja/ (scripts/generar-baraja.py) -> public/assets/arte/carta-reverso.webp (el
+  marco del reverso), carta-<rey|reina|jota>-<palo>.webp (la mitad de cada figura con la túnica de su palo) y
+  carta-adorno-flor.webp y carta-adorno-banda.webp (las volutas del reverso para el marco de las figuras), y
+  client/stage/baraja.json con la zona libre de adentro del marco (ahí pone el código la etiqueta del logo).
 
 - personajes: arte/personajes/<id>/<id>-<ángulo>-<cuadro>.png -> public/assets/arte/<id>-<ángulo>-<cuadro>.webp
   (grande) y <id>-<ángulo>-<cuadro>-chico.webp (mitad, para calidad baja). Ángulos: frente y lado.
@@ -164,6 +170,44 @@ def mesa():
         json.dump(datos, f, separators=(",", ":"))
         f.write("\n")
     print(f"  {rel(MESA_JSON)}: F {datos['F']}, cx {datos['cx']}, cy {datos['cy']}, cámara {datos['camara']}")
+
+
+# ---------- baraja ----------
+
+BARAJA = os.path.join(SRC, "baraja")
+BARAJA_JSON = os.path.join(ROOT, "client", "stage", "baraja.json")
+FIGURAS_BARAJA = {"K": "rey", "Q": "reina", "J": "jota"}
+PANEL_FIGURA = (256, 324)   # la mitad de cada figura, al doble de su panel en client/stage/cards.js (128 × 162)
+
+
+def baraja():
+    """El arte aprobado de la baraja (arte/baraja/, de scripts/generar-baraja.py) -> public/assets/arte/carta-*.webp y
+    client/stage/baraja.json: los nombres de las figuras y la zona libre de adentro del marco del reverso (donde el
+    código pone la etiqueta del logo sin tocar el marco)."""
+    falta = []
+
+    def exportar(src, nombre, tam=None):
+        path = os.path.join(BARAJA, src)
+        if not os.path.exists(path):
+            falta.append(src)
+            return
+        img = Image.open(path)
+        img = img.convert("RGBA" if "A" in img.mode else "RGB")
+        guardar(escalar(img, *tam) if tam else img, os.path.join(OUT, f"carta-{nombre}.webp"), Q_PERSONAJE)
+
+    exportar("reverso-carta.png", "reverso")
+    for fig in FIGURAS_BARAJA.values():
+        for palo in "hdcs":
+            exportar(f"{fig}-carta-{palo}.png", f"{fig}-{palo}", PANEL_FIGURA)
+    exportar("adorno-flor.png", "adorno-flor")
+    exportar("adorno-banda.png", "adorno-banda")
+    libre = json.load(open(os.path.join(BARAJA, "reverso-carta.json")))["libre"]
+    with open(BARAJA_JSON, "w") as f:
+        json.dump({"figuras": FIGURAS_BARAJA, "libre": libre}, f, separators=(",", ":"))
+        f.write("\n")
+    print(f"  {rel(BARAJA_JSON)}: zona libre de {libre['columnas']}×{libre['filas']} celdas")
+    if falta:
+        print(f"  OJO, faltan en {rel(BARAJA)}/: {', '.join(falta)} (esas cartas se dibujan solo con código)")
 
 
 # ---------- chroma key ----------
@@ -494,6 +538,7 @@ def main():
     sub = ap.add_subparsers(dest="comando")
     sub.add_parser("fondos", help="fondos del cuarto")
     sub.add_parser("mesa", help="la mesa ilustrada (después de scripts/calcar-mesa.py)")
+    sub.add_parser("baraja", help="el arte aprobado de la baraja (arte/baraja/) y client/stage/baraja.json")
     p = sub.add_parser("personajes", help="quita el fondo verde o magenta, recorta, reduce y exporta en WebP")
     p.add_argument("ids", nargs="*", help="personajes a procesar (todos si no se pone ninguno)")
     p.add_argument("--angulo", choices=ANGULOS)
@@ -510,6 +555,8 @@ def main():
         fondos()
     if args.comando == "mesa":
         mesa()
+    if args.comando == "baraja":
+        baraja()
     if args.comando in (None, "personajes"):
         personajes(getattr(args, "ids", None) or None, getattr(args, "angulo", None))
     if args.comando == "gif":

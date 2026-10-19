@@ -1,9 +1,8 @@
 # Prompts para scripts/generar-baraja.py (la baraja nueva).
 #
 # Reglas de todas las piezas:
-#   - Gemini nunca dibuja letras, números ni palos: los índices, los palos, la etiqueta del reverso con su texto, la
-#     mitad de abajo de las figuras (la de arriba girada 180°) y el recorte en forma de pica los pone el código
-#     (client/stage/baraja.js).
+#   - Gemini nunca dibuja letras, números ni palos: los índices, los palos, la etiqueta del logo con su texto y la mitad
+#     de abajo de las figuras (la de arriba girada 180°) los pone el código (client/stage/cards.js).
 #   - Ningún nombre de marca ni de serie en los prompts.
 #   - Como referencia de estilo, solo el recorte del garaje (nunca el arte de los rivales).
 #
@@ -27,8 +26,14 @@ texto = """
 The attached picture is the king of the same deck: use it only as the reference for the drawing style, the line work, the colors and the level of ornament. Do not copy his face, his crown or his scepter.
 """
 
+[referencias.corte]
+archivos = ["rey", "reina"]
+texto = """
+The two attached pictures are the king and the queen of the same deck: use them only as the reference for the drawing style, the line work, the colors and the level of ornament. Do not copy their faces, their crowns, their bodies or their clothes.
+"""
+
 # El reverso es solo el marco: el centro va en blanco. La etiqueta en diagonal con "Poker for the Players" la dibuja
-# el código (ETIQUETA en client/stage/baraja.js). El reverso aprobado salió de una versión anterior de este prompt
+# el código (ETIQUETA en client/stage/cards.js). El reverso aprobado salió de una versión anterior de este prompt
 # (con dibujitos y etiqueta), limpiada por código con `limpiar`.
 [piezas.reverso]
 aspecto = "2:3"
@@ -95,6 +100,23 @@ Clothes: like the king's robe, her gown is almost completely covered with bold c
 Plain flat white background and nothing else in the image: no frame, no border, no floor, no shadow.
 
 Never draw letters, numbers, monograms or logos, no heart, spade or club shapes anywhere, and no groups of three dots.
+"""
+
+# La mitad de arriba de la jota, ya ornamentada como el rey y la reina aprobados (que se mandan de referencia de
+# estilo), con su propio cuerpo y ropa.
+[piezas.jota]
+aspecto = "4:5"
+referencias = ["corte"]
+texto = """
+Create a new illustration: the upper half of an original jack, a young page of the court, for the same classic deck of playing cards as the attached king and queen, drawn in exactly the same style: a 2D adult animated TV series caricature with the same thin, uniform dark brown-black outline, the same flat colors and the same level of ornament. Show only the top half of the figure, from the top of his feathered cap down to the waist: the waist is cut straight by the bottom edge of the image, across the whole width of his body (on the card this half is repeated upside down below it). Front view, perfectly frontal and stiff, solemn and symmetric like the figures on antique playing cards. One hand holds a halberd (a tall pole with a simple axe blade and a spike) diagonally across his body; the other hand rests flat on his chest.
+
+Character: an original jack, not based on any existing character and not a copy of the king or the queen. Young and skinny, with a long thin face, a long neck and narrow shoulders, a soft cap with a big curling feather, heavy eyelids and a bored expression, as if he can't wait to leave; exaggerated cartoon features. Give him his own body and clothes, different from the king's and the queen's: a slim doublet with puffed shoulders and a high collar, with its own sleeves and cuffs.
+
+Clothes: like theirs, his doublet is almost completely covered with bold classic patterns: embroidered motifs, stripes, rows of rhombuses and decorated bands, drawn in mustard yellow (#C99A35) and cream (#EFE4C8) with the dark outline over brick red (#A8352A), which stays the main color showing between the patterns. His skin is pale peach, not red. Use only these colors and the dark outline. Bold, chunky shapes with strong contrast and thick lines, never hairline lines, so the patterns still read when the card is printed very small.
+
+Plain flat white background and nothing else in the image: no frame, no border, no floor, no shadow.
+
+Never draw letters, numbers, monograms or logos, no heart, spade or club shapes anywhere (the halberd's blade is a plain axe, not a spade or a heart), and no groups of three dots.
 """
 
 # Ediciones de una figura ya aprobada, sobre su imagen cruda (comando `editar`): la misma figura, más ornamentada, como

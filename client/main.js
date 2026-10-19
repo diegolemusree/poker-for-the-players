@@ -6,10 +6,8 @@ import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel, winningCards } from './ui/hand.js';
 import { isPhone, phoneQuery } from './ui/phone.js';
 import { SUIT_PATH } from './ui/suits.js';
-import { PALOS, BARAJA_NUEVA } from './ui/palos.js';
 
 const MAXP = 7;
-const GLYPH = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const SUIT_NAME = { s: 'picas', h: 'corazones', d: 'diamantes', c: 'tréboles' };
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const DIF = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
@@ -124,31 +122,35 @@ async function joinRoom(code, silent) {
 }
 
 /* ---------- cartas ---------- */
+// Las mismas de la mesa: palos clásicos en dos colores (ui/suits.js) sobre papel blanco cálido; aquí en HTML y SVG.
 const cardName = c => `${c[0] === 'T' ? '10' : c[0]} de ${SUIT_NAME[c[1]]}`;
-// o.mark: 'win' (de la mano ganadora) o 'dim' (apagada) al final de la mano
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function suitSvg(suit, cls) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 100 100');
+  svg.setAttribute('aria-hidden', 'true');
+  if (cls) svg.setAttribute('class', cls);
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', SUIT_PATH[suit]);
+  svg.append(path);
+  return svg;
+}
+// Vista 2D. o.mark: 'win' (de la mano ganadora) o 'dim' (apagada) al final de la mano; o.back: boca abajo.
 function cardEl(c, o = {}) {
   if (!c) return h('div', { class: 'card ' + (o.back ? 'back' : 'slot') });
   const rank = c[0] === 'T' ? '10' : c[0];
   return h('div', { class: 'card' + ('hd'.includes(c[1]) ? ' red' : '') + (o.fresh ? ' deal' : '') + (o.mark ? ' ' + o.mark : ''), role: 'img', 'aria-label': `${rank} de ${SUIT_NAME[c[1]]}` },
-    h('span', { class: 'r' }, rank), h('span', { class: 's' }, GLYPH[c[1]]));
+    h('span', { class: 'r' }, rank), suitSvg(c[1], 's'));
 }
 // Al final de la mano: 'win' para las 5 cartas de la mano ganadora, 'dim' para todas las demás.
 function resultMarks(v) {
   const win = winningCards(v.phase === 'showdown' ? v.results : null);
   return c => (c && win.size ? (win.has(c) ? 'win' : 'dim') : null);
 }
-// Carta chiquita para el panel del resultado: número y palo dibujado a mano (los mismos de la mesa).
-const SVG_NS = 'http://www.w3.org/2000/svg';
+// Carta chiquita para el panel del resultado: número y palo (los mismos de la mesa).
 function miniCard(c, cls) {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 100 100');
-  svg.setAttribute('aria-hidden', 'true');
-  const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('d', BARAJA_NUEVA ? PALOS[c[1]] : SUIT_PATH[c[1]]);
-  svg.append(path);
-  const color = BARAJA_NUEVA ? ` p p-${c[1]}` : 'hd'.includes(c[1]) ? ' red' : '';   // la nueva: cuatro colores
-  return h('span', { class: 'mini' + color + (cls ? ' ' + cls : ''), role: 'img', 'aria-label': cardName(c) },
-    h('b', {}, c[0] === 'T' ? '10' : c[0]), svg);
+  return h('span', { class: 'mini' + ('hd'.includes(c[1]) ? ' red' : '') + (cls ? ' ' + cls : ''), role: 'img', 'aria-label': cardName(c) },
+    h('b', {}, c[0] === 'T' ? '10' : c[0]), suitSvg(c[1]));
 }
 
 /* ---------- pantallas ---------- */

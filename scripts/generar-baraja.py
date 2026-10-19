@@ -1,9 +1,9 @@
 """Genera con Gemini el arte de la baraja nueva: una imagen por corrida, con revisiones automáticas y tope de llamadas.
 
-Gemini nunca dibuja letras, números ni palos. Los índices, los palos, la etiqueta del reverso con su texto, la mitad de
-abajo de las figuras (la de arriba girada 180°) y el recorte en forma de pica del as los pone el código
-(client/stage/baraja.js). Piezas: el reverso (solo el marco) y el rey; la reina, la jota y el as de picas se agregan
-cuando toque, cada uno con sus revisiones.
+Gemini nunca dibuja letras, números ni palos. Los índices, los palos, la etiqueta del logo con su texto y la mitad de
+abajo de las figuras (la de arriba girada 180°) los pone el código
+(client/stage/cards.js). Piezas: el reverso (solo el marco) y las figuras (el rey, la reina y la jota). Los ases son
+de código (el palo grande y la etiqueta del logo abajo).
 
 USO (desde poker-for-the-players/, con el entorno de recortar.py)
     .venv-rembg/bin/python scripts/generar-baraja.py probar                  # las revisiones contra imágenes de prueba
@@ -23,7 +23,7 @@ cuenten o no (también las que se pasan de tiempo).
 REVISIONES DEL REVERSO (solo el marco; el centro va en blanco)
     marco      la orilla de afuera es blanca (sin sombra ni fondo) y el marco rojo corre por los cuatro lados
     centro     adentro del marco no hay nada: ni dibujos ni etiqueta
-    palos      ninguna forma de corazón, diamante, pica o trébol (se compara con las formas de client/ui/palos.js)
+    palos      ninguna forma de corazón, diamante, pica o trébol (se compara con las formas de client/ui/suits.js)
     texto      el OCR de macOS no lee letras ni números (con 3 reintentos por vista: falla en rachas)
     colores    sin neón ni rosa, morado o verde limón brillantes, y el marco en rojo ladrillo profundo
     plano      el blanco es liso: sin textura, sombreado ni viñeta
@@ -52,7 +52,7 @@ _spec = importlib.util.spec_from_file_location("generar_personaje", os.path.join
 GP = importlib.util.module_from_spec(_spec)   # el cliente de Gemini, los costos, el OCR y el total gastado
 _spec.loader.exec_module(GP)
 PROMPTS = os.path.join(ROOT, "scripts", "prompts-baraja.toml")
-PALOS_JS = os.path.join(ROOT, "client", "ui", "palos.js")
+PALOS_JS = os.path.join(ROOT, "client", "ui", "suits.js")
 FONDO = os.path.join(ROOT, "arte", "fondo-garaje.png")
 PID = "baraja"
 DIR = GP.carpeta(PID)                                   # arte/generadas/baraja
@@ -61,7 +61,7 @@ FIGURAS = ["rey", "reina", "jota"]
 PIEZAS = ["reverso"] + FIGURAS
 MAX_LLAMADAS = 2       # por imagen, cuenten o no
 
-# La carta del juego: CARD_PX de client/stage/baraja.js al doble, y su papel (PAPEL de baraja.js).
+# La carta del juego: CARD_PX de client/stage/cards.js al doble, y su papel (PAPEL de cards.js).
 CARTA = (512, 736)
 PAPEL = (248, 242, 228)
 MARGEN_CARTA = 0.05    # de la orilla de la carta al marco dibujado, en fracción del ancho de la carta
@@ -92,7 +92,8 @@ VINETA_MAX = 0.035       # diferencia de brillo entre el blanco de las esquinas 
 FIG_ORILLA_BLANCA = 0.40 # figuras: de arriba y los lados (sus 3/4 de arriba), cuánto debe ser fondo blanco (menos es
                          # un fondo de color o un marco; lo demás puede ser la corona o la ropa que llega a la orilla)
 FIG_AIRE = 0.02          # las filas de hasta arriba que deben ser fondo (la corona completa, con aire)
-FIG_CORTE = 0.45         # en la fila de hasta abajo, qué fracción del ancho debe ser figura (cortada en la cintura)
+FIG_CORTE = 0.35         # en la fila del corte, qué fracción del ancho debe ser figura (cortada en la cintura; el rey y la
+                         # reina llenan 0.80, una figura flaca como la jota menos)
 FIG_CENTRO = 0.06        # qué tanto puede estar corrida la figura (fracción del ancho)
 FIG_UNO = 0.95           # el pedazo más grande de la figura, de todo lo que no es fondo
 TUNICA = (168, 53, 42)   # el rojo ladrillo de la ropa en la base (#A8352A; el código lo cambia por palo)
@@ -135,9 +136,9 @@ def llamadas_de(pieza):
 # ---------- formas de los palos ----------
 
 def palos_js():
-    """Las formas de client/ui/palos.js (el mismo archivo que usa el juego), leídas con Node."""
+    """Las formas de los palos de client/ui/suits.js (el mismo archivo que usa el juego), leídas con Node."""
     r = subprocess.run(["node", "--input-type=module", "-e",
-                        f"import({json.dumps('file://' + PALOS_JS)}).then(m => console.log(JSON.stringify(m.PALOS)))"],
+                        f"import({json.dumps('file://' + PALOS_JS)}).then(m => console.log(JSON.stringify(m.SUIT_PATH)))"],
                        capture_output=True, text=True, check=True)
     return json.loads(r.stdout)
 
@@ -1010,16 +1011,20 @@ for _f in ("reina", "jota"):
     CLAVES[_f] = CLAVES[_f] + ["adornos"]
 
 
+
 def entradas_de(P, pieza):
     imgs, rutas = [], []
     for r in P["piezas"][pieza].get("referencias", []):
         if r == "garaje":
             img, ruta = referencia_garaje()
-        else:   # una figura aprobada (el rey), como referencia de estilo
-            ruta = os.path.join(APROBADAS, f"{r}.png")
-            img = Image.open(ruta).convert("RGB")
-        imgs.append(img)
-        rutas.append(ruta)
+            imgs.append(img)
+            rutas.append(ruta)
+            continue
+        # figuras aprobadas como referencia de estilo: las de `archivos` (el rey y la reina), o la del mismo nombre
+        for nombre in P["referencias"].get(r, {}).get("archivos", [r]):
+            ruta = os.path.join(APROBADAS, f"{nombre}.png")
+            imgs.append(Image.open(ruta).convert("RGB"))
+            rutas.append(ruta)
     return imgs, rutas
 
 
@@ -1141,7 +1146,7 @@ def hacer_limpio(img, nombre):
     return limpio
 
 
-FIG_PANEL = (384, 486)   # el panel de media figura en la carta, a 3× (128 × 162 px de CARD_PX en baraja.js)
+FIG_PANEL = (384, 486)   # el panel de media figura en la carta, a 3× (128 × 162 px de CARD_PX en cards.js)
 # La túnica por palo (corazones queda en el rojo ladrillo de la base): diamantes marino, tréboles oliva, picas gris
 # pizarra oscuro (en tinta se perderían las líneas).
 COLOR_TUNICA = {"d": (52, 80, 127), "c": (111, 122, 60), "s": (70, 80, 90)}
@@ -1239,7 +1244,8 @@ def cmd_carta(args):
 
 def cmd_revisar(args):
     img = Image.open(args.imagen).convert("RGB")
-    pieza = args.pieza or os.path.basename(args.imagen).split("-")[0]
+    base = os.path.basename(args.imagen)
+    pieza = args.pieza or next(p for p in sorted(PIEZAS, key=len, reverse=True) if base.startswith(p + "-"))
     fallas, v, extra = REVISAR[pieza](img)
     print(json.dumps({"revisiones": fallas, "medidas": v}, ensure_ascii=False, indent=2, default=str))
     m = re.match(rf"^({re.escape(pieza)}-\d+)-crudo\.png$", os.path.basename(args.imagen))

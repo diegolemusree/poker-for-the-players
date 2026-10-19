@@ -98,11 +98,14 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .chips .disc{display:block;width:14px;height:5px;border-radius:50%;border:1.5px solid;margin-top:-1px;box-shadow:0 1px 0 rgba(0,0,0,.5)}
 .chips.big .disc{width:20px;height:7px}
 .startchips{line-height:2}
-.card{width:var(--cw,34px);aspect-ratio:5/7;border-radius:calc(var(--cw,34px)*.13);background:var(--ivory);color:var(--black);box-shadow:0 1px 0 rgba(0,0,0,.25),0 4px 10px rgba(0,0,0,.35);position:relative;font-family:var(--serif);flex:none}
+.card{width:var(--cw,34px);aspect-ratio:5/7;border-radius:calc(var(--cw,34px)*.13);background:#f8f2e4;color:#231c17;box-shadow:0 1px 0 rgba(0,0,0,.25),0 4px 10px rgba(0,0,0,.35);position:relative;font-family:var(--serif);flex:none}
 .card .r{position:absolute;top:5%;left:9%;font-weight:900;font-size:calc(var(--cw,34px)*.4);line-height:1;letter-spacing:-.04em}
-.card .s{position:absolute;bottom:4%;right:9%;font-size:calc(var(--cw,34px)*.48);line-height:1}
+.card .s{position:absolute;bottom:6%;right:8%;width:calc(var(--cw,34px)*.42);height:calc(var(--cw,34px)*.42)}
+.card .s path{fill:currentColor}
 .card.red{color:var(--red)}
-.card.back{background:repeating-linear-gradient(45deg,#4b2a8a 0 4px,#6b3fc0 4px 8px);border:2px solid var(--ivory)}
+/* boca abajo: el reverso de la baraja (papel, marco rojo y la franja roja de la etiqueta), en CSS */
+.card.back{box-shadow:inset 0 0 0 calc(var(--cw,34px)*.07) #f8f2e4,inset 0 0 0 calc(var(--cw,34px)*.12) #9f3626,0 1px 0 rgba(0,0,0,.25),0 4px 10px rgba(0,0,0,.35)}
+.card.back::after{content:"";position:absolute;left:20%;right:20%;top:44%;height:12%;background:#9f3626}
 .card.slot{background:rgba(255,255,255,.05);box-shadow:none;border:1.5px dashed rgba(255,255,255,.22)}
 .card.deal{animation:deal .28s ease-out}
 @keyframes deal{from{transform:translateY(-10px) scale(.92);opacity:0}to{transform:none;opacity:1}}
@@ -299,17 +302,13 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .res-next .btn{flex:0 0 auto;min-width:128px}
 .res-next .btn.ready{background:transparent;box-shadow:none;border-style:dashed;opacity:1;cursor:default}
 .res-rebuy{flex-wrap:nowrap}
-/* carta chiquita del panel: número y palo dibujado a mano (los mismos de la mesa) */
+/* carta chiquita del panel: número y palo (los mismos de la mesa, en dos colores) */
 .mini{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:33px;height:46px;flex:none;
-  background:#fbf6e6;color:#2b2622;border:2px solid var(--ink);border-radius:7px;box-shadow:1px 2px 0 rgba(29,22,17,.4);line-height:1}
+  background:#f8f2e4;color:#231c17;border:2px solid var(--ink);border-radius:7px;box-shadow:1px 2px 0 rgba(29,22,17,.4);line-height:1}
 .mini b{font-family:var(--display);font-weight:400;font-size:20px;letter-spacing:-.02em}
 .mini svg{width:16px;height:16px;overflow:visible}
-.mini path{fill:currentColor;stroke:var(--ink);stroke-width:9;stroke-linejoin:round;paint-order:stroke}
+.mini path{fill:currentColor}
 .mini.red{color:#a8352a}
-/* baraja nueva (en revisión, ?baraja=nueva): palos clásicos sin contorno, en dos colores (los de ui/palos.js) */
-.mini.p{background:#f8f2e4}
-.mini.p path{stroke:none}
-.mini.p-s,.mini.p-c{color:#231c17}.mini.p-h,.mini.p-d{color:#a8352a}
 .mini.off{opacity:.45}
 /* vista 2D: las cartas de la mano ganadora se resaltan y las demás se apagan */
 .card.win{outline:3px solid var(--mustard2);outline-offset:1px}

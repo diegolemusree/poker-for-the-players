@@ -15,7 +15,7 @@ import { makeView, fit, headTop, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_
 import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
 import { drawTable, INK } from './table.js';
 import { drawItems, cardCorners, stackFootprint, CARD_W, CARD_H, CHIP_R, CHIP_H } from './items.js';
-import { cardImage, roundRect, CARD_PX } from './cards.js';
+import { cardImage, roundRect, CARD_PX, cargarArte } from './cards.js';
 import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
 import { isPhone } from '../ui/phone.js';
 import { winningCards } from '../ui/hand.js';
@@ -62,11 +62,11 @@ const qualityOf = m => (m === 'auto' ? autoQuality() : m);
 // Resolución de los canvas según la calidad (y con ella, qué tamaño del fondo y de la mesa se usa).
 const dprFor = q => Math.min(window.devicePixelRatio || 1, q === 'alta' ? 2 : q === 'media' ? 1.5 : 1);
 
-// Se llama antes de crear la escena: carga y decodifica el fondo, la mesa y todas las poses (los mismos tamaños que
-// usará la escena).
+// Se llama antes de crear la escena: carga y decodifica el fondo, la mesa, todas las poses (los mismos tamaños que
+// usará la escena) y el arte de la baraja (cada imagen de la baraja es opcional: si una falta, esa carta va de código).
 export function preload() {
   const q = qualityOf(readMode());
-  return preloadArt({ small: q === 'baja', dpr: q === 'baja' ? 1 : dprFor(q) });
+  return Promise.all([preloadArt({ small: q === 'baja', dpr: q === 'baja' ? 1 : dprFor(q) }), cargarArte()]);
 }
 
 function el(tag, cls) { const e = document.createElement(tag); e.className = cls; if (tag === 'canvas') e.setAttribute('aria-hidden', 'true'); return e; }

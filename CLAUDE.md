@@ -56,7 +56,7 @@ poker-for-the-players/
   client/
     index.html
     main.js         # arranque, conexión con Socket.IO
-    hoja-baraja.html # hoja de revisión de la baraja nueva (solo en desarrollo, /hoja-baraja.html; lee el arte de arte/)
+    hoja-baraja.html # hoja de revisión de la baraja a los tamaños del juego (solo en desarrollo, /hoja-baraja.html)
     stage/          # mesa ilustrada por capas (ver "Estilo visual")
       index.js        # arma las capas, acomoda la vista del servidor, etiquetas y ciclo de animación
       config.js       # orilla de la mesa (lista de puntos), cámaras y acomodo de los rivales
@@ -64,12 +64,12 @@ poker-for-the-players/
       table.js        # la capa de la mesa: la ilustración (con la luz de la lámpara y la sombra en el piso) o, de respaldo, la mesa de código
       mesa.json       # la mesa ilustrada: tamaños, su proyección (F, cx, cy), la cámara y la orilla con que se calcó, y su silueta (lo escribe el script)
       items.js        # fichas, cartas y botón del dealer en perspectiva
-      cards.js        # caras y reversos de las cartas (canvas)
-      baraja.js       # la baraja nueva, en revisión: el juego la usa solo con ?baraja=nueva (ver "Pendientes")
+      cards.js        # la baraja: caras y reversos en canvas, con el arte de carta-*.webp (cargarArte) y respaldo de código
+      baraja.json     # de la baraja: los nombres de las figuras y la zona libre del reverso para la etiqueta (lo escribe el script)
       rivals.js       # poses, parpadeo, respiración de los rivales
       characters.js   # personajes (lee personajes.json) y precarga del arte
       personajes.json # registro de personajes: tamaño y cuadros (los escribe el script); nombre de su bot, cintura, cabeza y alto (a mano); "retirado"
-    ui/             # palos dibujados (suits.js; los clásicos de la baraja nueva en palos.js), nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
+    ui/             # palos clásicos en dos colores (suits.js), nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
     audio/
   public/
     assets/         # logo, sonidos, íconos, imagen para compartir
@@ -83,6 +83,7 @@ poker-for-the-players/
     bots.test.js    # bots: jugadas legales, sin cartas ajenas, y un personaje distinto con su nombre
     personajes.test.js # personajes registrados, cuadros que faltan, poses, hacia dónde miran
     asientos.test.js # Don Tentáculos al centro del fondo (práctica y quien creó la mesa)
+    baraja.test.js  # la baraja: palos de cada carta, dos colores, arte exportado y zona de la etiqueta
   docs/
     ESPEC-PERSONAJES.md # cómo debe venir el arte de cada personaje (ángulos, cuadros, encuadre, fondo, estilo)
   referencia/
@@ -93,16 +94,16 @@ poker-for-the-players/
     fichas/<id>.toml          # ficha de cada personaje para los prompts: fondo, cómo parpadea, a dónde mira, sonrisa, manos, fichas, partes opacas
     ocr.swift                 # OCR de macOS para la revisión "sin texto" del generador (se compila solo en .venv-rembg/bin/)
     extraer-mesa.py           # saca la mesa de referencia/composicion.png: la sube a 4K, Gemini quita los objetos por zonas (con revisiones y tope de llamadas), limpia sin IA lo que quedó, recorta el garaje por la silueta de la mesa y arma la hoja para aprobar; aprobar la pasa a arte/mesa/
-    generar-baraja.py         # el arte de la baraja nueva con Gemini, una imagen por corrida con revisiones y tope de llamadas: el reverso (y `limpiar`, que deja solo su marco), las figuras (y `editar`, que las ornamenta conservando cara y pose), la mitad de cada figura en sus cuatro palos (`carta`) y los adornos del reverso para el marco de las figuras (`adornos`); `probar` revisa las revisiones (arte/generadas/baraja/; aprobar pasa a arte/baraja/)
+    generar-baraja.py         # el arte de la baraja con Gemini, una imagen por corrida con revisiones y tope de llamadas: el reverso (y `limpiar`, que deja solo su marco), las figuras (y `editar`, que las ornamenta conservando cara y pose), la mitad de cada figura en sus cuatro palos (`carta`) y los adornos del reverso para el marco de las figuras (`adornos`); `probar` revisa las revisiones (arte/generadas/baraja/; aprobar pasa a arte/baraja/)
     prompts-baraja.toml       # los prompts de la baraja, en inglés, editables
     calcar-mesa.py            # calca la mesa aprobada: la cámara de la computadora (pitch dado, dist) y la orilla del juego (TABLE_EDGE, RAIL_Y, APRON, FELT_R) que la reproducen, y su proyección (arte/mesa/mesa-horizontal.json)
     recortar.py       # quita un fondo GRIS con rembg (solo para arte viejo; el nuevo viene en verde o magenta)
-    optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro; `mesa` exporta la mesa ilustrada y escribe client/stage/mesa.json
+    optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro; `mesa` exporta la mesa ilustrada y escribe client/stage/mesa.json; `baraja` exporta el arte de la baraja (carta-*.webp) y escribe client/stage/baraja.json
     generar-iconos.mjs # PNG del ícono de la app (32, 180, 192, 512) a partir de icono.svg, con Chrome sin ventana
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
     personajes/<id>/  # cuadros de cada personaje sobre verde o magenta: <id>-<ángulo>-<cuadro>.png
     generadas/<id>/   # lo que hizo generar-personaje.py, por revisar: cuadro, lo crudo de Gemini, GIF, comparación y registro.jsonl (costos); generadas/mesa/, lo de extraer-mesa.py (zonas/: cada paso y lo crudo de cada llamada; descartadas/: los intentos anteriores)
-    baraja/           # el arte aprobado de la baraja nueva: el reverso (solo el marco, y su carta con la zona libre para la etiqueta), los adornos y las figuras
+    baraja/           # el arte aprobado de la baraja: el reverso (solo el marco, y su carta con la zona libre para la etiqueta), los adornos y las figuras
     mesa/             # la mesa ilustrada aprobada (mesa-horizontal.png sobre magenta, su silueta, su calco .json) y la calibración de la referencia
     respaldos/        # los cuadros que se reemplazaron
     revision/         # GIF de revisión de cada personaje y ángulo (y los restos del fondo, si quedan); camaras/, las capturas con que se eligió la cámara; mesa-*, las hojas y capturas de la mesa ilustrada
@@ -201,6 +202,9 @@ Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `publi
 | `mesa-3537.webp`, `mesa-1768.webp` | la mesa ilustrada, recortada a la mesa (se usa la chica si la mesa no se ve más ancha, y en calidad baja) |
 | `<id>-<ángulo>-<cuadro>.webp` | cada cuadro de cada personaje, por ejemplo `alien-frente-espera.webp` |
 | `*-chico.webp` | cada cuadro a la mitad, para calidad baja |
+| `carta-reverso.webp` | el marco del reverso de la baraja (sin la etiqueta: la pone el código) |
+| `carta-<rey\|reina\|jota>-<palo>.webp` | la mitad de arriba de cada figura, con la túnica del color de su palo (`h`, `d`, `c`, `s`) |
+| `carta-adorno-flor.webp`, `carta-adorno-banda.webp` | las volutas del reverso que adornan el marco de las figuras |
 
 Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `apuesta`, `retirarse`, `gana` (`POSES` en `characters.js`, `CUADROS` en `optimizar-arte.py`, `POSES` en `generar-personaje.py`). Por ahora **solo espera es obligatorio**: mientras falte otro cuadro, el personaje se queda en espera (no parpadea, no espía, no apuesta ni se retira con pose, no celebra) y el juego no falla; en cuanto se procesa y se registra el cuadro, se usa solo. Los de siempre son espera, parpadeo, apuesta y retirarse; espia y gana son extras. La especificación completa del arte está en `docs/ESPEC-PERSONAJES.md`.
 
@@ -262,7 +266,11 @@ Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la car
 - **Mesa**: la de la referencia (ver "Técnica"): octagonal, muy grande (ocupa casi todo el ancho de la pantalla), de madera, para máximo 7 jugadores, con riel de madera acolchado con vetas, fieltro verde con sombreado suave y una línea dorada en forma de pista. Objetos decorativos (vasos, mazo, dados, cenicero) para después, sin estorbar a las cartas ni al bote.
 - **Lámpara**: colgante de domo mostaza justo encima de la mesa, con un cono de luz cálida que pinta un círculo en la mesa y un resplandor rojizo en la pared.
 - **Fichas** con colores desaturados por denominación: **crema 10, oliva 25, ladrillo 50, negra 100, marino 500, mostaza 1,000**, con franjas en el canto y el valor impreso en la ficha de arriba de cada columna (10, 25, 50, 100, 500, 1K), de cara al jugador. Cada jugador recibe 32 fichas = 5,000: 2 de 1,000, 3 de 500, 10 de 100, 6 de 50, 6 de 25 y 5 de 10 (`client/chips.js`, que también calcula con qué fichas se forma cualquier monto). Como con fichas de 10 y 25 se forma cualquier múltiplo de 5 desde 20, las apuestas van en múltiplos de 5 (salvo el all-in) y los botes divididos se reparten en unidades de 5.
-- **Cartas**: tarjetas de esquinas redondas dibujadas en canvas (`client/stage/cards.js`) y puestas en perspectiva sobre la mesa, papel crema, números grandes en Chewy con contorno de tinta y palos dibujados a mano y panzones (`client/ui/suits.js`, los mismos en la mesa y en la interfaz), en tinta y rojo ladrillo. Las figuras J, Q, K son criaturas inventadas con ojos de párpado caído. El reverso es azul marino con el logo de Poker for the Players en mostaza.
+- **Cartas**: tarjetas de esquinas redondas dibujadas en canvas (`client/stage/cards.js`) y puestas en perspectiva sobre la mesa, de papel blanco cálido, con índices grandes en Chewy (para que se lean aunque la carta mida 27 px de ancho en el celular) y palos de forma clásica en dos colores: corazones y diamantes en rojo ladrillo, picas y tréboles en tinta (`client/ui/suits.js`, los mismos en la mesa, en el panel del resultado y en la vista 2D). Del 2 al 10, la distribución tradicional de los palos (los de la mitad de abajo, de cabeza). Los ases, los cuatro iguales: el palo grande y, abajo, la etiqueta del logo en chico.
+  - **Figuras** (rey, reina y jota): personajes originales en caricatura para adultos, al estilo de las figuras de las barajas clásicas: pose rígida de frente, un objeto en diagonal y la otra mano al pecho, ropa cubierta de patrones, párpados pesados y cara de "ya me quiero ir". Gemini dibujó la mitad de arriba (`scripts/generar-baraja.py`); el código pone la de abajo (la misma girada 180°), el marco de doble línea con las volutas del reverso, la franja del centro, el palo junto a la cabeza y los índices. La túnica va del color de su palo: corazones rojo ladrillo, diamantes marino, tréboles oliva y picas gris pizarra.
+  - **Reverso**: el marco de volutas rojo ladrillo sobre blanco (de Gemini, con el centro limpiado por código) y, al centro, la etiqueta del logo: un rectángulo rojo con "Poker for the Players" en letras blancas, sin contorno, dibujada por código. La misma función la pone en los ases: el texto, los colores y el tamaño están en `ETIQUETA` de `cards.js`, para cambiar los dos a la vez cuando se rediseñe el logo.
+  - El arte se precarga con el resto; si alguna imagen no carga, esa carta se dibuja solo con código (el reverso con un marco rojo sencillo, las figuras con su marco, su letra y su palo) y el juego sigue. En la vista 2D las cartas son HTML con los mismos palos, y boca abajo llevan un reverso en CSS (papel, marco rojo y la franja de la etiqueta).
+  - Las cartas que tienen los rivales en la mano (dibujadas en sus ilustraciones) siguen con el reverso azul de antes: ver "Pendientes".
 - **Rivales**: ilustraciones recortadas de cuerpo completo, sentados en su propia silla y con las cartas al pecho (ver "Archivos de arte" y `docs/ESPEC-PERSONAJES.md`); la mesa los recorta en la cintura, así que las manos y las cartas se siguen viendo. Mismo estilo para todos: formas simples, ojos grandes con párpados caídos, expresiones secas, aburridas o sospechosas, mezcla de criaturas alienígenas y equipo improvisado. Cada uno con una silueta distinta y reconocible. Los humanos en la mesa usan uno de estos personajes como avatar, con su apodo encima.
 - **Animación de los rivales** (cambio de pose, como en una serie animada):
   - **espera** por omisión, con **parpadeo** cada 3 a 6 s al azar (150 ms; solo en espera);
@@ -356,7 +364,7 @@ Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la 
 ### Rendimiento y accesibilidad
 
 - Debe correr fluido en celulares de gama media y en una MacBook Pro Intel de 2018 con 8 GB. La escena no usa WebGL: la mesa se dibuja una vez por tamaño, las fichas y cartas una vez por jugada, y solo la capa de los rivales se anima (30 cuadros por segundo; cada pose se reduce una sola vez al tamaño en que se ve).
-- Las ilustraciones se precargan y decodifican antes de mostrar la mesa ("Abriendo el garaje…"). Si no cargan, queda la vista 2D simple.
+- Las ilustraciones se precargan y decodifican antes de mostrar la mesa ("Abriendo el garaje…"), también el arte de la baraja (si una imagen de la baraja no carga, esa carta va de código). Si no cargan el fondo o los personajes, queda la vista 2D simple.
 - Calidad (Auto, Alta, Media, Baja): resolución del canvas (hasta 2x, 1.5x o 1x). En baja, poses chicas, fondo chico y 20 cuadros por segundo. En automático se usa baja solo en equipos con muy pocos núcleos o poca memoria.
 - Pausar la animación cuando la pestaña no está visible.
 - Con `prefers-reduced-motion`: sin respiración ni pulso del aro de turno.
@@ -371,6 +379,8 @@ En esas simulaciones, el resultado de cada mano cuadra: botes + devoluciones = l
 **Seguridad del final de la mano** (`test/resultado.test.js` con cartas acomodadas en una mesa, y `test/server.test.js` por sockets con tres jugadores y un espectador): se revisa todo lo que recibe cada quien, incluidos el resultado y el historial, sin fiarse de la lista del servidor de quién enseñó: antes del final nadie recibe cartas ajenas; al final llegan las de quienes llegaron y nunca las de quien se retiró; si todos se retiran, nadie ve las del ganador; con all-in, las cartas se enseñan hasta que termina la mano. También el Listo: práctica, amigos (falta uno, todos), un Listo de otra mano, ausentes y espectadores, y la duración de cada resultado.
 
 `test/mesa.test.js`: la cámara de la computadora y la orilla del juego son las de la mesa ilustrada (las de `mesa.json`), sus imágenes existen, y en pantallas horizontales de 4:3 a 21:9 la orilla de abajo del dibujo queda siempre en la de la pantalla o más abajo y la orilla dibujada cruza toda la pantalla (ahí se recorta a los rivales).
+
+`test/baraja.test.js`: cada carta del 2 al 10 lleva tantos palos como su número, adentro de la carta y sin tocar los índices, con la distribución de siempre (igual al girar la carta, salvo el palo de en medio del 7, y los de abajo de cabeza); los palos van en dos colores; el arte de la baraja está exportado (el reverso, las 12 figuras y los adornos), y la etiqueta del reverso cabe adentro del marco.
 
 `test/asientos.test.js`: Don Tentáculos es el único de dos sillas; en práctica, cuando sale, se sienta al centro del fondo con 1 a 6 rivales; en mesas con amigos, al centro de quien creó la mesa, sin mover a ningún humano y sin cambios ya empezado el torneo; con un humano en ese lugar, en el asiento de bot más cercano; y si ningún bot es él, lo usa el humano del centro.
 
@@ -392,7 +402,7 @@ npm start       # producción: sirve dist/ (corre antes npm run build)
 
 ## Pendientes
 
-- **Baraja nueva (en revisión, sin integrar)**: el juego la usa solo con `?baraja=nueva` en la dirección; sin eso no cambia nada. Aprobado hasta ahora: el reverso (el marco de Gemini con el centro limpiado por código y la etiqueta en diagonal de código: texto, ángulo y tamaño en `ETIQUETA` de `client/stage/baraja.js`, porque el logo se va a rediseñar), papel blanco cálido, palos clásicos en dos colores (corazones y diamantes rojo ladrillo, picas y tréboles tinta), índices grandes y el rey ornamentado (la mitad de arriba girada 180°, marco de doble línea con las volutas del reverso y la túnica recoloreada por palo: diamantes marino, tréboles oliva, picas gris pizarra). Falta: la reina, la jota, el as de picas, la hoja final a tamaño real y la integración (exportar el arte de `arte/baraja/` a `public/assets/arte/`, precargarlo, quitar `?baraja=nueva` y las cartas viejas, y actualizar "Cartas" en "Dirección de arte").
+- **Cartas en la mano de los rivales**: sus ilustraciones tienen las cartas con el reverso azul marino de la baraja anterior. Hay que cambiarlas al reverso de la baraja (marco rojo de volutas y la etiqueta roja), editando la zona de las manos con `scripts/generar-personaje.py`.
 
 - **Celular con la mesa nueva**: en vertical sigue la mesa de código, pero con la orilla nueva (más honda que ancha, calcada de la ilustración), así que su cámara se bajó a 50° (`CAMERAS.portrait`) para que los rivales no se vieran diminutos. Falta decidir si el celular usa una segunda ilustración (vista más desde arriba) o la misma adaptada, y revisar sus asientos y etiquetas.
 - **Memoria en iPhone con todos los cuadros**: el máximo de frente subió a 1000 px de alto (la mitad de abajo queda bajo la mesa). Cuando cada personaje tenga todos sus cuadros de frente y de lado, revisar cuánta memoria usa la mesa en un iPhone: hoy se precargan y decodifican todos los cuadros de todos los personajes en uso (6 personajes × hasta 6 cuadros × 2 ángulos, más los reducidos al tamaño en que se ven). Si pesa, cargar solo los personajes que están en la mesa o bajar el máximo.
