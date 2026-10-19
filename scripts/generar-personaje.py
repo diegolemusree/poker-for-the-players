@@ -56,6 +56,20 @@ CÓMO SE ARMA CADA CUADRO
   y se pide 1:1, la única salida que mide justo lo pedido; al regresar se recorta.
 - Solo el ángulo frente. La base de lado será la única excepción a "nunca desde cero": se generará a partir de la de
   frente y se aprueba antes de generar sus cuadros (ver docs/ESPEC-PERSONAJES.md).
+
+CARTAS: EL REVERSO DE LA BARAJA Y EL MISMO TAMAÑO PARA TODOS
+-----------------------------------------------------------
+El comando cartas edita la espera aprobada (la única vez que se toca la base): las cartas de la mano toman el reverso
+de la baraja (arte/baraja/reverso-carta.png va de referencia en la misma llamada) y cambian de tamaño para que en la
+mesa todos tengan cartas de CARTA_MESA de ancho. La zona es la caja de las cartas de la ficha (caja_cartas), crecida
+si las cartas crecen, y, si el tamaño cambia CAMBIO_GRANDE o más, también la de las manos y los antebrazos
+(caja_manos). Además de las revisiones de siempre: el ancho medido de la carta (TOL_TAMANO), que no queden restos del
+azul viejo, que el chroma key no se coma el rojo del marco y que la caja de recorte no cambie. El parpadeo no se
+genera: sus ojos cerrados se pegan sobre la espera nueva.
+
+    .venv-rembg/bin/python scripts/generar-personaje.py cartas --simular          # la tabla y las zonas, sin gastar
+    .venv-rembg/bin/python scripts/generar-personaje.py cartas robot              # genera (pide confirmación)
+    .venv-rembg/bin/python scripts/generar-personaje.py aprobar-cartas robot      # espera y parpadeo, con respaldo
 """
 import argparse, base64, glob, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
 from datetime import datetime
@@ -109,6 +123,20 @@ CORTE_MAX = 20         # px con cambio fuerte justo afuera de la zona, junto a l
 MIN_CAMBIO = 150       # px cambiados en la zona para contar como cambio
 CARA_MAX = 0.40        # fracción de la caja de la cara que puede cambiar
 CERCANOS_MAX = 30      # px nuevos de un color cercano al del fondo (más ya es una parte que se volvería agujero)
+
+# cartas: el ancho de las cartas en la mano, en unidades de la mesa (la mediana de lo que medían en las seis bases; la
+# baraja de la mesa, CARD_W en client/stage/items.js, mide 0.1 porque se dibuja más grande para que se lea)
+CARTA_MESA = 0.070
+RIVALES = 1.6          # CAMERAS.landscape.rivals de client/stage/config.js: los rivales se dibujan height × 1.6
+REVERSO = os.path.join(ARTE, "baraja", "reverso-carta.png")   # la referencia: el marco aprobado, sin la etiqueta
+CAMBIO_GRANDE = 0.10   # desde este cambio de tamaño la zona incluye las manos y los antebrazos
+TOL_TAMANO = 0.06      # diferencia permitida entre el ancho medido y el objetivo (el medidor se equivoca ~2 %)
+MARGEN_CARTAS = 10     # px alrededor de las cartas (ya crecidas, si crecen) en la zona
+CONTORNO = 3           # px por lado de la tinta alrededor de las cartas en las bases: el medidor mide la cara sin ella,
+                       # pero Gemini cuenta la carta completa, así que el prompt pide el ancho con el contorno
+AZUL_MAX = 30          # px del azul marino viejo que pueden quedar en la zona
+ROJO_MAX = 10          # px del marco rojo que el chroma key puede volver transparentes (lejos de la orilla del fondo)
+LUMA = np.array([0.3, 0.59, 0.11], np.float32)
 
 
 # ---------- archivos ----------
@@ -411,8 +439,9 @@ def a_cuadrado(img, K):
     return lienzo, (x, y, x + w, y + h)
 
 
-def pedir(client, cfg, prompt, entrada_png):
-    """UNA petición, sin reintentos (los decide generar_cuadro)."""
+def pedir(client, cfg, prompt, entrada_png, extras=()):
+    """UNA petición, sin reintentos (los decide generar_cuadro). extras: más imágenes (PNG en base64) después de la
+    que se edita, como el reverso de referencia del comando cartas."""
     listo = threading.Event()
     inicio = time.time()
 
@@ -424,7 +453,8 @@ def pedir(client, cfg, prompt, entrada_png):
     try:
         return client.interactions.create(
             model=cfg["modelo"],
-            input=[{"type": "text", "text": prompt}, {"type": "image", "data": entrada_png, "mime_type": "image/png"}],
+            input=[{"type": "text", "text": prompt}] + [{"type": "image", "data": d, "mime_type": "image/png"}
+                                                        for d in (entrada_png, *extras)],
             response_format={"type": "image", "aspect_ratio": "1:1", "image_size": cfg["image_size"]},
             timeout=600,
         )
@@ -445,11 +475,11 @@ def costo(modelo, usage):
     return usd, {"entrada": entrada, "imagen": imagen, "texto_y_thinking": texto}
 
 
-def costo_estimado(modelo, tamano, prompt):
+def costo_estimado(modelo, tamano, prompt, imagenes=1):
     p = PRECIOS.get(modelo)
     if not p:
         return None
-    return (p["imagen"][tamano] + (TOKENS_POR_IMAGEN_ENTRADA + len(prompt) // 4) * p["entrada"] / 1e6
+    return (p["imagen"][tamano] + (TOKENS_POR_IMAGEN_ENTRADA * imagenes + len(prompt) // 4) * p["entrada"] / 1e6
             + TOKENS_TEXTO_ESTIMADOS * p["texto"] / 1e6)
 
 
@@ -668,6 +698,472 @@ def cmd_aprobar(args):
           f"  .venv-rembg/bin/python scripts/optimizar-arte.py registrar {pid}")
 
 
+# ---------- cartas: el reverso de la baraja, del mismo tamaño en la mesa para todos ----------
+
+def _rojo(a):
+    """El marco del reverso nuevo: rojo ladrillo y lo oscuro de sus volutas (no el coral de la ropa ni el rosa de la
+    piel, que son más claros)."""
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    return (R - np.maximum(G, B) > 35) & (R > 80) & (G < 140) & (a @ LUMA < 150)
+
+
+def _azul(a):
+    """El azul marino del reverso viejo."""
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    return (B > R + 25) & (B > G + 15) & (R < 80) & (a @ LUMA < 90)
+
+
+def _papel(a):
+    return (a @ LUMA > 160) & (a.max(axis=2) - a.min(axis=2) < 50)
+
+
+def medir_cartas(img, zona, diseno):
+    """Las cartas de la zona, de la más ancha a la más angosta (la primera es la de enfrente: la de atrás queda tapada
+    de un lado). Cada carta sale de su núcleo de color: el azul marino del reverso viejo ("azul") o el marco rojo del
+    nuevo, con papel adentro ("rojo"). Su orilla de arriba da la inclinación; el ancho se mide en una franja cerca de
+    arriba (las manos tapan la parte de abajo), más el margen claro de cada lado hasta la tinta del contorno: es el
+    ancho de la cara, sin el contorno. Probado con las cartas de las seis bases y con cartas sintéticas del reverso
+    pegadas en las mismas bases: ±2 %."""
+    a = np.asarray(img.convert("RGB")).astype(np.float32)
+    x0, y0, x1, y1 = zona
+    z = np.zeros(a.shape[:2], bool)
+    z[y0:y1, x0:x1] = True
+    papel = _papel(a)
+    h, w = papel.shape
+    if diseno == "azul":   # entre el azul y el borde blanco hay una línea oscura: se salta
+        nucleo, salto = _azul(a) & z, 6
+    else:                  # las volutas, juntas en un marco
+        nucleo, salto = ndi.binary_closing(_rojo(a) & z, iterations=1) & z, 3
+    lab, n = ndi.label(nucleo, structure=np.ones((3, 3)))
+    cartas = []
+    for i in range(1, n + 1):
+        m = lab == i
+        if m.sum() < 40:
+            continue
+        ys, xs = np.where(m)
+        if diseno == "rojo":   # un marco tiene papel adentro; lo rojo sin papel adentro (ropa) no es carta
+            caja = np.zeros_like(m)
+            caja[ys.min():ys.max() + 1, xs.min():xs.max() + 1] = True
+            adentro = caja & ~ndi.binary_dilation(m)
+            if adentro.sum() < 20 or papel[adentro].mean() < 0.35:
+                continue
+        # inclinación: la pendiente mediana (Theil-Sen) de la orilla de arriba, en la mitad de en medio
+        cols = np.arange(xs.min(), xs.max() + 1)
+        tope = np.array([ys[xs == c].min() if (xs == c).any() else np.nan for c in cols])
+        cx, cy = cols[len(cols) // 4:len(cols) * 3 // 4].astype(float), tope[len(cols) // 4:len(cols) * 3 // 4]
+        cx, cy = cx[~np.isnan(cy)], cy[~np.isnan(cy)]
+        if len(cx) < 4:
+            continue
+        t = float(np.arctan(np.median([(cy[j] - cy[q]) / (cx[j] - cx[q])
+                                       for q in range(len(cx)) for j in range(q + 1, len(cx))])))
+        if abs(np.degrees(t)) > 35:   # las cartas van paradas: más inclinado es otra cosa
+            continue
+        c_, s_ = np.cos(t), np.sin(t)
+        u, v = xs * c_ + ys * s_, -xs * s_ + ys * c_   # u a lo ancho de la carta; v hacia abajo
+        ext, v0 = u.max() - u.min(), v.min()
+        franja = (v >= v0 + 0.10 * ext) & (v <= v0 + 0.40 * ext)
+
+        def es_papel(uu, vv):
+            x, y = round(uu * c_ - vv * s_), round(uu * s_ + vv * c_)
+            return 0 <= x < w and 0 <= y < h and papel[y, x]
+
+        def margen(desde, paso, f):   # hasta `salto` px que no son papel, y el papel hasta la tinta del contorno
+            k = 1
+            while k <= salto and not es_papel(desde + paso * k, f):
+                k += 1
+            if k > salto:
+                return 0
+            while k < 40 and es_papel(desde + paso * k, f):
+                k += 1
+            return k - 1
+
+        filas = []
+        for f in np.unique(np.round(v[franja]).astype(int)):
+            sel = franja & (np.round(v).astype(int) == f)
+            ua, ub = u[sel].min(), u[sel].max()
+            ml, mr = margen(ua, -1, f), margen(ub, 1, f)
+            filas.append((ub - ua + 1 + ml + mr, ua - ml, ub + mr, f, (ml + mr) / 2))
+        if len(filas) < 3:
+            continue
+        izq, der, f, mg = filas[len(filas) // 2][1:]
+        # linea: la medida del renglón de en medio (u izquierda, u derecha, v), para dibujarla; arriba: la orilla de
+        # arriba de la cara (v), aproximada con el margen de los lados
+        cartas.append({"ancho": float(np.median([fl[0] for fl in filas])), "angulo": float(np.degrees(t)), "t": t,
+                       "linea": (float(izq), float(der), float(f)), "arriba": float(v0 - mg)})
+    return sorted(cartas, key=lambda c: -c["ancho"])
+
+
+def plan_cartas(pid, base, ficha, med):
+    """El ancho de hoy de las cartas (la de enfrente, en px de la base), el objetivo (CARTA_MESA en la mesa, pasado a px
+    con la escala del personaje en el juego) y la zona que se edita."""
+    for clave in ("caja_cartas", "caja_manos"):
+        if clave not in ficha:
+            sys.exit(f"A la ficha de {pid} le falta {clave} (ver las de scripts/fichas/).")
+    x0, y0, x1, y1 = ficha["caja_cartas"]
+    W, H = base.size
+    caja = (max(0, x0 - 8), max(0, y0 - 8), min(W, x1 + 8), min(H, y1 + 8))
+    hoy = medir_cartas(base, caja, "azul") or medir_cartas(base, caja, "rojo")
+    if not hoy:
+        sys.exit(f"{pid}: no encuentro sus cartas en caja_cartas {ficha['caja_cartas']} (ni azules ni con el reverso nuevo).")
+    # en el juego (seatPlace en client/stage/index.js) la imagen recortada mide height × RIVALES unidades de alto, y en
+    # la base esa caja de recorte mide bh px: así se pasa de px de la base a unidades de la mesa
+    por_px = med["reg"]["height"] * RIVALES / (med["box"][3] - med["box"][1])
+    actual, objetivo = hoy[0]["ancho"], CARTA_MESA / por_px
+    f = objetivo / actual
+    cx, cy, k = (x0 + x1) / 2, (y0 + y1) / 2, max(1.0, f)   # si crecen, la caja crece igual desde su centro
+    zona = [cx - (cx - x0) * k - MARGEN_CARTAS, cy - (cy - y0) * k - MARGEN_CARTAS,
+            cx + (x1 - cx) * k + MARGEN_CARTAS, cy + (y1 - cy) * k + MARGEN_CARTAS]
+    manos = abs(f - 1) >= CAMBIO_GRANDE
+    if manos:
+        m = ficha["caja_manos"]
+        zona = [min(zona[0], m[0]), min(zona[1], m[1]), max(zona[2], m[2]), max(zona[3], m[3])]
+    zona = (max(0, round(zona[0])), max(0, round(zona[1])), min(W, round(zona[2])), min(H, round(zona[3])))
+    return {"actual": actual, "objetivo": objetivo, "factor": f, "por_px": por_px, "manos": manos, "zona": zona,
+            "carta": hoy[0]}
+
+
+def prompt_cartas(P, ficha, info, lado, correcciones=()):
+    """El prompt de cartas: el reverso nuevo, el tamaño y, si cambia mucho, las manos. lado: el de la imagen que se
+    manda (cuadrada). correcciones: frases ya armadas (correcciones_cartas)."""
+    C = P["cartas"]
+    afuera = info["objetivo"] + 2 * CONTORNO   # la carta completa, con su contorno: así la cuenta Gemini
+    f, px = afuera / (info["actual"] + 2 * CONTORNO), round(afuera)
+    pct = round(abs(f - 1) * 100)
+    tamano = C["igual"] if pct < 3 else C["mas_grandes" if f > 1 else "mas_chicas"].format(pct=pct, px=px, lado=lado)
+    valores = dict(ficha, rasgos="".join(f", {r}" for r in ficha.get("rasgos", [])), tamano=tamano, agarre=C["agarre"],
+                   fondo={"verde": "green"}.get(ficha["fondo"], ficha["fondo"]))
+    opacas = ficha.get("opacas", [])
+    valores["opacas"] = P["edicion"]["opacas"].format(lista=", ".join(opacas)) if opacas else ""
+    valores["manos_frase"] = C["manos_frase"].format_map(valores) if info["manos"] else ""
+    valores["se_queda"] = C["se_queda_manos" if info["manos"] else "se_queda"].format_map(valores)
+    return " ".join([limpiar(C["texto"]).format_map(valores)] + list(correcciones))
+
+
+def correcciones_cartas(P, fallas, v, info, lado):
+    """Las frases para el reintento: las de las revisiones de siempre y las de cartas."""
+    C = P["cartas"]["correcciones"]
+    out = [P["correcciones"][k] for k in fallas if k in P["correcciones"]]
+    for k in fallas:
+        if k == "tamano":
+            out.append(C["tamano"].format(sentido="too big" if v["ancho"] > info["objetivo"] else "too small",
+                                          px=round(info["objetivo"] + 2 * CONTORNO), lado=lado))
+        elif k in C:
+            out.append(C[k])
+    return out
+
+
+def pegar_ojos(espera, parpadeo, nueva):
+    """El parpadeo sobre una espera nueva, sin gastar: donde el parpadeo aprobado difiere de su espera (los ojos
+    cerrados) va el parpadeo; todo lo demás es la espera nueva. Falla si lo que cambió en la espera toca esos píxeles."""
+    E, Pp, N = (np.asarray(i.convert("RGB")) for i in (espera, parpadeo, nueva))
+    ojos = (E != Pp).any(axis=2)
+    if (ojos & (E != N).any(axis=2)).any():
+        raise ValueError("lo que cambió en la espera toca los ojos del parpadeo")
+    return Image.fromarray(np.where(ojos[..., None], Pp, N))
+
+
+def revisar_cartas(base, cand, info, med, parpadeo, ficha):
+    """Las revisiones propias de cartas, además de las de siempre (revisar). Regresa ({revisión: motivo}, {medida: valor})."""
+    fallas, v = {}, {}
+    # tamano: el ancho medido de la carta de enfrente contra el objetivo (sin medida no se aprueba)
+    nuevas = medir_cartas(cand, info["zona"], "rojo")
+    if not nuevas:
+        fallas["sin_cartas"] = "no encuentro las cartas con el reverso nuevo (marco rojo con papel adentro) para medirlas"
+    else:
+        v["ancho"] = round(nuevas[0]["ancho"], 1)
+        v["ancho_error"] = round(nuevas[0]["ancho"] / info["objetivo"] - 1, 3)
+        if abs(v["ancho_error"]) > TOL_TAMANO:
+            fallas["tamano"] = (f"la carta de enfrente mide {v['ancho']:.0f} px y el objetivo es "
+                                f"{info['objetivo']:.0f} ({v['ancho_error']:+.0%})")
+    A, C = (np.asarray(i).astype(np.float32) for i in (base, cand))
+    x0, y0, x1, y1 = info["zona"]
+    z = np.zeros(A.shape[:2], bool)
+    z[y0:y1, x0:x1] = True
+    # azul: no quedan pedazos del reverso viejo (manchas, no las orillas delgadas que se ven azules junto a la tinta),
+    # sin contar el azul que la base ya tenía fuera de sus cartas (el blob es azul)
+    cx0, cy0, cx1, cy1 = ficha["caja_cartas"]
+    viejas = np.zeros_like(z)
+    viejas[cy0:cy1, cx0:cx1] = True
+    v["azul"] = int((ndi.binary_opening(_azul(C) & z) & ~(_azul(A) & ~viejas)).sum())
+    if v["azul"] > AZUL_MAX:
+        fallas["azul"] = f"quedan {v['azul']} px del azul marino del reverso viejo"
+    # rojo: el chroma key del juego no vuelve transparente el marco (lejos de la orilla del fondo, donde es normal)
+    rgba = sin_fondo(cand)[0]
+    alfa = np.asarray(rgba)[..., 3]
+    v["rojo_comido"] = int((_rojo(C) & z & ~ndi.binary_dilation(alfa == 0, iterations=2) & (alfa < 250)).sum())
+    if v["rojo_comido"] > ROJO_MAX:
+        fallas["rojo"] = f"el chroma key se come {v['rojo_comido']} px del rojo de las cartas"
+    # caja: con la espera y el parpadeo nuevos, la caja de recorte del juego es la misma (si cambia, cambian las medidas)
+    cuadros = {"espera": rgba}
+    if parpadeo is not None:
+        try:
+            cuadros["parpadeo"] = sin_fondo(pegar_ojos(base, parpadeo, cand))[0]
+        except ValueError as e:
+            fallas["ojos"] = str(e)
+    _, box, _ = OPT.preparar(med["pid"], med["angulo"], cuadros)
+    if tuple(box) != tuple(med["box"]):
+        fallas["caja"] = f"la caja de recorte cambia de {tuple(med['box'])} a {tuple(box)}: cambiarían las medidas del juego"
+    return fallas, v
+
+
+def _poligono_carta(carta, ancho, aspecto):
+    """Las esquinas (x, y) de una carta de `ancho` px con la inclinación y la orilla de arriba de `carta`, centrada en
+    su medida: para dibujar su tamaño o el objetivo."""
+    c_, s_ = np.cos(carta["t"]), np.sin(carta["t"])
+    izq, der, _ = carta["linea"]
+    uc, a, v0 = (izq + der) / 2, ancho / 2, carta["arriba"]
+    return [(u * c_ - v * s_, u * s_ + v * c_)
+            for u, v in ((uc - a, v0), (uc + a, v0), (uc + a, v0 + ancho * aspecto), (uc - a, v0 + ancho * aspecto))]
+
+
+def _punteada(d, puntos, color, ancho=3, paso=7):
+    for (xa, ya), (xb, yb) in zip(puntos, puntos[1:] + puntos[:1]):
+        n = max(2, int(np.hypot(xb - xa, yb - ya) // paso))
+        for i in range(0, n, 2):
+            p, q = i / n, (i + 1) / n
+            d.line([(xa + (xb - xa) * p, ya + (yb - ya) * p), (xa + (xb - xa) * q, ya + (yb - ya) * q)], fill=color, width=ancho)
+
+
+def _zoom_cartas(img, info, carta, E=3):
+    """La zona al triple con la carta de enfrente: su medida (línea celeste) y el objetivo (punteado amarillo); con el
+    tamaño de hoy en rojo si es la carta vieja."""
+    with Image.open(REVERSO) as r:
+        aspecto = r.size[1] / r.size[0]
+    x0, y0, x1, y1 = info["zona"]
+    zoom = img.convert("RGB").crop(info["zona"]).resize(((x1 - x0) * E, (y1 - y0) * E), Image.LANCZOS)
+    if carta is None:
+        return zoom
+    d = ImageDraw.Draw(zoom)
+    a_px = lambda pts: [((x - x0) * E, (y - y0) * E) for x, y in pts]
+    if carta is info["carta"]:
+        d.polygon(a_px(_poligono_carta(carta, carta["ancho"], aspecto)), outline=(230, 40, 40), width=2)
+    _punteada(d, a_px(_poligono_carta(carta, info["objetivo"], aspecto)), (255, 225, 0))
+    c_, s_ = np.cos(carta["t"]), np.sin(carta["t"])
+    izq, der, f = carta["linea"]
+    d.line(a_px([(u * c_ - f * s_, u * s_ + f * c_) for u in (izq, der + 1)]), fill=(0, 200, 255), width=3)
+    return zoom
+
+
+def _hoja(paneles, rotulo, destino):
+    """Paneles lado a lado con un rótulo arriba."""
+    alto = max(p.size[1] for p in paneles)
+    hoja = Image.new("RGB", (sum(p.size[0] for p in paneles) + 16 * (len(paneles) - 1), alto + 30), "white")
+    x = 0
+    for p in paneles:
+        hoja.paste(p, (x, 30))
+        x += p.size[0] + 16
+    ImageDraw.Draw(hoja).text((4, 6), rotulo, fill="black", font=fuente(16))
+    hoja.save(destino)
+
+
+def _rotulo(pid, info, medido=None):
+    zona = "zona: cartas, manos y antebrazos" if info["manos"] else "zona: solo las cartas"
+    hoy = f"hoy {info['actual']:.0f} px" if medido is None else f"antes {info['actual']:.0f} px, ahora {medido:.0f} px"
+    return f"{pid}: {hoy}, objetivo {info['objetivo']:.0f} px ({info['factor'] - 1:+.0%})   {zona}"
+
+
+def vista_cartas(base, info, destino, pid):
+    """Para --simular: la base con la zona marcada (celeste: solo las cartas; naranja: con las manos y los antebrazos)
+    y la zona al triple con la carta de hoy (rojo), su medida (celeste) y el tamaño objetivo (punteado amarillo)."""
+    izq = base.convert("RGB").copy()
+    ImageDraw.Draw(izq).rectangle(info["zona"], outline=(255, 140, 0) if info["manos"] else (0, 200, 255), width=5)
+    izq.thumbnail((560, 560))
+    _hoja([izq, _zoom_cartas(base, info, info["carta"])], _rotulo(pid, info), destino)
+
+
+def detalle_cartas(final, info, destino, pid):
+    """Para revisar: las cartas nuevas al triple, con su medida y el objetivo, y sin fondo (el chroma key del juego)
+    sobre gris oscuro a cuadros, para ver que el rojo quedó entero."""
+    nuevas = medir_cartas(final, info["zona"], "rojo")
+    con_medida = _zoom_cartas(final, info, nuevas[0] if nuevas else None)
+    x0, y0, x1, y1 = info["zona"]
+    recorte = sin_fondo(final)[0].crop(info["zona"]).resize(con_medida.size, Image.NEAREST)
+    cuadros = Image.new("RGBA", con_medida.size, (45, 45, 45, 255))
+    d = ImageDraw.Draw(cuadros)
+    for y in range(0, con_medida.size[1], 12):
+        for x in range((y // 12) % 2 * 12, con_medida.size[0], 24):
+            d.rectangle((x, y, x + 11, y + 11), fill=(70, 70, 70, 255))
+    cuadros.alpha_composite(recorte)
+    _hoja([con_medida, cuadros.convert("RGB")], _rotulo(pid, info, nuevas[0]["ancho"] if nuevas else None), destino)
+
+
+def gif_antes_ahora(pid, base, final, med, destino):
+    """La espera de antes y la nueva, recortadas como en el juego."""
+    imgs, box, tam = OPT.preparar(pid, "frente", {"antes": sin_fondo(base)[0], "ahora": sin_fondo(final)[0]})
+    imgs = {c: OPT.escalar(i.crop(box), *tam) for c, i in imgs.items()}
+    OPT.dibujar_gif(imgs, ["antes", "ahora"], destino, med["reg"].get("waist"), med["reg"].get("face"), 900)
+
+
+def png64(img):
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def cmd_cartas(args):
+    P = cargar_toml(PROMPTS)
+    cfg = dict(P["config"])
+    if args.modelo:
+        cfg["modelo"] = args.modelo
+    if args.tamano:
+        cfg["image_size"] = args.tamano
+    ids = args.personajes or sorted(os.path.splitext(f)[0] for f in os.listdir(FICHAS) if f.endswith(".toml"))
+    if not args.simular and len(ids) != 1:
+        sys.exit("Se genera un personaje a la vez: cartas <personaje>. Para ver todos sin gastar: cartas --simular")
+    filas = []
+    for pid in ids:
+        ficha = cargar_ficha(pid)
+        base_path = aprobado(pid, "frente", "espera")
+        base = Image.open(base_path).convert("RGB")
+        K, tipo, _ = OPT.fondo_de(np.asarray(base).astype(np.float32), os.path.basename(base_path))
+        if tipo != ficha["fondo"]:
+            sys.exit(f"La ficha de {pid} dice fondo {ficha['fondo']}, pero su base tiene fondo {tipo}.")
+        med = medidas(pid, "frente", base)
+        info = plan_cartas(pid, base, ficha, med)
+        parp_path = aprobado(pid, "frente", "parpadeo")
+        parpadeo = Image.open(parp_path).convert("RGB") if os.path.exists(parp_path) else None
+        if parpadeo is not None:   # sus ojos cerrados se pegan sobre la espera nueva: no pueden caer en la zona
+            x0, y0, x1, y1 = info["zona"]
+            if (np.asarray(base)[y0:y1, x0:x1] != np.asarray(parpadeo)[y0:y1, x0:x1]).any():
+                sys.exit(f"{pid}: la zona {info['zona']} toca los ojos de su parpadeo; ajusta caja_cartas o caja_manos.")
+        prompt = prompt_cartas(P, ficha, info, max(base.size))
+        filas.append((pid, info, costo_estimado(cfg["modelo"], cfg["image_size"], prompt, imagenes=2) or 0))
+        if args.simular:
+            os.makedirs(carpeta(pid), exist_ok=True)
+            destino = os.path.join(carpeta(pid), f"zona-{pid}-frente-espera-cartas.png")
+            vista_cartas(base, info, destino, pid)
+            print(f"  {pid}: zona {info['zona']} marcada en {rel(destino)}\n    prompt: {prompt}\n")
+    print(f"Cartas de {CARTA_MESA} unidades de la mesa de ancho (la baraja de la mesa mide 0.1); en px de la base:")
+    print(f"  {'personaje':10}{'hoy px':>8}{'hoy mesa':>10}{'objetivo px':>13}{'cambio':>8}  zona")
+    for pid, info, _ in filas:
+        print(f"  {pid:10}{info['actual']:8.1f}{info['actual'] * info['por_px']:10.3f}{info['objetivo']:13.1f}"
+              f"{info['factor'] - 1:+8.0%}  {'cartas, manos y antebrazos' if info['manos'] else 'cartas'}")
+    total = sum(c for _, _, c in filas)
+    print(f"Costo estimado: ~${total:.2f} USD (hasta ${total * MAX_LLAMADAS:.2f} si todo se reintenta), "
+          f"con {cfg['modelo']} a {cfg['image_size']}")
+    if args.simular:
+        return
+    if "pendiente" in ficha:
+        sys.exit(f"La ficha de {pid} está pendiente ({ficha['pendiente']}): revísala antes de gastar.")
+    if not args.si and input("¿Generar? [s/N] ").strip().lower() not in ("s", "si", "sí"):
+        print("Cancelado.")
+        return
+    generar_cartas(cliente(), cfg, P, ficha, pid, base, K, med, info, parpadeo)
+    print(f"Gastado en total según los registros de arte/generadas/: ${gastado_en_total():.4f} USD")
+
+
+def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo):
+    """La espera con el reverso nuevo (como mucho MAX_LLAMADAS peticiones; de cada una solo se toma la zona) y su
+    parpadeo con los ojos cerrados de antes, sin gastar."""
+    nombre = f"{pid}-frente-espera-cartas"
+    os.makedirs(carpeta(pid), exist_ok=True)   # antes de pagar: lo crudo se guarda en cuanto llega
+    n = siguiente_version(pid, nombre)
+    prefijo = os.path.join(carpeta(pid), con_version(nombre, n))
+    lienzo, dentro = a_cuadrado(base, K)
+    entrada, referencia = png64(lienzo), png64(Image.open(REVERSO).convert("RGB"))
+    zona, crudos, gastado, correcciones, cand, cache = info["zona"], [], 0, [], None, {}
+    print(f"{os.path.basename(prefijo)}: zona {zona}, objetivo {info['objetivo']:.0f} px", flush=True)
+    for intento in range(1, MAX_LLAMADAS + 1):
+        prompt = prompt_cartas(P, ficha, info, lienzo.size[0], correcciones)
+        print(f"  llamada {intento} de {MAX_LLAMADAS}...", flush=True)
+        t0, r, error, gen, crudo = time.time(), None, None, None, None
+        try:
+            r = pedir(client, cfg, prompt, entrada, [referencia])
+        except Exception as e:   # también cuenta como llamada: un tiempo agotado pudo cobrarse
+            error = f"{type(e).__name__} (código {getattr(e, 'status_code', None)}): {str(e)[:300]}"
+            if "Free Tier" in str(e):
+                sys.exit("    El proyecto de la API key está en el nivel gratuito, que no genera imágenes.")
+            if getattr(e, "status_code", None) == 402:
+                sys.exit("    La cuenta se quedó sin crédito (402): recarga en AI Studio.")
+        if r is not None and r.output_image and r.output_image.data:
+            crudo = f"{prefijo}-crudo{intento}.png"
+            gen = Image.open(io.BytesIO(base64.b64decode(r.output_image.data))).convert("RGB")
+            gen.save(crudo)   # tal cual llegó, antes de cualquier otra cosa: ya está pagada
+            if gen.size != lienzo.size:
+                gen = gen.resize(lienzo.size, Image.LANCZOS)
+            gen = gen.crop(dentro)
+        usd, tokens = costo(cfg["modelo"], r.usage) if r is not None else (None, None)
+        gastado += usd or 0
+        if gen is None:
+            fallas, v = {"sin_imagen": f"no regresó imagen ({error or r.status})"}, {}
+        else:
+            cand, mz = componer(base, gen, zona)
+            fallas, v = revisar(base, gen, cand, "cartas", zona, mz, med, cache)
+            f2, v2 = revisar_cartas(base, cand, info, med, parpadeo, ficha)
+            fallas.update(f2)
+            v.update(v2)
+            crudos.append((f"llamada {intento}", gen))
+        with open(os.path.join(carpeta(pid), "registro.jsonl"), "a") as f:
+            f.write(json.dumps({
+                "fecha": datetime.now().isoformat(timespec="seconds"), "cuadro": os.path.basename(prefijo),
+                "cambio": 1, "zona": "cartas", "llamada": intento, "archivo": os.path.basename(crudo) if crudo else None,
+                "modelo": cfg["modelo"], "tamano": cfg["image_size"], "base": rel(aprobado(pid, "frente", "espera")),
+                "referencia": rel(REVERSO), "prompt": prompt, "costo_usd": round(usd, 5) if usd is not None else None,
+                "tokens": tokens, "error": error, "revisiones": fallas, "medidas": v,
+            }, ensure_ascii=False, default=str) + "\n")
+        print(f"    {time.time() - t0:.0f} s" + (f", ${usd:.4f}" if usd is not None else ", sin costo reportado")
+              + (f" -> {rel(crudo)}" if crudo else ""), flush=True)
+        if not fallas:
+            print("    revisiones: todas bien  " + ", ".join(f"{k} {x:.3g}" if isinstance(x, float) else f"{k} {x}"
+                                                     for k, x in v.items() if k != "caja"), flush=True)
+            break
+        print("    FALLÓ: " + "; ".join(fallas.values()), flush=True)
+        correcciones = correcciones_cartas(P, fallas, v, info, lienzo.size[0])
+    if fallas:   # se acabaron las llamadas
+        if cand is not None:
+            cand.save(f"{prefijo}-FALLA.png")
+            hoja_comparacion(base, crudos, cand, [zona], f"{prefijo}-FALLA-comparacion.jpg")
+            detalle_cartas(cand, info, f"{prefijo}-FALLA-detalle.png", pid)
+        print(f"  {os.path.basename(prefijo)}: no pasó las revisiones en {MAX_LLAMADAS} llamadas. "
+              + (f"Lo último quedó en {rel(prefijo)}-FALLA.png (y su -comparacion y -detalle). " if cand is not None else "")
+              + f"Costo: ${gastado:.4f} USD.")
+        return
+    cand.save(f"{prefijo}.png")
+    hoja_comparacion(base, crudos, cand, [zona], f"{prefijo}-comparacion.jpg")
+    detalle_cartas(cand, info, f"{prefijo}-detalle.png", pid)
+    gif_antes_ahora(pid, base, cand, med, f"{prefijo}.gif")
+    print(f"  Listo, por revisar: {rel(prefijo)}.png\n    antes y ahora, como en el juego: {rel(prefijo)}.gif\n"
+          f"    las cartas de cerca (medida y sin fondo): {rel(prefijo)}-detalle.png\n"
+          f"    comparación: {rel(prefijo)}-comparacion.jpg")
+    if parpadeo is not None:
+        nombre_p = os.path.join(carpeta(pid), con_version(f"{pid}-frente-parpadeo-cartas", n))
+        pegar_ojos(base, parpadeo, cand).save(f"{nombre_p}.png")
+        gif_revision(pid, "frente", cand, Image.open(f"{nombre_p}.png").convert("RGB"), "parpadeo", med, f"{nombre_p}.gif")
+        print(f"    parpadeo (los ojos cerrados de antes, sin gastar): {rel(nombre_p)}.png y su GIF {rel(nombre_p)}.gif")
+    print(f"    costo: ${gastado:.4f} USD")
+
+
+def cmd_aprobar_cartas(args):
+    """Pasa la espera con el reverso nuevo y su parpadeo a arte/personajes/ (respalda los que reemplazan)."""
+    pid = args.personaje
+    vs = versiones(pid, f"{pid}-frente-espera-cartas")
+    if not vs:
+        sys.exit(f"No hay versiones de {pid}-frente-espera-cartas que hayan pasado las revisiones en {rel(carpeta(pid))}/.")
+    n = args.version or max(vs)
+    if n not in vs:
+        sys.exit(f"No existe la versión {n} (hay: {sorted(vs)}).")
+    nuevos = {"espera": vs[n]}
+    parp = os.path.join(carpeta(pid), con_version(f"{pid}-frente-parpadeo-cartas", n) + ".png")
+    if os.path.exists(aprobado(pid, "frente", "parpadeo")):
+        if not os.path.exists(parp):
+            sys.exit(f"Falta {rel(parp)}, el parpadeo de esa versión.")
+        nuevos["parpadeo"] = parp
+    hora = f"{datetime.now():%Y%m%d-%H%M%S}"
+    for cuadro, origen in nuevos.items():
+        destino = aprobado(pid, "frente", cuadro)
+        if os.path.exists(destino):
+            respaldo = os.path.join(ARTE, "respaldos", f"{pid}-frente-{cuadro}-{hora}.png")
+            os.makedirs(os.path.dirname(respaldo), exist_ok=True)
+            shutil.copy2(destino, respaldo)
+            print(f"  el que estaba quedó respaldado en {rel(respaldo)}")
+        shutil.copy2(origen, destino)
+        print(f"  {rel(origen)} -> {rel(destino)}")
+    print(f"Sigue, para que el juego lo use:\n"
+          f"  .venv-rembg/bin/python scripts/optimizar-arte.py personajes {pid}\n"
+          f"  .venv-rembg/bin/python scripts/optimizar-arte.py registrar {pid}\n"
+          f"  .venv-rembg/bin/python scripts/optimizar-arte.py gif {pid}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Genera los cuadros de un personaje editando su base aprobada con Gemini.")
     sub = ap.add_subparsers(dest="comando", required=True)
@@ -682,8 +1178,17 @@ def main():
     a.add_argument("personaje")
     a.add_argument("--pose", action="append", required=True, help="por ejemplo frente-parpadeo (se puede repetir)")
     a.add_argument("--version", type=int, help="otra versión en vez de la más reciente, por ejemplo 2")
+    c = sub.add_parser("cartas", help="el reverso de la baraja en las cartas de la mano, del mismo tamaño en la mesa")
+    c.add_argument("personajes", nargs="*", help="uno para generar; sin nombres (con --simular), todos los de scripts/fichas/")
+    c.add_argument("--simular", action="store_true", help="la tabla de tamaños, las zonas y el prompt, sin llamar a la API")
+    c.add_argument("--si", action="store_true", help="no pedir confirmación")
+    c.add_argument("--modelo", help="otro modelo en vez del de prompts-personaje.toml")
+    c.add_argument("--tamano", choices=["1K", "2K", "4K"], help="otro tamaño en vez del de prompts-personaje.toml")
+    ac = sub.add_parser("aprobar-cartas", help="pasa la espera con el reverso nuevo y su parpadeo a arte/personajes/")
+    ac.add_argument("personaje")
+    ac.add_argument("--version", type=int, help="otra versión en vez de la más reciente, por ejemplo 2")
     args = ap.parse_args()
-    cmd_generar(args) if args.comando == "generar" else cmd_aprobar(args)
+    {"generar": cmd_generar, "aprobar": cmd_aprobar, "cartas": cmd_cartas, "aprobar-cartas": cmd_aprobar_cartas}[args.comando](args)
 
 
 if __name__ == "__main__":

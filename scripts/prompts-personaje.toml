@@ -82,3 +82,34 @@ themselves. The hands keep their design ({manos}) and the card backs stay navy b
 [[cuadros.gana]]
 zona = "cara"
 texto = "{sonrisa}"
+
+# ---------- cartas: el reverso de la baraja en las cartas de la mano (comando cartas) ----------
+# UNA llamada edita la espera aprobada con dos imágenes: la base y el reverso aprobado (arte/baraja/reverso-carta.png,
+# el marco sin la etiqueta). Las cartas toman ese reverso y, si hace falta, cambian de tamaño para que en la mesa todos
+# tengan cartas del mismo ancho (CARTA_MESA en generar-personaje.py). Solo se toma la zona de las cartas; si el
+# tamaño cambia mucho, también la de las manos y los antebrazos. {tamano} es una de igual, mas_grandes o mas_chicas.
+[cartas]
+texto = """
+Edit the first attached image. Change only one thing: the two face-down playing cards held in the hands. Their \
+backs now look like the card back in the second attached image: white, with an ornate brick-red scroll frame along \
+the edges and a plain white center, with no text, letters or logo. {tamano}{manos_frase} {agarre} Everything \
+else stays exactly identical, pixel for pixel: {se_queda}, the line work, the colors, the framing, the size, the position \
+and the flat {fondo} background.{opacas} Do not add text, letters, numbers or logos anywhere. Do not move, resize \
+or redraw anything else.
+"""
+igual = "The cards keep their size, position and angle."
+mas_grandes = "The cards become about {pct}% larger than now (each card about {px} pixels wide, including its dark outline, in this {lado}-pixel-wide image), in the same position and angle."
+mas_chicas = "The cards become about {pct}% smaller than now (each card about {px} pixels wide, including its dark outline, in this {lado}-pixel-wide image), in the same position and angle."
+# cómo sostienen las cartas, para los seis: por abajo y los lados, para que se vea casi todo el reverso
+agarre = "The hands hold the cards only by their bottom edge and sides, with the fingers covering as little of the card backs as possible, so most of each card back stays visible."
+# solo si el tamaño cambia mucho (la zona incluye las manos y los antebrazos)
+manos_frase = " The hands and forearms adjust so they hold the resized cards naturally; the hands keep their design ({manos}) and their size."
+se_queda = "the face and the expression, the head{rasgos}, the body, the arms, the hands, the legs, the chair"
+se_queda_manos = "the face and the expression, the head{rasgos}, the body, the upper arms, the legs, the chair"
+
+# las frases de las revisiones propias de este comando, para el reintento ({sentido} es "too big" o "too small")
+[cartas.correcciones]
+tamano = "The cards came out {sentido}: each card must be about {px} pixels wide, including its dark outline, in this {lado}-pixel-wide image."
+sin_cartas = "The card backs must clearly be white with the brick-red ornate frame of the second image."
+azul = "No part of the old navy blue card backs remains."
+rojo = "Keep the red of the card frames a pure brick red, never pink or purple."

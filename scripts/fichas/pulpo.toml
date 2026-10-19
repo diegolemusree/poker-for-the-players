@@ -18,3 +18,8 @@ fichas = "red and white poker chips"   # nunca del color del fondo: el chroma ke
 
 opacas = []
 rasgos = ["the tentacles around the mouth", "the dark spots on the head"]
+
+# comando cartas (px de la base, [izquierda, arriba, derecha, abajo]): las dos cartas de la mano con su contorno, y las
+# manos con los antebrazos hasta cerca del codo, que entran a la zona cuando el tamaño de las cartas cambia mucho
+caja_cartas = [430, 420, 596, 560]
+caja_manos = [370, 470, 730, 600]

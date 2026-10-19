@@ -18,3 +18,8 @@ fichas = "dark blue and white poker chips"   # nunca del color del fondo: el chr
 
 opacas = []   # partes que nunca dejan ver el fondo (el alien no tiene nada cercano al magenta)
 rasgos = ["the antennae"]   # lo propio del personaje que el prompt pide dejar igual
+
+# comando cartas (px de la base, [izquierda, arriba, derecha, abajo]): las dos cartas de la mano con su contorno, y las
+# manos con los antebrazos hasta cerca del codo, que entran a la zona cuando el tamaño de las cartas cambia mucho
+caja_cartas = [509, 440, 625, 540]
+caja_manos = [385, 470, 640, 612]
