@@ -23,3 +23,5 @@ rasgos = ["the sunglasses on top of the head", "the ponytail", "the shell neckla
 # manos con los antebrazos hasta cerca del codo, que entran a la zona cuando el tamaño de las cartas cambia mucho
 caja_cartas = [505, 280, 594, 354]
 caja_manos = [425, 300, 610, 395]
+# el hueco entre las manos (donde terminaban las cartas viejas) se rellena con su piel, no con el gris de la silla
+relleno = "piel"

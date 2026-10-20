@@ -1015,12 +1015,15 @@ def _orilla_suave(girada, tam, n):
     return Image.fromarray(np.dstack([rgb, np.clip(0.5 - adentro, 0, 1) * 255]).round().astype(np.uint8), "RGBA")
 
 
-def _rellenar(a, mascara, vueltas=12):
+def _rellenar(a, mascara, vueltas=12, piel=None):
     """Tapa la máscara con el color de alrededor: el del píxel más cercano del cuerpo (ni tinta ni sombra oscura, ni
-    restos de carta), suavizado por difusión. Es un borrador: Gemini redibuja esa parte."""
+    restos de carta), suavizado por difusión. Es un borrador: Gemini redibuja esa parte. Con `piel` (un color), solo
+    de lo que se parece a ella: así no entra lo de junto que no es cuerpo (el tubo gris de la silla de la turista)."""
     lum, sat = a @ LUMA, a.max(axis=2) - a.min(axis=2)
     cerca = ndi.binary_dilation(mascara, iterations=12) & ~ndi.binary_dilation(mascara, iterations=2)
     fuente = cerca & (lum > 110) & ~_azul(a) & ~((lum > 160) & (sat < 50) & ~(a[..., 2] > a[..., 0] + 40))
+    if piel is not None:
+        fuente &= np.linalg.norm(a - np.asarray(piel, np.float32), axis=2) < 60
     if not fuente.any():
         fuente = ~mascara & (lum > 90)
     _, (iy, ix) = ndi.distance_transform_edt(~fuente, return_indices=True)
@@ -1165,7 +1168,8 @@ def entrada_dibujada(base, ficha, info, ancla="arriba", mover=None):
         mover = min([0] + [s * k for k in range(1, 31) for s in (-1, 1)], key=calif)
     nuevas, franjas = geometria_nuevas(viejas, info["objetivo"], ancla, mover)
     a = np.asarray(base).astype(np.float32)
-    img = Image.fromarray(np.clip(_rellenar(a, relleno), 0, 255).astype(np.uint8)).convert("RGBA")
+    piel = np.median(a[dedos], axis=0) if ficha.get("relleno") == "piel" else None   # la de sus dedos
+    img = Image.fromarray(np.clip(_rellenar(a, relleno, piel=piel), 0, 255).astype(np.uint8)).convert("RGBA")
     capa = Image.new("RGBA", base.size, (0, 0, 0, 0))   # las cartas solas, con orillas suaves: las del resultado
     formas = []
     for n in reversed(nuevas):   # la de atrás primero, la de enfrente encima
@@ -1417,17 +1421,22 @@ def png64(img):
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def preparar_cartas(pid, ficha):
+def preparar_cartas(pid, ficha, respaldo=None):
     """Lo que necesitan el plan y la generación de cartas de un personaje: su base, el color de su fondo, sus medidas
-    del juego, el plan (tamaño y zona) y su parpadeo aprobado (o None)."""
-    base_path = aprobado(pid, "frente", "espera")
+    del juego, el plan (tamaño y zona) y su parpadeo aprobado (o None). Con `respaldo` (la fecha y hora de
+    arte/respaldos/), la base y el parpadeo de antes de aprobar: para rehacer uno que ya tiene las cartas nuevas."""
+    base_path, parp_path = (aprobado(pid, "frente", c) for c in ("espera", "parpadeo"))
+    if respaldo:
+        base_path, parp_path = (os.path.join(ARTE, "respaldos", f"{pid}-frente-{c}-{respaldo}.png")
+                                for c in ("espera", "parpadeo"))
+        if not os.path.exists(base_path):
+            sys.exit(f"No existe {rel(base_path)}.")
     base = Image.open(base_path).convert("RGB")
     K, tipo, _ = OPT.fondo_de(np.asarray(base).astype(np.float32), os.path.basename(base_path))
     if tipo != ficha["fondo"]:
         sys.exit(f"La ficha de {pid} dice fondo {ficha['fondo']}, pero su base tiene fondo {tipo}.")
     med = medidas(pid, "frente", base)
     info = plan_cartas(pid, base, ficha, med)
-    parp_path = aprobado(pid, "frente", "parpadeo")
     parpadeo = Image.open(parp_path).convert("RGB") if os.path.exists(parp_path) else None
     revisar_ojos(pid, base, parpadeo, info["zona"])
     return base, K, med, info, parpadeo
@@ -1498,7 +1507,10 @@ def cmd_cartas(args):
               + ("bien" if not f_dib else "NO: " + "; ".join(f_dib.values()))
               + f"  (franjas visibles {v_dib['franjas']}, dedos {v_dib['dedos']:.0%}, ancho {v_dib['ancho']})")
     total = sum(f[-1] for f in filas)
-    print(f"Costo estimado: ~${total:.2f} USD (hasta ${total * MAX_LLAMADAS:.2f} si todo se reintenta), "
+    maximo = args.llamadas or MAX_LLAMADAS
+    if not 1 <= maximo <= MAX_LLAMADAS:
+        sys.exit(f"--llamadas va de 1 a {MAX_LLAMADAS}.")
+    print(f"Costo estimado: ~${total:.2f} USD (hasta ${total * maximo:.2f} si todo se reintenta), "
           f"con {cfg['modelo']} a {cfg['image_size']}")
     if args.simular or not filas:
         return
@@ -1510,14 +1522,14 @@ def cmd_cartas(args):
     if not args.si and input("¿Generar? [s/N] ").strip().lower() not in ("s", "si", "sí"):
         print("Cancelado.")
         return
-    generar_cartas(cliente(), cfg, P, ficha, pid, base, K, med, info, parpadeo, entrada, datos)
+    generar_cartas(cliente(), cfg, P, ficha, pid, base, K, med, info, parpadeo, entrada, datos, maximo)
     print(f"Gastado en total según los registros de arte/generadas/: ${gastado_en_total():.4f} USD")
 
 
-def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, entrada, datos):
-    """La espera con las cartas nuevas: Gemini recibe el dibujo y redibuja las manos (como mucho MAX_LLAMADAS
-    peticiones). De su respuesta solo se toma la zona y, dentro de ella, solo lo que cambió contra el dibujo: donde no
-    tocó las cartas, siguen siendo las de código. Luego el parpadeo, con los ojos cerrados de antes, sin gastar."""
+def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, entrada, datos, maximo=MAX_LLAMADAS):
+    """La espera con las cartas nuevas: Gemini recibe el dibujo y redibuja las manos (como mucho `maximo`
+    peticiones). De su respuesta solo se toma la zona y, dentro de ella, lo que cambió; encima, las cartas de código
+    salvo donde Gemini puso un dedo (componer_cartas). Luego el parpadeo, con los ojos cerrados de antes, sin gastar."""
     nombre = f"{pid}-frente-espera-cartas"
     os.makedirs(carpeta(pid), exist_ok=True)   # antes de pagar: lo crudo se guarda en cuanto llega
     n = siguiente_version(pid, nombre)
@@ -1531,9 +1543,9 @@ def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, ent
     entrada64 = png64(lienzo)
     zona, crudos, gastado, correcciones, cand, cache = info["zona"], [("dibujo enviado", entrada)], 0, [], None, {}
     print(f"{os.path.basename(prefijo)}: zona {zona}, cartas de {info['objetivo']:.0f} px dibujadas por código", flush=True)
-    for intento in range(1, MAX_LLAMADAS + 1):
+    for intento in range(1, maximo + 1):
         prompt = prompt_cartas(P, ficha, correcciones)
-        print(f"  llamada {intento} de {MAX_LLAMADAS}...", flush=True)
+        print(f"  llamada {intento} de {maximo}...", flush=True)
         t0, r, error, gen, crudo = time.time(), None, None, None, None
         try:
             r = pedir(client, cfg, prompt, entrada64)
@@ -1581,7 +1593,7 @@ def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, ent
     if fallas:   # se acabaron las llamadas
         if cand is not None:
             guardar_cartas(pid, prefijo, n, base, crudos, cand, info, med, parpadeo, falla=True)
-        print(f"  {os.path.basename(prefijo)}: no pasó las revisiones en {MAX_LLAMADAS} llamadas. "
+        print(f"  {os.path.basename(prefijo)}: no pasó las revisiones en {maximo} llamada(s). "
               + (f"Lo último quedó en {rel(prefijo)}-FALLA.png (y su -comparacion, -detalle y GIF). " if cand is not None else "")
               + f"Costo: ${gastado:.4f} USD.")
         return
@@ -1612,17 +1624,28 @@ def guardar_cartas(pid, prefijo, n, base, crudos, cand, info, med, parpadeo, fal
 def cmd_recomponer_cartas(args):
     """Vuelve a armar el cuadro de una versión con las respuestas de Gemini ya pagadas (sus -crudoN.png), sin llamar a
     la API: la combinada y las revisiones de hoy. Si una pasa, deja esa versión como si hubiera salido así (para
-    aprobar-cartas); si no, rehace sus -FALLA."""
+    aprobar-cartas); si no, rehace sus -FALLA. Con --respaldo, parte de la base de antes de aprobar."""
     pid = args.personaje
     ficha = cargar_ficha(pid)
-    base, K, med, info, parpadeo = preparar_cartas(pid, ficha)
+    base, K, med, info, parpadeo = preparar_cartas(pid, ficha, args.respaldo)
     entrada, datos = entrada_dibujada(base, ficha, info)
     info["zona"], info["zona_medida"] = datos["zona"], datos["zona_medida"]
     prefijo = os.path.join(carpeta(pid), con_version(f"{pid}-frente-espera-cartas", args.version))
     if not os.path.exists(f"{prefijo}-entrada.png"):
         sys.exit(f"No encuentro {rel(prefijo)}-entrada.png: esa versión no es del método de cartas dibujadas.")
-    if (np.asarray(Image.open(f"{prefijo}-entrada.png").convert("RGB")) != np.asarray(entrada)).any():
-        sys.exit("El dibujo de hoy no es el que se mandó en esa versión: no se puede recomponer con él.")
+    enviado = np.asarray(Image.open(f"{prefijo}-entrada.png").convert("RGB"))
+    distintos = int((enviado != np.asarray(entrada)).any(axis=2).sum())
+    if distintos:
+        # la combinada no usa el dibujo (solo la base, la respuesta y las cartas solas): basta con que las cartas
+        # queden donde estaban en el que se mandó
+        antes = json.load(open(f"{prefijo}-franjas.json"))
+        iguales = antes["mover"] == datos["mover"] and len(antes["franjas_px"]) == len(datos["franjas"]) and all(
+            np.hypot(*np.subtract(a["c"], b["c"])) <= 0.5 and abs(a["angulo"] - b["angulo"]) <= 0.5
+            for a, b in zip(antes["franjas_px"], datos["franjas"]))
+        if not iguales:
+            sys.exit("Las cartas del dibujo de hoy no quedan donde estaban en el que se mandó: no se puede recomponer.")
+        print(f"  (el dibujo de hoy difiere del que se mandó en {distintos} px del relleno y los dedos viejos, que la "
+              f"combinada no usa; las cartas quedan en el mismo lugar)")
     lienzo, dentro = a_cuadrado(entrada, K)
     crudos, pasa, ultima = [("dibujo enviado", entrada)], None, None
     patron = re.compile(re.escape(os.path.basename(prefijo)) + r"-crudo(\d+)\.png")
@@ -1721,10 +1744,14 @@ def main():
     c.add_argument("--si", action="store_true", help="no pedir confirmación")
     c.add_argument("--modelo", help="otro modelo en vez del de prompts-personaje.toml")
     c.add_argument("--tamano", choices=["1K", "2K", "4K"], help="otro tamaño en vez del de prompts-personaje.toml")
+    c.add_argument("--llamadas", type=int,
+                   help=f"tope de llamadas de esta vez (de 1 a {MAX_LLAMADAS}; sin esto, {MAX_LLAMADAS})")
     rc = sub.add_parser("recomponer-cartas", help="rearma una versión con sus respuestas ya pagadas, sin llamar a la API")
     rc.add_argument("personaje")
     rc.add_argument("--version", type=int, required=True, help="la versión de <id>-frente-espera-cartas, por ejemplo 2")
     rc.add_argument("--llamada", type=int, help="usar la respuesta de esta llamada (sin esto, la primera que pase)")
+    rc.add_argument("--respaldo", help="fecha-hora de arte/respaldos/ (por ejemplo 20261019-182031): partir de la base "
+                    "de antes de aprobar")
     ac = sub.add_parser("aprobar-cartas", help="pasa la espera con el reverso nuevo y su parpadeo a arte/personajes/")
     ac.add_argument("personaje")
     ac.add_argument("--version", type=int, help="otra versión en vez de la más reciente, por ejemplo 2")
