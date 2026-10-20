@@ -22,4 +22,4 @@ rasgos = ["the glasses", "the hair"]
 # comando cartas (px de la base, [izquierda, arriba, derecha, abajo]): las dos cartas de la mano con su contorno, y las
 # manos con los antebrazos hasta cerca del codo, que entran a la zona cuando el tamaño de las cartas cambia mucho
 caja_cartas = [437, 555, 604, 684]
-caja_manos = [320, 600, 700, 720]
+caja_manos = [320, 600, 712, 745]   # hasta abajo de los codos y la orilla del brazo derecho

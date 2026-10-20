@@ -65,10 +65,11 @@ recibe y no cambia tamaños si se le piden, así que las cartas se dibujan por c
 tapan, las nuevas van con el reverso aprobado (arte/baraja/reverso-carta.png) y la franja de la etiqueta vacía, al
 ancho objetivo, y los dedos que estaban encima se quedan encima, sin tapar las franjas. Gemini solo redibuja las manos
 y los antebrazos alrededor; la zona es caja_cartas (crecida si las cartas crecen) más caja_manos, y de ella solo se
-toma lo que cambió contra el dibujo. Además de las revisiones de siempre: el ancho medido (TOL_TAMANO), cada franja
-visible y del rojo de la etiqueta (FRANJA_MIN), los dedos encima de la carta (DEDOS_MIN), sin restos del azul viejo,
-el rojo entero con el chroma key y la misma caja de recorte. Si el dibujo mismo no pasa, no se gasta. El parpadeo no
-se genera: sus ojos cerrados se pegan sobre la espera nueva. Las letras de la franja las pone el juego con etiqueta()
+toma lo que cambió; encima van las cartas exactas del dibujo, salvo donde Gemini puso un dedo (componer_cartas).
+Además de las revisiones de siempre: el ancho medido (TOL_TAMANO), cada franja visible y del rojo de la etiqueta
+(FRANJA_MIN), los dedos encima de la carta (DEDOS_MIN), sin restos del azul viejo, el rojo entero con el chroma key y
+la misma caja de recorte. Si el dibujo mismo no pasa, no se gasta. El parpadeo no se genera: sus ojos cerrados se
+pegan sobre la espera nueva. Las letras de la franja las pone el juego con etiqueta()
 de client/stage/cards.js, con las franjas que aprobar-cartas anota en client/stage/personajes.json.
 
     .venv-rembg/bin/python scripts/generar-personaje.py cartas --simular          # la tabla y los dibujos, sin gastar
@@ -282,35 +283,46 @@ def componer(base, gen, zona, sobre=None):
 
 
 
-CARTA_IGUAL = 60   # dentro de las cartas nuevas: diferencia por canal hasta la que Gemini se quedó con la carta del dibujo
+# dentro de las cartas nuevas, lo que Gemini puso encima (un dedo): lo grueso que difiere de la carta del dibujo en
+# más de ENCIMA por canal (la piel clara del nerd difiere del papel apenas 30 a 60; el ruido del papel de Gemini pasa
+# de 20 en pocos px sueltos, que no son gruesos)
+ENCIMA = 20
 
 
-def componer_cartas(base, entrada, gen, zona, datos):
+def _disco(r):
+    y, x = np.mgrid[-r:r + 1, -r:r + 1]
+    return x * x + y * y <= r * r + r
+
+
+def componer_cartas(base, gen, zona, datos):
     """La combinada de cartas. De la respuesta de Gemini se toma lo que cambió contra la base dentro de la zona, como en
     componer (las manos redibujadas, el cuerpo donde estaban las cartas viejas y las cartas nuevas), y todo lo demás es
-    la base píxel por píxel; luego, dentro de las cartas nuevas, donde Gemini dejó la carta (no puso un dedo encima) va
-    la carta exacta del dibujo. (Componer contra el dibujo dejaba parches del relleno: donde Gemini pintó el cuerpo
-    limpio con un color parecido al del relleno, no pasaba del umbral.)"""
+    la base píxel por píxel; luego, encima, las cartas exactas del dibujo (`datos["capa"]`: solas, sin los dedos viejos
+    ni el relleno de alrededor, con sus esquinas redondas y su orilla suave), salvo donde Gemini puso algo encima. Lo
+    de encima es lo grueso que difiere de la carta (el redibujo de las líneas finas del marco no cuenta), con su orilla
+    y sus huecos chicos (la piel clara no queda transparente), y hacia él no se difumina (la orilla de la carta no se
+    asoma encima del dedo). (Comparar contra el dibujo con los dedos viejos dejaba sus fantasmas donde Gemini movió un
+    dedo; pegar el dibujo en un polígono con margen, una tira del relleno alrededor de las cartas.)"""
     cand, mz = componer(base, gen, zona)
-    E, G, C = (np.asarray(i).astype(np.float32) for i in (entrada, gen, cand))
-    en_cartas = np.zeros(E.shape[:2], bool)
-    for n in datos["nuevas"]:   # cada carta con su contorno
-        en_cartas |= _mascara_poligono(poligono_carta({**n, "u0": n["u0"] - CONTORNO, "v0": n["v0"] - CONTORNO,
-                                                       "W": n["W"] + 2 * CONTORNO, "H": n["H"] + 2 * CONTORNO}), base.size)
-    carta = en_cartas & (np.abs(G - E).max(axis=2) <= CARTA_IGUAL)
-    # adentro de las cartas, lo distinto que queda suelto y chico (motas, el redibujo de Gemini de las líneas finas del
-    # marco) también es la carta del dibujo; lo que toca una parte grande (un dedo encima) se queda
-    adentro = ndi.binary_erosion(en_cartas, iterations=CONTORNO + 2)
-    distinto = adentro & ~carta
-    lab, n = ndi.label(distinto, structure=np.ones((3, 3)))
-    if n:
-        tam = ndi.sum(distinto, lab, index=np.arange(1, n + 1))
-        grandes = np.isin(lab, np.arange(1, n + 1)[tam >= 60])
-        cerca = ndi.binary_dilation(grandes, iterations=2)
-        chicas = np.isin(lab, np.arange(1, n + 1)[tam < 20]) & ~cerca
-        carta |= chicas
-    M = np.asarray(Image.fromarray(carta.astype(np.uint8) * 255).filter(ImageFilter.GaussianBlur(0.7))).astype(np.float32)
-    M = (M / 255 * en_cartas)[..., None]
+    capa = np.asarray(datos["capa"]).astype(np.float32)
+    E, A = capa[..., :3], capa[..., 3] / 255   # las cartas y cuánto cubren
+    G, C = (np.asarray(i).astype(np.float32) for i in (gen, cand))
+    en_cartas = A > 0.5
+    W = datos["nuevas"][0]["W"]
+    r = max(2, round(W / 30))   # un dedo mide por lo menos 2r + 1 px de grueso; las líneas del marco, menos
+    distinto = en_cartas & (np.abs(G - E).max(axis=2) > ENCIMA)
+    encima = ndi.binary_opening(distinto, structure=_disco(r))
+    encima = ndi.binary_dilation(encima, structure=_disco(1), iterations=r + 2, mask=distinto)   # con su orilla
+    tapado = encima | ~en_cartas   # huecos chicos: dentro de un dedo, o entre él y la orilla de la carta
+    huecos = ndi.binary_fill_holes(tapado) & ~tapado
+    lab, k = ndi.label(huecos)
+    if k:
+        tam = ndi.sum(huecos, lab, index=np.arange(1, k + 1))
+        encima |= np.isin(lab, np.arange(1, k + 1)[tam <= 0.03 * W * W])
+    tapa = ndi.binary_dilation(encima, iterations=1)   # ahí, nada de la carta; del lado de la carta, una orilla suave
+    suave = np.asarray(Image.fromarray(tapa.astype(np.uint8) * 255).filter(ImageFilter.GaussianBlur(0.6)))
+    M = (A * (1 - suave.astype(np.float32) / 255) * ~tapa)[..., None]
+    mz["dibujo"] = M[..., 0] > 0.5   # lo que es la carta del dibujo (el OCR no lo lee: no es de Gemini)
     return Image.fromarray((C * (1 - M) + E * M).round().astype(np.uint8)), mz
 
 # ---------- revisiones ----------
@@ -426,11 +438,18 @@ def revisar(base, gen, cand, nombre_zona, zona, mz, med, cache):
     if box[0] < mb[0] or box[1] < mb[1] or box[2] > mb[2] or box[3] > mb[3]:
         fallas["caja"] = f"lo visible se sale de la caja de recorte {mb} (queda {box}): cambiarían el recorte y las medidas"
 
-    # texto: nada que el OCR lea y que no estuviera ya en la base
+    # texto: nada que el OCR lea y que no estuviera ya en la base. Lo que es dibujo nuestro (las cartas exactas de
+    # componer_cartas) se tapa antes: las volutas del marco a veces se leen como letras ("escsa", "aore", con
+    # confianza de 0.3 a 0.5, también en las respuestas de Gemini); lo que viene de Gemini, dedos incluidos, se lee
     clave = ("textos", zona)
     if clave not in cache:
         cache[clave] = textos(base, zona)
-    leidos = textos(cand, zona)
+    leer = cand
+    if "dibujo" in mz:
+        a = np.asarray(cand).copy()
+        a[mz["dibujo"]] = np.median(a[mz["dibujo"]], axis=0)
+        leer = Image.fromarray(a)
+    leidos = textos(leer, zona)
     if leidos is None or cache[clave] is None:
         v["texto"] = "sin OCR (no hay swiftc): revísalo a ojo"
     else:
@@ -978,6 +997,24 @@ def dibujo_carta(W, etq, contorno=CONTORNO, s=4):
     return carta.resize((round(carta.size[0] / s), round(carta.size[1] / s)), Image.LANCZOS)
 
 
+def _orilla_suave(girada, tam, n):
+    """La carta ya girada (para la capa del resultado, no para el dibujo que recibe Gemini) con la orilla suave también
+    en sus lados rectos: al girar, PIL deja escalones donde la carta llega a la orilla de su imagen. Cuánto cubre cada
+    px sale de la forma (el rectángulo redondeado de dibujo_carta, de `tam` px, centrado donde quedó la carta), y donde
+    la carta girada no tenía nada va la tinta del contorno."""
+    a = np.asarray(girada).astype(np.float32)
+    yy, xx = np.mgrid[0:a.shape[0], 0:a.shape[1]] + 0.5
+    peso = a[..., 3] / 255
+    cx, cy = (xx * peso).sum() / peso.sum(), (yy * peso).sum() / peso.sum()   # su centro, como quedó al girar
+    c_, s_ = np.cos(n["t"]), np.sin(n["t"])
+    u, v = (xx - cx) * c_ + (yy - cy) * s_, -(xx - cx) * s_ + (yy - cy) * c_   # en la carta, desde su centro
+    R = 26 / 256 * n["W"] + n["contorno"]   # la esquina de dibujo_carta, con el contorno
+    qx, qy = np.abs(u) - (tam[0] / 2 - R), np.abs(v) - (tam[1] / 2 - R)
+    adentro = np.hypot(np.maximum(qx, 0), np.maximum(qy, 0)) + np.minimum(np.maximum(qx, qy), 0) - R   # < 0: adentro
+    rgb = np.where(a[..., 3:] > 0, a[..., :3], np.array(TINTA, np.float32))
+    return Image.fromarray(np.dstack([rgb, np.clip(0.5 - adentro, 0, 1) * 255]).round().astype(np.uint8), "RGBA")
+
+
 def _rellenar(a, mascara, vueltas=12):
     """Tapa la máscara con el color de alrededor: el del píxel más cercano del cuerpo (ni tinta ni sombra oscura, ni
     restos de carta), suavizado por difusión. Es un borrador: Gemini redibuja esa parte."""
@@ -1129,12 +1166,15 @@ def entrada_dibujada(base, ficha, info, ancla="arriba", mover=None):
     nuevas, franjas = geometria_nuevas(viejas, info["objetivo"], ancla, mover)
     a = np.asarray(base).astype(np.float32)
     img = Image.fromarray(np.clip(_rellenar(a, relleno), 0, 255).astype(np.uint8)).convert("RGBA")
+    capa = Image.new("RGBA", base.size, (0, 0, 0, 0))   # las cartas solas, con orillas suaves: las del resultado
     formas = []
     for n in reversed(nuevas):   # la de atrás primero, la de enfrente encima
         cx, cy = _a_xy(n["t"], n["u0"] + n["W"] / 2, n["v0"] + n["H"] / 2)
-        dib = dibujo_carta(n["W"], etq, n["contorno"]).rotate(-np.degrees(n["t"]), resample=Image.BICUBIC, expand=True)
+        recta = dibujo_carta(n["W"], etq, n["contorno"])
+        dib = recta.rotate(-np.degrees(n["t"]), resample=Image.BICUBIC, expand=True)
         donde = (round(cx - dib.size[0] / 2), round(cy - dib.size[1] / 2))
         img.alpha_composite(dib, donde)
+        capa.alpha_composite(_orilla_suave(dib, recta.size, n), donde)
         forma = Image.new("L", base.size, 0)   # la forma de la carta (con sus esquinas redondas), para las revisiones
         forma.paste(dib.getchannel("A"), donde)
         formas.insert(0, np.asarray(forma) > 128)
@@ -1146,8 +1186,13 @@ def entrada_dibujada(base, ficha, info, ancla="arriba", mover=None):
     x0, y0, x1, y1 = info["zona"]
     zona = (max(0, min(x0, int(puntos[:, 0].min()) - m_)), max(0, min(y0, int(puntos[:, 1].min()) - m_)),
             min(base.size[0], max(x1, int(puntos[:, 0].max()) + m_)), min(base.size[1], max(y1, int(puntos[:, 1].max()) + m_)))
+    # para medir el ancho: la zona hasta poco abajo de las franjas. Más abajo están las manos, y un dedo que toca las
+    # dos cartas las junta en una (la piel clara de la turista pasa por el marco claro)
+    abajo = max(y for f in franjas for _, y in f["rect"]) + 0.1 * nuevas[0]["W"]
+    zona_medida = (zona[0], zona[1], zona[2], min(zona[3], int(np.ceil(abajo))))
     return Image.fromarray(salida), {"nuevas": nuevas, "franjas": franjas, "relleno": relleno, "dedos": dedos,
-                                     "ancla": ancla, "mover": mover, "zona": zona, "formas": formas,
+                                     "capa": capa, "ancla": ancla, "mover": mover, "zona": zona,
+                                     "zona_medida": zona_medida, "formas": formas,
                                      "tapado": tapado_por_dedos(franjas, dedos, base.size),
                                      "contacto": contacto_de_dedos(nuevas[0], dedos, base.size)}
 
@@ -1171,7 +1216,7 @@ def revisar_dibujo(img, datos, info):
     v["dedos"] = round(float(_no_carta(a)[abajo].mean()), 3)
     if v["dedos"] < DEDOS_MIN:
         fallas["dedos"] = f"los dedos no quedan encima de la carta de enfrente ({v['dedos']:.0%} de su mitad de abajo)"
-    medidas = medir_cartas(img, info["zona"], "rojo")
+    medidas = medir_cartas(img, datos["zona_medida"], "rojo")
     v["ancho"] = round(medidas[0]["ancho"], 1) if medidas else None
     if not medidas:
         fallas["sin_cartas"] = "no encuentro las cartas con el reverso nuevo para medirlas"
@@ -1346,7 +1391,7 @@ def _rotulo(pid, info, medido=None):
 def detalle_cartas(final, info, destino, pid):
     """Para revisar: las cartas nuevas al triple, con su medida y el objetivo, y sin fondo (el chroma key del juego)
     sobre gris oscuro a cuadros, para ver que el rojo quedó entero."""
-    nuevas = medir_cartas(final, info["zona"], "rojo")
+    nuevas = medir_cartas(final, info.get("zona_medida", info["zona"]), "rojo")
     con_medida = _zoom_cartas(final, info, nuevas[0] if nuevas else None)
     x0, y0, x1, y1 = info["zona"]
     recorte = sin_fondo(final)[0].crop(info["zona"]).resize(con_medida.size, Image.NEAREST)
@@ -1435,6 +1480,7 @@ def cmd_cartas(args):
             continue
         entrada, datos = entrada_dibujada(base, ficha, info)
         info["zona"] = datos["zona"]   # con las cartas, si se corrieron o crecieron
+        info["zona_medida"] = datos["zona_medida"]
         revisar_ojos(pid, base, parpadeo, info["zona"])
         f_dib, v_dib = revisar_dibujo(entrada, datos, info)
         prompt = prompt_cartas(P, ficha)
@@ -1509,7 +1555,7 @@ def generar_cartas(client, cfg, P, ficha, pid, base, K, med, info, parpadeo, ent
         if gen is None:
             fallas, v = {"sin_imagen": f"no regresó imagen ({error or r.status})"}, {}
         else:
-            cand, mz = componer_cartas(base, entrada, gen, zona, datos)
+            cand, mz = componer_cartas(base, gen, zona, datos)
             fallas, v = revisar(base, gen, cand, "cartas", zona, mz, med, cache)
             f2, v2 = revisar_cartas(base, cand, info, med, parpadeo, ficha, datos)
             fallas.update(f2)
@@ -1571,7 +1617,7 @@ def cmd_recomponer_cartas(args):
     ficha = cargar_ficha(pid)
     base, K, med, info, parpadeo = preparar_cartas(pid, ficha)
     entrada, datos = entrada_dibujada(base, ficha, info)
-    info["zona"] = datos["zona"]
+    info["zona"], info["zona_medida"] = datos["zona"], datos["zona_medida"]
     prefijo = os.path.join(carpeta(pid), con_version(f"{pid}-frente-espera-cartas", args.version))
     if not os.path.exists(f"{prefijo}-entrada.png"):
         sys.exit(f"No encuentro {rel(prefijo)}-entrada.png: esa versión no es del método de cartas dibujadas.")
@@ -1586,7 +1632,7 @@ def cmd_recomponer_cartas(args):
             gen = gen.resize(lienzo.size, Image.LANCZOS)
         gen = gen.crop(dentro)
         crudos.append((f"Gemini, llamada {k}", gen))
-        cand, mz = componer_cartas(base, entrada, gen, info["zona"], datos)
+        cand, mz = componer_cartas(base, gen, info["zona"], datos)
         fallas, v = revisar(base, gen, cand, "cartas", info["zona"], mz, med, {})
         f2, v2 = revisar_cartas(base, cand, info, med, parpadeo, ficha, datos)
         fallas.update(f2)
@@ -1604,6 +1650,14 @@ def cmd_recomponer_cartas(args):
     if pasa is None:
         guardar_cartas(pid, prefijo, args.version, base, crudos, ultima, info, med, parpadeo, falla=True)
         print(f"  Ninguna pasa: rehice {rel(prefijo)}-FALLA.png y sus hojas.")
+        # lo que había pasado antes (con otra combinada o con otras revisiones) ya no vale: que no se apruebe por error
+        parp = os.path.join(carpeta(pid), con_version(f"{pid}-frente-parpadeo-cartas", args.version))
+        viejos = [f for f in (f"{prefijo}.png", f"{prefijo}-comparacion.jpg", f"{prefijo}-detalle.png", f"{prefijo}.gif",
+                              f"{parp}.png", f"{parp}.gif") if os.path.exists(f)]
+        for f in viejos:
+            os.remove(f)
+        if viejos:
+            print(f"  Quité el resultado que había pasado antes ({rel(prefijo)}.png y lo suyo): ya no pasa.")
         return
     print(f"  Uso la llamada {pasa[0]}.")
     guardar_cartas(pid, prefijo, args.version, base, crudos, pasa[1], info, med, parpadeo)
