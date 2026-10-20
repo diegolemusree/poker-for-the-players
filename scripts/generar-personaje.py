@@ -298,6 +298,17 @@ def componer_cartas(base, entrada, gen, zona, datos):
         en_cartas |= _mascara_poligono(poligono_carta({**n, "u0": n["u0"] - CONTORNO, "v0": n["v0"] - CONTORNO,
                                                        "W": n["W"] + 2 * CONTORNO, "H": n["H"] + 2 * CONTORNO}), base.size)
     carta = en_cartas & (np.abs(G - E).max(axis=2) <= CARTA_IGUAL)
+    # adentro de las cartas, lo distinto que queda suelto y chico (motas, el redibujo de Gemini de las líneas finas del
+    # marco) también es la carta del dibujo; lo que toca una parte grande (un dedo encima) se queda
+    adentro = ndi.binary_erosion(en_cartas, iterations=CONTORNO + 2)
+    distinto = adentro & ~carta
+    lab, n = ndi.label(distinto, structure=np.ones((3, 3)))
+    if n:
+        tam = ndi.sum(distinto, lab, index=np.arange(1, n + 1))
+        grandes = np.isin(lab, np.arange(1, n + 1)[tam >= 60])
+        cerca = ndi.binary_dilation(grandes, iterations=2)
+        chicas = np.isin(lab, np.arange(1, n + 1)[tam < 20]) & ~cerca
+        carta |= chicas
     M = np.asarray(Image.fromarray(carta.astype(np.uint8) * 255).filter(ImageFilter.GaussianBlur(0.7))).astype(np.float32)
     M = (M / 255 * en_cartas)[..., None]
     return Image.fromarray((C * (1 - M) + E * M).round().astype(np.uint8)), mz

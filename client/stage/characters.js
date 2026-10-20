@@ -13,6 +13,8 @@
 //   mira    hacia dónde ve la imagen: 'izquierda', 'derecha' o 'frente' (la de lado, por regla, 'derecha'). En la
 //           mesa se dibuja en espejo si su asiento queda del otro lado del centro, para que vea hacia el centro
 //   frames  cuadros que existen; archivo <id>-<ángulo>-<cuadro>.webp
+//   franjas por cuadro, la franja vacía de cada carta que tiene en la mano, donde el juego escribe la etiqueta del
+//           logo (rivals.js): la anota scripts/generar-personaje.py aprobar-cartas
 // Del personaje (no de un ángulo): `sillas`, cuántas sillas ocupa (Don Tentáculos, 2): necesita más espacio en la
 // mesa y en práctica (y para quien creó la mesa) se sienta al centro del fondo.
 // Un personaje con "retirado": true se queda en el registro (y sus imágenes en su lugar), pero no se usa.

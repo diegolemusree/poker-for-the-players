@@ -858,7 +858,9 @@ export function createTableScene(container, ui) {
       const pose = a ? a.frame(now, r.idle) : 'espera';
       const dim = r.dim && !(a && a.folding(now)); // se apaga cuando termina de retirarse
       const pxH = Math.round(r.hpx * L.dpr);
-      const img = poseCanvas(r.charId, r.angle, pose, small(), pxH, dim) || poseCanvas(r.charId, r.angle, 'espera', small(), pxH, dim);
+      // ya en espejo si va en espejo (sus etiquetas, derechas)
+      const img = poseCanvas(r.charId, r.angle, pose, small(), pxH, dim, r.mirror)
+        || poseCanvas(r.charId, r.angle, 'espera', small(), pxH, dim, r.mirror);
       if (!img) continue;
       g.save();
       g.beginPath(); polyPath(g, L.outline); g.clip();
@@ -882,7 +884,6 @@ export function createTableScene(container, ui) {
       if (dim) g.globalAlpha = 0.9;
       const b = still || !a ? 0 : a.breath(now / 1000);
       g.translate(r.x, r.y); g.scale(1, 1 + b); g.translate(-r.x, -r.y);
-      if (r.mirror) { g.translate(r.left * 2 + r.wpx, 0); g.scale(-1, 1); } // espejo sobre su propia caja
       g.drawImage(img, r.left, r.top, r.wpx, r.hpx);
       g.restore();
     }

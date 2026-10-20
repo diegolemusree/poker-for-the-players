@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { CHARACTERS, POSES, poseFile, hasPose, characterFor, needsMirror } from '../client/stage/characters.js';
-import { RivalAnim } from '../client/stage/rivals.js';
+import { RivalAnim, lugarEtiqueta } from '../client/stage/rivals.js';
 
 const arte = file => new URL(`../public/assets/arte/${file}.webp`, import.meta.url);
 const registrados = Object.entries(CHARACTERS); // los de personajes.json en uso (antes de agregar los de prueba)
@@ -151,4 +151,34 @@ test('sin cuadro retirarse, o ausente, no hay pose de retirarse', () => {
   assert.equal(ausente.pose, 'espera');
   ausente.react('raise', 'frente', false, 0);
   assert.equal(ausente.pose, 'apuesta');
+});
+
+test('las franjas de las cartas de la mano (donde el juego escribe la etiqueta) están bien formadas', () => {
+  const dentro = v => typeof v === 'number' && v >= 0 && v <= 1;
+  let hay = 0;
+  for (const [id, c] of registrados) {
+    for (const [angle, a] of Object.entries(c.angles)) {
+      for (const [cuadro, franjas] of Object.entries(a.franjas || {})) {
+        assert.ok(a.frames.includes(cuadro), `${id} ${angle}: franjas de un cuadro que no tiene (${cuadro})`);
+        for (const f of franjas) {
+          assert.ok(f.c.length === 2 && f.c.every(dentro), `${id} ${angle} ${cuadro}: centro fuera de la imagen`);
+          assert.ok(f.largo > 0 && f.largo < 1 && f.grueso > 0 && f.grueso < f.largo, `${id} ${angle} ${cuadro}: largo y grueso`);
+          assert.ok(Number.isFinite(f.angulo) && Math.abs(f.angulo) <= 45, `${id} ${angle} ${cuadro}: ángulo`);
+          assert.ok(f.recorte.length >= 3 && f.recorte.every(p => p.length === 2 && p.every(dentro)), `${id} ${angle} ${cuadro}: recorte`);
+          hay++;
+        }
+      }
+    }
+  }
+  assert.ok(CHARACTERS.blob.angles.frente.franjas.espera.length === 2, 'Tío Glub ya tiene sus dos cartas con franja');
+  assert.ok(hay >= 2);
+});
+
+test('en espejo la etiqueta cambia de lado y de ángulo, pero las letras no se voltean', () => {
+  const f = { c: [0.25, 0.5], largo: 0.1, grueso: 0.02, angulo: -9, recorte: [[0.2, 0.49], [0.3, 0.49], [0.3, 0.51], [0.2, 0.51]] };
+  const tal = lugarEtiqueta(f, 400, 500), esp = lugarEtiqueta(f, 400, 500, true);
+  assert.deepEqual([tal.cx, tal.cy, tal.largo, tal.grueso, tal.angulo], [100, 250, 40, 8, -9]);
+  assert.deepEqual([esp.cx, esp.cy, esp.largo, esp.grueso, esp.angulo], [300, 250, 40, 8, 9]);
+  assert.deepEqual(esp.recorte.map(([x]) => x), tal.recorte.map(([x]) => 400 - x));
+  assert.deepEqual(esp.recorte.map(([, y]) => y), tal.recorte.map(([, y]) => y));
 });

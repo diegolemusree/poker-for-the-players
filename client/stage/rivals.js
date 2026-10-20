@@ -8,7 +8,8 @@
 // Si al personaje le falta un cuadro (por ahora puede tener solo espera), ese cambio no ocurre: no parpadea,
 // no espía, no apuesta...; en cuanto se registra el cuadro, se usa solo.
 
-import { angleOf, artUrl, loadedImage, poseFile, hasPose } from './characters.js';
+import { angleOf, artOf, artUrl, loadedImage, poseFile, hasPose } from './characters.js';
+import { etiqueta } from './cards.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const BLINK_MS = 150;
@@ -79,16 +80,51 @@ export class RivalAnim {
 const scaled = new Map();
 export function clearPoseCache() { scaled.clear(); }
 // `angle`: 'frente' o 'lado'. `dim`: versión apagada (desaturada y oscura) para quien se retiró o está ausente.
-export function poseCanvas(charId, angle, pose, small, pxH, dim = false) {
+// `mirror`: ya en espejo (para que vea hacia el centro de la mesa). Si sus cartas tienen franjas (personajes.json),
+// se les pone la etiqueta del logo con la misma función del reverso (cards.js), derecha aunque vaya en espejo.
+export function poseCanvas(charId, angle, pose, small, pxH, dim = false, mirror = false) {
   angle = angleOf(charId, angle);
-  const key = `${charId}|${angle}|${pose}|${small ? 1 : 0}|${pxH}|${dim ? 1 : 0}`;
+  const key = `${charId}|${angle}|${pose}|${small ? 1 : 0}|${pxH}|${dim ? 1 : 0}|${mirror ? 1 : 0}`;
   if (scaled.has(key)) return scaled.get(key);
   const img = loadedImage(artUrl(poseFile(charId, angle, pose), small));
   if (!img) return null; // todavía no carga (solo pasa si se cambió la calidad hace un momento)
-  const c = downscale(img, pxH);
+  let c = downscale(img, pxH);
+  if (mirror) c = flipped(c);
+  const franjas = artOf(charId, angle).franjas;   // las del cuadro que se dibuja (sin el suyo, el de espera)
+  const suyas = franjas && franjas[hasPose(charId, angle, pose) ? pose : 'espera'];
+  if (suyas) for (const f of suyas) etiquetaEn(c, lugarEtiqueta(f, c.width, c.height, mirror));
   if (dim) darken(c);
   scaled.set(key, c);
   return c;
+}
+
+// Dónde va la etiqueta de una franja en una imagen de w × h px. La franja (personajes.json, la anota
+// scripts/generar-personaje.py aprobar-cartas): centro `c` y puntos de lo que se ve de ella (`recorte`, sin lo que tapa
+// la otra carta) en fracciones de la imagen, `largo` y `grueso` en fracciones del ancho y `angulo` el de etiqueta().
+// En espejo cambian de lado el centro y el recorte, y el ángulo de signo; las letras no se voltean.
+export function lugarEtiqueta(f, w, h, mirror = false) {
+  const x = v => (mirror ? 1 - v : v) * w;
+  return { cx: x(f.c[0]), cy: f.c[1] * h, largo: f.largo * w, grueso: f.grueso * w,
+    angulo: mirror ? -f.angulo : f.angulo, recorte: f.recorte.map(([u, v]) => [x(u), v * h]) };
+}
+function etiquetaEn(c, e) {
+  const g = c.getContext('2d');
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);   // en px de la imagen, sin espejo...
+  g.globalCompositeOperation = 'source-over';   // ...y pintando (no borrando)
+  g.beginPath();
+  e.recorte.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+  g.closePath(); g.clip();
+  etiqueta(g, e.cx, e.cy, e.largo, e.grueso, e.angulo);
+  g.restore();
+}
+function flipped(c) {
+  const m = document.createElement('canvas');
+  m.width = c.width; m.height = c.height;
+  const g = m.getContext('2d');
+  g.translate(c.width, 0); g.scale(-1, 1); g.drawImage(c, 0, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0);   // lo que se dibuje después va derecho
+  return m;
 }
 function darken(c) {
   const g = c.getContext('2d');
@@ -121,5 +157,6 @@ function downscale(img, pxH) {
   fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
   g.globalCompositeOperation = 'destination-out';
   g.fillStyle = fade; g.fillRect(0, th * 0.9, tw, th * 0.1);
+  g.globalCompositeOperation = 'source-over';   // lo que se dibuje después (las etiquetas) pinta
   return c;
 }
