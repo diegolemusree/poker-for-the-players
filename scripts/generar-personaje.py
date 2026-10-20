@@ -319,6 +319,12 @@ def componer_cartas(base, gen, zona, datos):
     if k:
         tam = ndi.sum(huecos, lab, index=np.arange(1, k + 1))
         encima |= np.isin(lab, np.arange(1, k + 1)[tam <= 0.03 * W * W])
+    # un pedazo suelto de carta que en su mayoría difiere de Gemini (la esquina de una carta que quedó bajo un dedo,
+    # más delgada que la apertura) tampoco es carta: si no, se pega encima del dedo
+    lab, k = ndi.label(en_cartas & ~encima, structure=np.ones((3, 3)))
+    if k:
+        frac = ndi.mean(distinto, lab, index=np.arange(1, k + 1))
+        encima |= np.isin(lab, np.arange(1, k + 1)[frac > 0.5])
     tapa = ndi.binary_dilation(encima, iterations=1)   # ahí, nada de la carta; del lado de la carta, una orilla suave
     suave = np.asarray(Image.fromarray(tapa.astype(np.uint8) * 255).filter(ImageFilter.GaussianBlur(0.6)))
     M = (A * (1 - suave.astype(np.float32) / 255) * ~tapa)[..., None]
