@@ -772,19 +772,50 @@ def _papel(a):
     return (a @ LUMA > 160) & (a.max(axis=2) - a.min(axis=2) < 50)
 
 
+def _inclinacion(xs, ys, excluir=None):
+    """La inclinación (radianes, + en el sentido del reloj) de una carta con sus píxeles xs, ys, y la orilla de la que
+    salió: de cada orilla (la de arriba, la izquierda y la derecha, menos `excluir`) la pendiente mediana (Theil-Sen) en
+    su mitad de en medio. Hacia dónde se inclina la carta lo dicen sus lados (su eje largo); a veces el dibujo la tuerce
+    un poco y la de arriba dice otra cosa: se prefiere un lado si es casi tan recto como la orilla más recta. (None,
+    None) si no hay con qué."""
+    def ajuste(a, b):   # b en función de a: pendiente y desviación mediana
+        a, b = a[~np.isnan(b)].astype(float), b[~np.isnan(b)].astype(float)
+        if len(a) < 4:
+            return None
+        k = np.median([(b[j] - b[q]) / (a[j] - a[q]) for q in range(len(a)) for j in range(q + 1, len(a))])
+        return k, float(np.median(np.abs(b - k * a - np.median(b - k * a))))
+    cols, filas = np.arange(xs.min(), xs.max() + 1), np.arange(ys.min(), ys.max() + 1)
+    medio = lambda v: v[len(v) // 4:len(v) * 3 // 4]
+    tope = np.array([ys[xs == c].min() if (xs == c).any() else np.nan for c in cols])
+    orillas = {"izq": np.array([xs[ys == f].min() if (ys == f).any() else np.nan for f in filas]),
+               "der": np.array([xs[ys == f].max() if (ys == f).any() else np.nan for f in filas])}
+    arriba, lados = [], []
+    if (a := ajuste(medio(cols), medio(tope))):
+        arriba.append((a[1], np.arctan(a[0]), "arriba"))   # arriba: y = k x
+    for nombre, orilla in orillas.items():
+        if nombre != excluir and (a := ajuste(medio(filas), medio(orilla))):
+            lados.append((a[1], -np.arctan(a[0]), nombre))  # los lados: x = k y, y su vuelta es la de la carta
+    if not arriba + lados:
+        return None, None
+    mejor = min(arriba + lados)[0]
+    buenos = [o for o in lados if o[0] <= 1.5 * mejor + 0.05]
+    _, t, de = min(buenos or arriba + lados)
+    return float(t), de
+
+
 def medir_cartas(img, zona, diseno):
     """Las cartas de la zona, de la más ancha a la más angosta (la primera es la de enfrente: la de atrás queda tapada
     de un lado). Cada carta sale de su núcleo: el azul marino del reverso viejo ("azul", más su borde blanco) o la cara
-    de papel del nuevo ("rojo", ver _caras_nuevas). Su orilla de arriba da la inclinación y el ancho se mide en una
-    franja cerca de arriba (las manos tapan la parte de abajo): es el ancho de la cara, sin el contorno. Probado con
-    las cartas de las seis bases, con las dos respuestas reales del blob (el contorno, en los mismos píxeles que la
-    base) y con cartas sintéticas del reverso pegadas en las seis bases: ±2 %."""
+    de papel del nuevo ("rojo", ver _caras_nuevas). Su inclinación sale de sus orillas (_inclinacion; en la de atrás, sin
+    el lado que da hacia la de enfrente, que es la orilla de esa otra carta) y el ancho se mide en una franja cerca de
+    arriba (las manos tapan la parte de abajo): es el ancho de la cara, sin el contorno. Probado con las cartas de las
+    seis bases, con las dos respuestas reales del blob (el contorno, en los mismos píxeles que la base) y con cartas
+    sintéticas del reverso pegadas en las seis bases: ±2 %."""
     a = np.asarray(img.convert("RGB")).astype(np.float32)
     x0, y0, x1, y1 = zona
     z = np.zeros(a.shape[:2], bool)
     z[y0:y1, x0:x1] = True
     papel = _papel(a)
-    h, w = papel.shape
     if diseno == "azul":   # entre el azul y el borde blanco hay una línea oscura: se salta, y se suma el borde
         nucleo, salto = _azul(a) & z, 6
     else:                  # el papel ya llega hasta el contorno: nada que sumar
@@ -794,61 +825,67 @@ def medir_cartas(img, zona, diseno):
     cartas = []
     for i in range(1, n + 1):
         m = lab == i
-        if m.sum() < 40:
-            continue
-        ys, xs = np.where(m)
-        # inclinación: la pendiente mediana (Theil-Sen) de la orilla de arriba, en la mitad de en medio
-        cols = np.arange(xs.min(), xs.max() + 1)
-        tope = np.array([ys[xs == c].min() if (xs == c).any() else np.nan for c in cols])
-        cx, cy = cols[len(cols) // 4:len(cols) * 3 // 4].astype(float), tope[len(cols) // 4:len(cols) * 3 // 4]
-        cx, cy = cx[~np.isnan(cy)], cy[~np.isnan(cy)]
-        if len(cx) < 4:
-            continue
-        t = float(np.arctan(np.median([(cy[j] - cy[q]) / (cx[j] - cx[q])
-                                       for q in range(len(cx)) for j in range(q + 1, len(cx))])))
-        if abs(np.degrees(t)) > 35:   # las cartas van paradas: más inclinado es otra cosa
-            continue
-        c_, s_ = np.cos(t), np.sin(t)
-        u, v = xs * c_ + ys * s_, -xs * s_ + ys * c_   # u a lo ancho de la carta; v hacia abajo
-        ext, v0 = u.max() - u.min(), v.min()
-        franja = (v >= v0 + 0.10 * ext) & (v <= v0 + 0.40 * ext)
-
-        def es_papel(uu, vv):
-            x, y = round(uu * c_ - vv * s_), round(uu * s_ + vv * c_)
-            return 0 <= x < w and 0 <= y < h and papel[y, x]
-
-        def margen(desde, paso, f):   # hasta `salto` px que no son papel, y el papel hasta la tinta del contorno
-            k = 1
-            while k <= salto and not es_papel(desde + paso * k, f):
-                k += 1
-            if k > salto:
-                return 0
-            while k < 40 and es_papel(desde + paso * k, f):
-                k += 1
-            return k - 1
-
-        filas = []
-        for f in np.unique(np.round(v[franja]).astype(int)):
-            sel = franja & (np.round(v).astype(int) == f)
-            ua, ub = u[sel].min(), u[sel].max()
-            ml, mr = margen(ua, -1, f), margen(ub, 1, f)
-            filas.append((ub - ua + 1 + ml + mr, ua - ml, ub + mr, f, (ml + mr) / 2))
-        if len(filas) < 3:
-            continue
-        izq, der, f, mg = filas[len(filas) // 2][1:]
-        # linea: la medida del renglón de en medio (u izquierda, u derecha, v), para dibujarla; arriba: la orilla de
-        # arriba de la cara (v), aproximada con el margen de los lados
-        cartas.append({"ancho": float(np.median([fl[0] for fl in filas])), "angulo": float(np.degrees(t)), "t": t,
-                       "linea": (float(izq), float(der), float(f)), "arriba": float(v0 - mg)})
+        if m.sum() >= 40 and (c := _medir_una(*np.where(m)[::-1], papel, salto)):
+            cartas.append(c)
+    cartas.sort(key=lambda c: -c["ancho"])
+    centro_x = lambda c: _a_xy(c["t"], (c["linea"][0] + c["linea"][1]) / 2, c["linea"][2])[0]
+    for k, c in enumerate(cartas[1:], 1):   # la de atrás: sin el lado que da hacia la de enfrente
+        hacia = "der" if centro_x(c) < centro_x(cartas[0]) else "izq"
+        if c["lado"] == hacia and (otra := _medir_una(*c["px"], papel, salto, excluir=hacia)):
+            cartas[k] = otra
+    for c in cartas:
+        del c["px"]
     return sorted(cartas, key=lambda c: -c["ancho"])
+
+
+def _medir_una(xs, ys, papel, salto, excluir=None):
+    """Una carta de medir_cartas, con sus píxeles: inclinación, ancho (en la franja de arriba, más el margen claro de
+    cada lado hasta la tinta, saltando hasta `salto` px que no son papel) y su orilla de arriba. None si no se puede."""
+    h, w = papel.shape
+    t, lado = _inclinacion(xs, ys, excluir)
+    if t is None or abs(np.degrees(t)) > 35:   # las cartas van paradas: más inclinado es otra cosa
+        return None
+    c_, s_ = np.cos(t), np.sin(t)
+    u, v = xs * c_ + ys * s_, -xs * s_ + ys * c_   # u a lo ancho de la carta; v hacia abajo
+    ext, v0 = u.max() - u.min(), v.min()
+    franja = (v >= v0 + 0.10 * ext) & (v <= v0 + 0.40 * ext)
+
+    def es_papel(uu, vv):
+        x, y = round(uu * c_ - vv * s_), round(uu * s_ + vv * c_)
+        return 0 <= x < w and 0 <= y < h and papel[y, x]
+
+    def margen(desde, paso, f):   # hasta `salto` px que no son papel, y el papel hasta la tinta del contorno
+        k = 1
+        while k <= salto and not es_papel(desde + paso * k, f):
+            k += 1
+        if k > salto:
+            return 0
+        while k < 40 and es_papel(desde + paso * k, f):
+            k += 1
+        return k - 1
+
+    filas = []
+    for f in np.unique(np.round(v[franja]).astype(int)):
+        sel = franja & (np.round(v).astype(int) == f)
+        ua, ub = u[sel].min(), u[sel].max()
+        ml, mr = margen(ua, -1, f), margen(ub, 1, f)
+        filas.append((ub - ua + 1 + ml + mr, ua - ml, ub + mr, f, (ml + mr) / 2))
+    if len(filas) < 3:
+        return None
+    izq, der, f, mg = filas[len(filas) // 2][1:]
+    # linea: la medida del renglón de en medio (u izquierda, u derecha, v), para dibujarla; arriba: la orilla de arriba
+    # de la cara (v), aproximada con el margen de los lados
+    return {"ancho": float(np.median([fl[0] for fl in filas])), "angulo": float(np.degrees(t)), "t": t, "lado": lado,
+            "linea": (float(izq), float(der), float(f)), "arriba": float(v0 - mg), "px": (xs, ys)}
 
 
 # ---------- cartas dibujadas por código: la entrada que recibe Gemini ----------
 
 TINTA = (29, 22, 17)   # #1d1611, la tinta de las ilustraciones y de las cartas del juego
 ANCLAS = ["arriba", "centro", "abajo"]   # qué orilla de la carta vieja se queda en su lugar al cambiar de tamaño
-DEDOS_MIN = 0.08       # de la mitad de abajo de la carta de enfrente (sin sus orillas), lo que tapan los dedos que van
-                       # encima: en las seis bases de hoy, 14 a 45 %; con las cartas pintadas encima de los dedos, 3 %
+DEDOS_MIN = 0.06       # de la mitad de abajo de la carta de enfrente (con su forma redonda), lo que tapan los dedos que
+                       # van encima: en los dibujos de los cinco, 9 % (turista) a 31 %; con las cartas encima de los
+                       # dedos, 1.5 a 4 %
 FRANJA_MIN = 0.97      # de cada franja visible, lo que debe seguir siendo del rojo de la etiqueta (nada encima)
 _etiqueta = None
 
@@ -880,7 +917,8 @@ def _a_xy(t, u, v):
 
 def _mascara_poligono(puntos, tam):
     m = Image.new("L", tam, 0)
-    ImageDraw.Draw(m).polygon([tuple(p) for p in puntos], fill=255)
+    if len(puntos) >= 3:   # sin puntos (una franja que tapa toda la otra carta), vacía
+        ImageDraw.Draw(m).polygon([tuple(p) for p in puntos], fill=255)
     return np.asarray(m) > 0
 
 
@@ -896,12 +934,13 @@ def cartas_viejas(base, ficha):
     cw, ch = etiqueta_del_juego()["carta"]
     W = medidas[0]["ancho"]
     centro_x = lambda c: _a_xy(c["t"], (c["linea"][0] + c["linea"][1]) / 2, c["linea"][2])[0]
-    # las de las ilustraciones son más largas que las de la baraja: el largo es hasta lo último de su azul o su borde
-    # blanco (dentro de caja_cartas), y como mínimo el de la baraja
+    # las de las ilustraciones son más largas que las de la baraja: el largo es hasta lo último de su azul (dentro de
+    # caja_cartas) más su borde blanco, y como mínimo el de la baraja. Solo el azul: el cuerpo gris claro de la robot
+    # se confunde con el borde blanco
     a = np.asarray(base).astype(np.float32)
     caja = np.zeros(a.shape[:2], bool)
     caja[y0:y1, x0:x1] = True
-    de_carta = (_azul(a) | ((a @ LUMA > 160) & (a.max(axis=2) - a.min(axis=2) < 50))) & caja
+    de_carta = _azul(a) & caja
     ys, xs = np.where(de_carta)
     out = []
     for j, c in enumerate(medidas[:2]):
@@ -909,7 +948,8 @@ def cartas_viejas(base, ficha):
         u0 = izq if j == 0 or centro_x(c) < centro_x(medidas[0]) else der - W
         u, v = xs * np.cos(c["t"]) + ys * np.sin(c["t"]), -xs * np.sin(c["t"]) + ys * np.cos(c["t"])
         suya = (u >= u0) & (u <= u0 + W) & (v >= c["arriba"])
-        H = max(W * ch / cw, float(v[suya].max() - c["arriba"]) + 1 if suya.any() else 0)
+        # hasta lo último de su azul, más su borde blanco y su contorno
+        H = max(W * ch / cw, float(v[suya].max() - c["arriba"]) + 1 + 0.1 * W + CONTORNO + 2 if suya.any() else 0)
         out.append({"t": c["t"], "u0": u0, "v0": c["arriba"], "W": W, "H": H})
     return out
 
@@ -919,12 +959,12 @@ def poligono_carta(c):
                                              (c["u0"] + c["W"], c["v0"] + c["H"]), (c["u0"], c["v0"] + c["H"]))]
 
 
-def dibujo_carta(W, etq, s=4):
+def dibujo_carta(W, etq, contorno=CONTORNO, s=4):
     """Una carta con el reverso aprobado (arte/baraja/reverso-carta.png) y la franja de la etiqueta vacía (las letras las
-    pone el juego), de W px de cara, con el contorno de tinta (CONTORNO) y las esquinas redondas de cards.js. Se dibuja
-    a s veces el tamaño y se reduce, para que las orillas salgan suaves."""
+    pone el juego), de W px de cara, con el contorno de tinta de `contorno` px y las esquinas redondas de cards.js. Se
+    dibuja a s veces el tamaño y se reduce, para que las orillas salgan suaves."""
     cw, ch = etq["carta"]
-    Ws, Hs, b = round(W * s), round(W * ch / cw * s), round(CONTORNO * s)
+    Ws, Hs, b = round(W * s), round(W * ch / cw * s), round(contorno * s)
     cara = Image.open(REVERSO).convert("RGB").resize((Ws, Hs), Image.LANCZOS)
     L, G, a = etq["largo"] * W * s / 2, etq["grueso"] * W * s / 2, np.radians(-etq["angulo"])
     ImageDraw.Draw(cara).polygon([(Ws / 2 + x * np.cos(a) - y * np.sin(a), Hs / 2 + x * np.sin(a) + y * np.cos(a))
@@ -997,7 +1037,10 @@ def geometria_nuevas(viejas, W, ancla="arriba", mover=0.0):
     for c in viejas:
         H = W * ch / cw
         v0 = {"arriba": c["v0"], "centro": c["v0"] + (c["H"] - H) / 2, "abajo": c["v0"] + c["H"] - H}[ancla] + mover
-        n = {"t": c["t"], "u0": c["u0"] + (c["W"] - W) / 2, "v0": v0, "W": W, "H": H}
+        # el contorno, del grueso de la línea del personaje (en las bases mide como 4 % del ancho de su carta: la
+        # turista, chica, 1.5 px; los demás, 2 a 3)
+        n = {"t": c["t"], "u0": c["u0"] + (c["W"] - W) / 2, "v0": v0, "W": W, "H": H,
+             "contorno": min(CONTORNO, max(1.5, 0.042 * c["W"]))}
         cx, cy = _a_xy(n["t"], n["u0"] + W / 2, v0 + H / 2)
         L, G, ang = etq["largo"] * W, etq["grueso"] * W, etq["angulo"] - np.degrees(n["t"])
         r = np.radians(-ang)
@@ -1019,18 +1062,47 @@ def geometria_nuevas(viejas, W, ancla="arriba", mover=0.0):
 
 
 def dedos_y_relleno(base, viejas):
-    """Lo que hay sobre las cartas viejas: los dedos (lo que no es carta: ni su azul, ni su borde blanco, ni tinta, con
-    su propio contorno), que van encima de las nuevas; y lo demás de las viejas, que se rellena."""
+    """Lo que hay sobre las cartas viejas. Los dedos, que van encima de las nuevas: lo de adentro de una carta vieja que
+    no es carta (ni su azul, ni su tinta, ni su borde blanco, que solo cuenta en la franja de la orilla: así los dedos
+    grises de la robot no se confunden con él), con su propio contorno. Y lo que se rellena: lo demás de las viejas y,
+    afuera, solo lo que queda de su contorno pegado a la orilla (lo demás de alrededor se queda como está)."""
     a = np.asarray(base).astype(np.float32)
     lum, sat = a @ LUMA, a.max(axis=2) - a.min(axis=2)
-    en_viejas = np.zeros(lum.shape, bool)
-    for c in viejas:
-        en_viejas |= _mascara_poligono(poligono_carta(c), base.size)
-    en_viejas = ndi.binary_dilation(en_viejas, iterations=CONTORNO + 3)   # con todo su contorno
-    de_carta = _azul(a) | ((lum > 160) & (sat < 50)) | ((lum < 90) & (sat < 45))
-    piel = ndi.binary_opening(en_viejas & ~de_carta)   # sin el antialias suelto de las orillas
-    dedos = piel | (en_viejas & (lum < 90) & ndi.binary_dilation(piel, iterations=2))
-    return dedos, en_viejas & ~dedos
+    R, G, B = a[..., 0], a[..., 1], a[..., 2]
+    viejas_m, orilla = np.zeros(lum.shape, bool), np.zeros(lum.shape, bool)
+    for c in viejas:   # la orilla de cada carta (la de enfrente tiene la suya en medio de las dos)
+        m = _mascara_poligono(poligono_carta(c), base.size)
+        viejas_m |= m
+        orilla |= m & ~ndi.binary_erosion(m, iterations=max(3, round(0.12 * c["W"])))
+    azul = (B > R + 15) & (B > G + 5) & (lum < 140)
+    oscuro = (lum < 90) & (sat < 45)
+    blanco = (lum > 160) & (sat < 50)
+    de_carta = azul | oscuro | (blanco & orilla)
+    # sin lo delgado (el antialias de las orillas, una tira del borde blanco de la carta de atrás que quedó fuera de
+    # la orilla calculada): los dedos son más gruesos, en proporción a la carta (la turista los tiene delgados)
+    piel = ndi.binary_opening(viejas_m & ~de_carta, iterations=max(1, round(viejas[0]["W"] / 35)))
+    # un dedo viene de la mano y llega desde afuera de la carta, o es un pedazo grande (los segmentos de metal de los
+    # dedos de la robot, separados por su tinta); lo chico y suelto adentro son restos de la carta vieja
+    afuera = ndi.binary_dilation(viejas_m, iterations=4) & ~viejas_m & ~oscuro
+    lab, n = ndi.label(piel | afuera)
+    if n:
+        con_mano = np.unique(lab[afuera & ndi.binary_dilation(piel, iterations=1)])
+        lp, k = ndi.label(piel)
+        tam = ndi.sum(piel, lp, index=np.arange(1, k + 1)) if k else np.array([])
+        grandes = np.isin(lp, np.arange(1, k + 1)[tam >= 0.02 * viejas[0]["W"] ** 2])
+        piel &= np.isin(lab, con_mano[con_mano > 0]) | grandes
+    dedos = piel | (viejas_m & oscuro & ndi.binary_dilation(piel, iterations=2))
+    contorno = ndi.binary_dilation(viejas_m, iterations=CONTORNO + 1) & ~viejas_m & (oscuro | blanco | azul)
+    return dedos, (viejas_m & ~dedos) | contorno
+
+
+def contacto_de_dedos(nueva, dedos, tam):
+    """Lo que tapan los dedos de la mitad de abajo de una carta nueva (sin sus orillas): que la sostienen encima."""
+    n = nueva
+    abajo = ndi.binary_erosion(_mascara_poligono([_a_xy(n["t"], u, v) for u, v in (
+        (n["u0"], n["v0"] + n["H"] / 2), (n["u0"] + n["W"], n["v0"] + n["H"] / 2), (n["u0"] + n["W"], n["v0"] + n["H"]),
+        (n["u0"], n["v0"] + n["H"]))], tam), iterations=2)
+    return float(dedos[abajo].mean()) if abajo.any() else 0.0
 
 
 def tapado_por_dedos(franjas, dedos, tam):
@@ -1041,27 +1113,43 @@ def tapado_por_dedos(franjas, dedos, tam):
 def entrada_dibujada(base, ficha, info, ancla="arriba", mover=None):
     """La entrada para Gemini: la base con las cartas viejas tapadas, las nuevas dibujadas por código al ancho objetivo
     y, encima, los dedos que estaban sobre las viejas (los dedos van encima de las cartas). Sin `mover`, busca el
-    corrimiento más chico (a lo largo de las cartas, hasta 14 px) con el que los dedos no tapan ninguna franja.
+    corrimiento más chico (a lo largo de las cartas, hasta 30 px) con el que los dedos no tapan ninguna franja y
+    quedan encima de la carta de enfrente.
     Regresa (imagen, datos): las cartas nuevas, sus franjas en px de la base, los dedos, lo rellenado y el corrimiento."""
     etq = etiqueta_del_juego()
     viejas = cartas_viejas(base, ficha)
     dedos, relleno = dedos_y_relleno(base, viejas)
-    if mover is None:
-        opciones = [0] + [s * k for k in range(2, 15, 2) for s in (-1, 1)]
-        mover = min(opciones, key=lambda m: (max(tapado_por_dedos(geometria_nuevas(viejas, info["objetivo"], ancla, m)[1],
-                                                                  dedos, base.size)) > 0, abs(m)))
+    if mover is None:   # el corrimiento más chico con las franjas libres y los dedos encima de la carta de enfrente
+        def calif(m):
+            nuevas, franjas = geometria_nuevas(viejas, info["objetivo"], ancla, m)
+            tapado = max(tapado_por_dedos(franjas, dedos, base.size))
+            contacto = contacto_de_dedos(nuevas[0], dedos, base.size)
+            return (tapado > 0, contacto < DEDOS_MIN * 1.5, tapado, abs(m) if contacto >= DEDOS_MIN * 1.5 else -contacto)
+        mover = min([0] + [s * k for k in range(1, 31) for s in (-1, 1)], key=calif)
     nuevas, franjas = geometria_nuevas(viejas, info["objetivo"], ancla, mover)
     a = np.asarray(base).astype(np.float32)
     img = Image.fromarray(np.clip(_rellenar(a, relleno), 0, 255).astype(np.uint8)).convert("RGBA")
+    formas = []
     for n in reversed(nuevas):   # la de atrás primero, la de enfrente encima
         cx, cy = _a_xy(n["t"], n["u0"] + n["W"] / 2, n["v0"] + n["H"] / 2)
-        dib = dibujo_carta(n["W"], etq).rotate(-np.degrees(n["t"]), resample=Image.BICUBIC, expand=True)
-        img.alpha_composite(dib, (round(cx - dib.size[0] / 2), round(cy - dib.size[1] / 2)))
+        dib = dibujo_carta(n["W"], etq, n["contorno"]).rotate(-np.degrees(n["t"]), resample=Image.BICUBIC, expand=True)
+        donde = (round(cx - dib.size[0] / 2), round(cy - dib.size[1] / 2))
+        img.alpha_composite(dib, donde)
+        forma = Image.new("L", base.size, 0)   # la forma de la carta (con sus esquinas redondas), para las revisiones
+        forma.paste(dib.getchannel("A"), donde)
+        formas.insert(0, np.asarray(forma) > 128)
     salida = np.asarray(img.convert("RGB")).copy()
     salida[dedos] = np.asarray(base)[dedos]   # los dedos, encima de las cartas nuevas
+    # la zona: la del plan y, si las cartas se corrieron o crecieron, también ellas con su margen
+    puntos = np.array([p for n in nuevas for p in poligono_carta(n)])
+    m_ = CONTORNO + MARGEN_CARTAS
+    x0, y0, x1, y1 = info["zona"]
+    zona = (max(0, min(x0, int(puntos[:, 0].min()) - m_)), max(0, min(y0, int(puntos[:, 1].min()) - m_)),
+            min(base.size[0], max(x1, int(puntos[:, 0].max()) + m_)), min(base.size[1], max(y1, int(puntos[:, 1].max()) + m_)))
     return Image.fromarray(salida), {"nuevas": nuevas, "franjas": franjas, "relleno": relleno, "dedos": dedos,
-                                     "ancla": ancla, "mover": mover,
-                                     "tapado": tapado_por_dedos(franjas, dedos, base.size)}
+                                     "ancla": ancla, "mover": mover, "zona": zona, "formas": formas,
+                                     "tapado": tapado_por_dedos(franjas, dedos, base.size),
+                                     "contacto": contacto_de_dedos(nuevas[0], dedos, base.size)}
 
 
 def revisar_dibujo(img, datos, info):
@@ -1076,10 +1164,10 @@ def revisar_dibujo(img, datos, info):
         v["franjas"].append(round(float(rojo[m].mean()), 3) if m.any() else None)
         if m.any() and rojo[m].mean() < FRANJA_MIN:
             fallas["franja"] = f"la franja de la carta {j + 1} quedó tapada o cambió ({rojo[m].mean():.0%} visible)"
-    n = datos["nuevas"][0]
-    abajo = ndi.binary_erosion(_mascara_poligono([_a_xy(n["t"], u, v_) for u, v_ in (
-        (n["u0"], n["v0"] + n["H"] / 2), (n["u0"] + n["W"], n["v0"] + n["H"] / 2), (n["u0"] + n["W"], n["v0"] + n["H"]),
-        (n["u0"], n["v0"] + n["H"]))], img.size), iterations=2)   # sin las orillas ni las esquinas redondas
+    n = datos["nuevas"][0]   # la mitad de abajo de la carta de enfrente, con su forma (sin el aire de sus esquinas)
+    abajo = datos["formas"][0] & _mascara_poligono([_a_xy(n["t"], u, v_) for u, v_ in (
+        (n["u0"] - 9, n["v0"] + n["H"] / 2), (n["u0"] + n["W"] + 9, n["v0"] + n["H"] / 2),
+        (n["u0"] + n["W"] + 9, n["v0"] + n["H"] + 9), (n["u0"] - 9, n["v0"] + n["H"] + 9))], img.size)
     v["dedos"] = round(float(_no_carta(a)[abajo].mean()), 3)
     if v["dedos"] < DEDOS_MIN:
         fallas["dedos"] = f"los dedos no quedan encima de la carta de enfrente ({v['dedos']:.0%} de su mitad de abajo)"
@@ -1102,7 +1190,8 @@ def plan_cartas(pid, base, ficha, med):
     x0, y0, x1, y1 = ficha["caja_cartas"]
     W, H = base.size
     caja = (max(0, x0 - 8), max(0, y0 - 8), min(W, x1 + 8), min(H, y1 + 8))
-    hoy = medir_cartas(base, caja, "azul") or medir_cartas(base, caja, "rojo")
+    azules = medir_cartas(base, caja, "azul")
+    hoy = azules or medir_cartas(base, caja, "rojo")
     if not hoy:
         sys.exit(f"{pid}: no encuentro sus cartas en caja_cartas {ficha['caja_cartas']} (ni azules ni con el reverso nuevo).")
     # en el juego (seatPlace en client/stage/index.js) la imagen recortada mide height × RIVALES unidades de alto, y en
@@ -1117,7 +1206,7 @@ def plan_cartas(pid, base, ficha, med):
     zona = [min(zona[0], m[0]), min(zona[1], m[1]), max(zona[2], m[2]), max(zona[3], m[3])]
     zona = (max(0, round(zona[0])), max(0, round(zona[1])), min(W, round(zona[2])), min(H, round(zona[3])))
     return {"actual": actual, "objetivo": objetivo, "factor": f, "por_px": por_px, "manos": True, "zona": zona,
-            "carta": hoy[0]}
+            "carta": hoy[0], "ya_nuevas": not azules}
 
 
 def prompt_cartas(P, ficha, correcciones=()):
@@ -1149,7 +1238,8 @@ def franjas_en_fracciones(franjas, box):
     bw, bh = x1 - x0, y1 - y0
     p = lambda x, y: [round((x - x0) / bw, 5), round((y - y0) / bh, 5)]
     return [{"c": p(*f["c"]), "largo": round(f["largo"] / bw, 5), "grueso": round(f["grueso"] / bw, 5),
-             "angulo": round(f["angulo"], 2), "recorte": [p(*q) for q in f["recorte"]]} for f in franjas]
+             "angulo": round(f["angulo"], 2), "recorte": [p(*q) for q in f["recorte"]]}
+            for f in franjas if len(f["recorte"]) >= 3 and _area(f["recorte"]) > 1]   # sin las que no se ven
 
 
 def pegar_ojos(espera, parpadeo, nueva):
@@ -1294,11 +1384,16 @@ def preparar_cartas(pid, ficha):
     info = plan_cartas(pid, base, ficha, med)
     parp_path = aprobado(pid, "frente", "parpadeo")
     parpadeo = Image.open(parp_path).convert("RGB") if os.path.exists(parp_path) else None
-    if parpadeo is not None:   # sus ojos cerrados se pegan sobre la espera nueva: no pueden caer en la zona
-        x0, y0, x1, y1 = info["zona"]
-        if (np.asarray(base)[y0:y1, x0:x1] != np.asarray(parpadeo)[y0:y1, x0:x1]).any():
-            sys.exit(f"{pid}: la zona {info['zona']} toca los ojos de su parpadeo; ajusta caja_cartas o caja_manos.")
+    revisar_ojos(pid, base, parpadeo, info["zona"])
     return base, K, med, info, parpadeo
+
+
+def revisar_ojos(pid, base, parpadeo, zona):
+    """Los ojos cerrados del parpadeo se pegan sobre la espera nueva: no pueden caer en la zona."""
+    if parpadeo is not None:
+        x0, y0, x1, y1 = zona
+        if (np.asarray(base)[y0:y1, x0:x1] != np.asarray(parpadeo)[y0:y1, x0:x1]).any():
+            sys.exit(f"{pid}: la zona {zona} toca los ojos de su parpadeo; ajusta caja_cartas o caja_manos.")
 
 
 def vista_entrada(base, entrada, info, datos, destino, pid):
@@ -1333,7 +1428,14 @@ def cmd_cartas(args):
     for pid in ids:
         ficha = cargar_ficha(pid)
         base, K, med, info, parpadeo = preparar_cartas(pid, ficha)
+        if info["ya_nuevas"]:   # su base aprobada ya trae las cartas nuevas: no se vuelve a editar
+            if args.personajes and not args.simular:
+                sys.exit(f"{pid} ya tiene las cartas nuevas en su espera aprobada: no hay nada que generar.")
+            print(f"  ({pid} ya tiene las cartas nuevas)")
+            continue
         entrada, datos = entrada_dibujada(base, ficha, info)
+        info["zona"] = datos["zona"]   # con las cartas, si se corrieron o crecieron
+        revisar_ojos(pid, base, parpadeo, info["zona"])
         f_dib, v_dib = revisar_dibujo(entrada, datos, info)
         prompt = prompt_cartas(P, ficha)
         filas.append((pid, info, datos, f_dib, v_dib, costo_estimado(cfg["modelo"], cfg["image_size"], prompt) or 0))
@@ -1352,7 +1454,7 @@ def cmd_cartas(args):
     total = sum(f[-1] for f in filas)
     print(f"Costo estimado: ~${total:.2f} USD (hasta ${total * MAX_LLAMADAS:.2f} si todo se reintenta), "
           f"con {cfg['modelo']} a {cfg['image_size']}")
-    if args.simular:
+    if args.simular or not filas:
         return
     pid, info, datos, f_dib, _, _ = filas[0]
     if f_dib:   # si el dibujo mismo no pasa, Gemini (que respeta lo que recibe) tampoco: no se gasta
@@ -1469,6 +1571,7 @@ def cmd_recomponer_cartas(args):
     ficha = cargar_ficha(pid)
     base, K, med, info, parpadeo = preparar_cartas(pid, ficha)
     entrada, datos = entrada_dibujada(base, ficha, info)
+    info["zona"] = datos["zona"]
     prefijo = os.path.join(carpeta(pid), con_version(f"{pid}-frente-espera-cartas", args.version))
     if not os.path.exists(f"{prefijo}-entrada.png"):
         sys.exit(f"No encuentro {rel(prefijo)}-entrada.png: esa versión no es del método de cartas dibujadas.")
