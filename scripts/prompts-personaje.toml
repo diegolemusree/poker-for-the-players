@@ -59,7 +59,7 @@ zona = "brazos"
 texto = """
 the arms, hands and cards: the character holds the two face-down cards in one hand in front of the \
 chest and, with the other hand, reaches forward at chest height, palm up, holding a small stack of \
-{fichas}. The hands keep their design ({manos}) and the card backs stay navy blue with a white border
+{fichas}. The hands keep their design ({manos}) and the card backs stay as they are: white with an ornate brick-red frame and an empty red band across the middle, with no letters on the band
 """
 
 [[cuadros.retirarse]]
@@ -67,7 +67,7 @@ zona = "brazos"
 texto = """
 the arms, hands and cards: with both hands at chest height, the character lazily tosses the two \
 face-down cards forward with a flick of the fingers, hands open. The hands keep their design ({manos}) \
-and the card backs stay navy blue with a white border
+and the card backs stay as they are: white with an ornate brick-red frame and an empty red band across the middle, with no letters on the band
 """
 
 # gana son dos cambios, cada uno en su llamada y sobre la base: primero los brazos, luego la cara
@@ -76,7 +76,7 @@ zona = "brazos"
 texto = """
 the arms, hands and cards: the character holds the two cards against the chest with one hand and \
 raises a small stack of {fichas} at chest height with the other, as if pulling the pot toward \
-themselves. The hands keep their design ({manos}) and the card backs stay navy blue with a white border
+themselves. The hands keep their design ({manos}) and the card backs stay as they are: white with an ornate brick-red frame and an empty red band across the middle, with no letters on the band
 """
 
 [[cuadros.gana]]
