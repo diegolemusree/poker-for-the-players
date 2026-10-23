@@ -509,8 +509,11 @@ function turnControls(inner, mine, phone) {
   const minT = Math.min(maxT, Math.ceil((v.currentBet === 0 ? v.bb : v.currentBet + v.minRaise) / 5) * 5);
   const pot = potOf(v);
   const canRaise = maxT > v.currentBet && mine.stack > toCall;
-  const key = `${v.handNo}:${v.phase}:${v.toAct}`;
+  // cada turno empieza con la cantidad mínima y, en el celular, con los tres botones: `turnAt` cambia cada vez que el
+  // turno llega a alguien, también cuando te vuelve a tocar en la misma ronda (subiste y te resubieron)
+  const key = `${v.handNo}:${v.phase}:${v.toAct}:${v.turnAt}`;
   if (raise.key !== key) { raise = { key, value: minT }; raiseOpen = false; }
+  if (!canRaise) raiseOpen = false; // si ya no te alcanza para subir, siempre Retirarse e Igualar (o All-in)
   // retirarse cuando se puede pasar gratis casi siempre es un error de dedo: se pide confirmación
   const fold = () => (toCall > 0 || confirm('Puedes pasar gratis, ¿seguro que te retiras?')) && run('act', { type: 'fold' });
   const clock = snap.turnLeftMs != null && h('span', { class: 'hint clock' }, '⏱ ', deadline(snap.turnLeftMs, 'low'));
