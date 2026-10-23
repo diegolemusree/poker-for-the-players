@@ -61,16 +61,17 @@ poker-for-the-players/
     stage/          # mesa ilustrada por capas (ver "Estilo visual")
       index.js        # arma las capas, acomoda la vista del servidor, etiquetas y ciclo de animación
       config.js       # orilla de la mesa (lista de puntos), cámaras, acomodo de los rivales por cantidad de jugadores (LAYOUTS) y quién va dónde desde mi asiento (seatPlan)
-      projection.js   # cámara: convierte puntos de la mesa a pantalla y al revés; ajuste a la pantalla
+      projection.js   # cámara: convierte puntos de la mesa a pantalla y al revés; ajuste a la pantalla; mi lugar en la mesa (myPlace: mis cartas, mi pila, comunitarias y bote)
       table.js        # la capa de la mesa: la ilustración (con la luz de la lámpara y la sombra en el piso) o, de respaldo, la mesa de código
       mesa.json       # la mesa ilustrada: tamaños, su proyección (F, cx, cy), la cámara y la orilla con que se calcó, y su silueta (lo escribe el script)
-      items.js        # fichas, cartas y botón del dealer en perspectiva
-      cards.js        # la baraja: caras y reversos en canvas, con el arte de carta-*.webp (cargarArte) y respaldo de código
+      items.js        # fichas, cartas y botón del dealer en perspectiva (también mis cartas boca abajo y lo que se levanta al asomarme)
+      cards.js        # la baraja: caras y reversos en canvas, con el arte de carta-*.webp (cargarArte) y respaldo de código; la carta derecha de mi mano (drawFlatCard)
+      arms.js         # mis brazos en primera persona (solo en la computadora): el contrato de su arte (`brazos` en personajes.json) y el relleno de su color, qué pose toca, el empujón, asomarse, las fichas y su capa
       baraja.json     # de la baraja: los nombres de las figuras y la zona libre del reverso para la etiqueta (lo escribe el script)
       rivals.js       # poses, parpadeo, respiración de los rivales, y la etiqueta del logo en las cartas de su mano
       characters.js   # personajes (lee personajes.json), las rutas de su arte (con su carpeta), su cara para el selector y precarga del arte
-      personajes.json # el único registro de personajes (lo leen el juego, el selector y el servidor): tamaño y cuadros (los escribe el script); nombre de su bot, carpeta de su arte, cintura, cabeza y alto (a mano); "retirado"; las franjas de las cartas de la mano (las anota generar-personaje.py aprobar-cartas)
-    ui/             # palos clásicos en dos colores (suits.js), nombre de la mano y cartas ganadoras (hand.js), regla de "celular" (phone.js)
+      personajes.json # el único registro de personajes (lo leen el juego, el selector y el servidor): tamaño y cuadros (los escribe el script); nombre de su bot, carpeta de su arte, color de sus manos, cintura, cabeza y alto (a mano); "retirado"; las franjas de las cartas de la mano (las anota generar-personaje.py aprobar-cartas); el arte de mis brazos (`brazos`, ver "Brazos del jugador")
+    ui/             # palos clásicos en dos colores (suits.js), nombre de la mano y cartas ganadoras (hand.js), reglas de "celular" y de "computadora" (phone.js)
     audio/
   public/
     assets/         # logo, sonidos, íconos, imagen para compartir
@@ -86,6 +87,7 @@ poker-for-the-players/
     asientos.test.js # acomodo por cantidad de jugadores, orden desde cada asiento y Don Tentáculos al centro en práctica
     seleccion.test.js # selección de personaje: ocupado, sala llena, liberar al salir o a los 5 minutos sin volver, bots de la práctica
     baraja.test.js  # la baraja: palos de cada carta, dos colores, arte exportado y zona de la etiqueta
+    brazos.test.js  # mis brazos: completos o relleno, poses, empujón, capas y dónde caen en pantalla
   docs/
     ESPEC-PERSONAJES.md # cómo debe venir el arte de cada personaje (ángulos, cuadros, encuadre, fondo, estilo)
   referencia/
@@ -108,7 +110,7 @@ poker-for-the-players/
     baraja/           # el arte aprobado de la baraja: el reverso (solo el marco, y su carta con la zona libre para la etiqueta), los adornos y las figuras
     mesa/             # la mesa ilustrada aprobada (mesa-horizontal.png sobre magenta, su silueta, su calco .json) y la calibración de la referencia
     respaldos/        # los cuadros que se reemplazaron
-    revision/         # GIF de revisión de cada personaje y ángulo (y los restos del fondo, si quedan); camaras/, las capturas con que se eligió la cámara; mesa-*, las hojas y capturas de la mesa ilustrada
+    revision/         # GIF de revisión de cada personaje y ángulo (y los restos del fondo, si quedan); camaras/, las capturas con que se eligió la cámara; mesa-*, las hojas y capturas de la mesa ilustrada; brazos/, los scripts de capturas y revisiones de mis brazos en el navegador
 ```
 
 ## Requisitos funcionales
@@ -182,9 +184,10 @@ La mesa NO es 3D. Es una pila de capas 2D, de atrás hacia adelante (`client/sta
 1. **Fondo**: la ilustración del garaje (`fondo-garaje`) como imagen que cubre la pantalla, centrada en horizontal para que la lámpara quede al centro; en pantallas verticales se recortan los lados. La orilla de abajo del domo de la lámpara queda siempre arriba de la cabeza más alta de los rivales del fondo, con cualquier número de rivales: si no, el fondo se sube y, si hace falta, se agranda (`BACKDROP` en `config.js`). Un viñeteado CSS oscurece las esquinas.
 2. **Mesa** (`table.js`, canvas, se redibuja solo al cambiar el tamaño). En horizontal es la **ilustración** de la mesa (`mesa-*.webp`): la de la referencia, con su riel de madera acolchado, el canto de los lados, el fieltro con su sombreado y la pista dorada, sin el frente (la referencia lo corta: de mi riel se ve la banda que sale por abajo de la pantalla). Se pone con su propia proyección (`mesa.json`: a la escala `view.F / F`, anclada en `cx, cy`), así cae exactamente en la perspectiva del juego. Encima, el brillo cálido de la lámpara sobre el fieltro y las orillas un poco más oscuras (menos que en la de código: el dibujo ya trae su sombreado), recortados con la misma imagen; detrás, la sombra plana de la mesa en el piso. Si la imagen no carga, o en vertical (el celular, por ahora), se dibuja la **mesa de código** a partir de la orilla de `config.js` (`TABLE_EDGE`), con la misma forma: Octágono más ancho que profundo en perspectiva, riel de madera café oscuro con vetas y juntas (encima del fieltro: de mi lado lo tapa justo en su orilla de adentro), canto visible en los lados que dan hacia mí, fieltro verde apagado con un octágono central un poco más oscuro y una línea dorada delgada en forma de pista, una sola sombra plana (la del riel sobre el fieltro y la de la mesa sobre el piso), mugre (baldosa de motas, manchas y rayones hecha una vez, más aros de vaso) y el charco de luz cálida de la lámpara: un brillo suave en el centro del fieltro y las orillas más oscuras (de mi lado la sombra empieza más lejos, para que mi riel se vea como madera), en la capa de la mesa (debajo de cartas y fichas, para no cambiar sus colores). Sin objetos decorativos por ahora.
    La ilustración se hizo así (originales en `arte/`): `scripts/extraer-mesa.py` sube la referencia a 4K sin cambiarla, Gemini quita los objetos de cuatro zonas (una llamada por zona, con revisiones de alineación, de la pista y la orilla del fieltro contra la calibración, de restos y de texto, y tope de llamadas), quita sin IA las manos que quedaron sobre el riel del fondo copiando el mismo riel de un tramo limpio o del lado espejo, y recorta el garaje por la silueta de la mesa (el riel y el canto, sin patas). `scripts/calcar-mesa.py` saca de la mesa aprobada la cámara y la orilla del juego, y `scripts/optimizar-arte.py mesa` la exporta con su `mesa.json`.
-3. **Cartas, bote y fichas** (`items.js`, canvas, se redibuja con cada jugada): en perspectiva sobre el fieltro, con una sombra plana debajo y contorno de tinta. Las comunitarias en fila al centro de la mesa; el bote, un montón desordenado de fichas cerca de mí abajo al centro; la pila de cada rival frente a él y su apuesta un poco más hacia el centro, en un lugar fijo por asiento que nunca tapa las comunitarias (sus 5 lugares, aunque aún no salgan), el bote ni mis cartas, sin cruzarse con las de sus vecinos (`planBets` en `index.js`; mi apuesta sigue la misma regla); mis dos cartas abajo a la izquierda (ahí irá la ilustración de mi mano) y mi pila a la derecha, justo arriba de la barra de acciones.
+3. **Cartas, bote y fichas** (`items.js`, canvas, se redibuja con cada jugada): en perspectiva sobre el fieltro, con una sombra plana debajo y contorno de tinta. Las comunitarias en fila al centro de la mesa; el bote, un montón desordenado de fichas cerca de mí abajo al centro; la pila de cada rival frente a él y su apuesta un poco más hacia el centro, en un lugar fijo por asiento que nunca tapa las comunitarias (sus 5 lugares, aunque aún no salgan), el bote ni mis cartas, sin cruzarse con las de sus vecinos (`planBets` en `index.js`; mi apuesta sigue la misma regla); mis dos cartas abajo a la izquierda (en la computadora las tiene mi mano: las dibuja la capa de mis brazos) y mi pila a la derecha, justo arriba de la barra de acciones.
 4. **Rivales** (`rivals.js`, canvas animado a 30 cuadros, 20 en calidad baja): recortes ilustrados en sus asientos, del tamaño que les toca por su distancia a la cámara. Cada uno se sienta con la cintura en la orilla de la mesa y se le recorta en la línea de esa orilla: se esconde lo que queda debajo de la línea de arriba de la silueta de la mesa (alargada más allá de las orillas de la pantalla) y debajo de su cintura, así la mesa lo tapa de la cintura para abajo y sus brazos y cartas quedan sobre la mesa. Lleva una sombra plana de contacto sobre el fieltro. Orden de dibujo: primero los del fondo (del más lejano al más cercano) y al final los de los lados.
-5. **Etiquetas y montos** en HTML, y encima la interfaz.
+5. **Mis brazos** (`arms.js`, canvas; solo en la computadora, en horizontal y sentado): el izquierdo con mis cartas y el derecho junto a mi pila, encima de los rivales y debajo de la viñeta (ver "Brazos del jugador"). Se redibuja solo mientras algo se mueve.
+6. **Etiquetas y montos** en HTML, y encima la interfaz.
 
 Reglas:
 
@@ -206,6 +209,7 @@ Originales en `arte/` (fuera de git, pesados). Versiones para el juego en `publi
 | `carta-reverso.webp` | el marco del reverso de la baraja (sin la etiqueta: la pone el código) |
 | `carta-<rey\|reina\|jota>-<palo>.webp` | la mitad de arriba de cada figura, con la túnica del color de su palo (`h`, `d`, `c`, `s`) |
 | `carta-adorno-flor.webp`, `carta-adorno-banda.webp` | las volutas del reverso que adornan el marco de las figuras |
+| `<id>-brazo-izq-<ver\|ver-pulgar\|ocultar\|vacio>.webp`, `<id>-brazo-der-<descansar\|jugar>.webp` | mis brazos en primera persona cuando elijo ese personaje (todavía no hay: llegan con la pendiente 7; ver "Brazos del jugador") |
 
 Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `apuesta`, `retirarse`, `gana` (`POSES` en `characters.js`, `CUADROS` en `optimizar-arte.py`, `POSES` en `generar-personaje.py`). Por ahora **solo espera es obligatorio**: mientras falte otro cuadro, el personaje se queda en espera (no parpadea, no espía, no apuesta ni se retira con pose, no celebra) y el juego no falla; en cuanto se procesa y se registra el cuadro, se usa solo. Los de siempre son espera, parpadeo, apuesta y retirarse; espia y gana son extras. La especificación completa del arte está en `docs/ESPEC-PERSONAJES.md`.
 
@@ -224,6 +228,7 @@ Una sola lista de cuadros en todo el proyecto: `espera`, `parpadeo`, `espia`, `a
    - `mira`: hacia dónde ve la imagen, `izquierda`, `derecha` o `frente` (la cara y el cuerpo; varias bases quedaron un poco giradas). El juego la pone en espejo en los asientos del otro lado para que siempre vea hacia el centro de la mesa; una de `frente` nunca va en espejo. La de `lado` ve a la derecha.
    - Del personaje (no de un ángulo), `sillas`: 2 si ocupa dos sillas (Don Tentáculos); sin ella, 1.
    - Del personaje, `carpeta`: dónde está su arte dentro de `public/` (hoy todos en `assets/arte`, que es a donde exporta `optimizar-arte.py`; si falta, esa).
+   - Del personaje, `color`: el de sus manos (`#rrggbb`, sacado de su arte). Con él se dibujan mis brazos de relleno cuando lo elijo, mientras no tenga el arte de sus brazos (`brazos`, ver "Brazos del jugador"); `test/brazos.test.js` lo pide.
    - Para verlo: guarda el archivo, recarga la página y abre una mesa con `?medidas` en la dirección (por ejemplo `http://localhost:3000/?medidas` y luego "Jugar contra la compu"). Sobre cada rival se dibujan el marco de su imagen, la caja de la cara (roja, punteada) y la línea de la cintura con su punto (mostaza). Cambiar las medidas no necesita reiniciar el servidor.
    - Si un personaje no tiene `lado`, se usa `frente`.
 6. Para dejar de usar un personaje sin borrar nada, ponle `"retirado": true` en `personajes.json` (y reinicia el servidor). `optimizar-arte.py` sin nombres se lo salta, así sus WebP se quedan como están; para reprocesarlo hay que nombrarlo (`personajes blorp`).
@@ -283,7 +288,7 @@ Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la car
   - respiración muy sutil (escala vertical de 1 a 1.5 % desde la cintura), a un ritmo distinto para cada uno;
   - si se retira o está ausente, se ve apagado (desaturado y oscuro) y un poco transparente;
   - aro mostaza en el fieltro alrededor de la pila de quien está pensando, centrado frente a él; las fichas y las cartas comunitarias quedan encima. (En el celular sigue a un lado de la pila, entre ella y la orilla.)
-- **Manos del jugador**: por ahora mis dos cartas van boca arriba sobre la mesa, abajo a la izquierda (en el celular vertical van fuera de la mesa: ver "Celular"). Los brazos van por personaje (ver "Brazos del jugador").
+- **Manos del jugador**: en la computadora mis brazos son los de mi personaje: el izquierdo tiene mis cartas y el derecho juega con mis fichas (ver "Brazos del jugador"); mientras no llegue su arte, son siluetas de relleno del color de cada personaje. En el celular vertical mis cartas van fuera de la mesa (ver "Celular"); en una tablet y en una ventana vertical de la computadora, boca arriba sobre la mesa, abajo a la izquierda.
 
 ### Cámara
 
@@ -296,7 +301,68 @@ Los de los lados pueden tapar un poco los hombros de los del fondo, nunca la car
 
 ### Brazos del jugador
 
-Brazos por personaje, se diseñan después de la selección de personaje.
+En la computadora mis brazos, en primera persona, son los del personaje que elegí: el izquierdo tiene mis cartas y el derecho juega con mis fichas (`client/stage/arms.js`, capa `armsCv` de la escena). Lo que hacen lo ve solo mi pantalla: nada de esto pasa por el servidor ni por Socket.IO.
+
+- **Dónde hay brazos**: solo con mouse o trackpad, `(hover: hover) and (pointer: fine)` (`desktopQuery` en `client/ui/phone.js`), en la mesa ilustrada en horizontal y si estoy sentado. No hay brazos en el celular, en tablets (no son ni celular ni computadora), en la vista 2D, para quien solo mira ni en una ventana vertical de la computadora (ahí va la mesa de código con su cámara de 50°; el arte de los brazos es para la de 19°): ahí mis cartas siguen sobre la mesa abajo a la izquierda (en el celular, en `.mycards`). Si la regla cambia (se conecta un mouse), se vuelve a pintar.
+- **Brazo izquierdo, mis cartas**:
+  - *Ver cartas*: las sostiene en la mano, en capas: el brazo, mis dos cartas reales y el pulgar. En la mano van derechas en la pantalla: como `.mycards` del celular, son la excepción a "una sola perspectiva".
+  - *Ocultar cartas*: mis cartas boca abajo sobre la mesa, en su perspectiva, con la mano encima.
+  - *Asomarse* (mantener presionado, solo con las cartas ocultas): la parte de mi lado de cada carta, más del lado izquierdo (como al levantar la esquina), gira sobre una línea en la perspectiva de la mesa y se levanta hasta quedar casi de frente a mí (~180 ms, `FOLD` en `items.js`): enseña el índice de la cara, derecho; al soltar regresa (~150 ms). Lo levantado va encima de la mano (en el aire está más cerca de mí), así nunca queda tapado.
+  - *Sin cartas* (me retiré, entre manos, antes de empezar, ausente o fuera): la mano vacía sobre la mesa.
+  - Al final de la mano, si mis cartas se enseñan, pasan solas a Ver con las marcas de la mano ganadora; con la mano siguiente regresan a lo que elegí.
+  - Con las cartas ocultas, "Tu mano" no sale en la franja (delataría la mano), salvo mientras me asomo.
+- **Brazo derecho, mis fichas**: *Descansando*, la mano a la derecha de mi pila (sin taparla aunque tenga 5 columnas), o *Jugar con fichas*: el código dibuja junto a la mano dos columnitas sobre el fieltro, en perspectiva y con los colores de mi pila, detrás de sus dedos (arriba en la pantalla; a un lado no caben sin tocar mi pila), y en un loop de ~1.6 s la ficha de arriba brinca en arco a la otra columna. Sin fichas (all-in) descansa.
+- **Movimientos**: al igualar, apostar o subir, un empujón corto del derecho hacia el bote (translate y scale 0.92, 250 ms ease-out de ida y ~200 ms de regreso); si con eso quedo en all-in, empujan los dos. Las ciegas, pasar, retirarse y lo que hace el reloj no mueven nada. Se detecta con mi última jugada según el servidor: `v.lastAction` con mi id y un `n` nuevo (y `p.lastAction`; el servidor la borra cuando mi igualada cierra la ronda); al cargar o reconectar no se repite una jugada vieja. Las transformaciones son de canvas, en el mismo ciclo de animación de la escena: los brazos se redibujan solo mientras algo se mueve.
+- **Movimiento reducido** (`prefers-reduced-motion`): sin empujón y con las fichas quietas; asomarse funciona igual, pero las caras salen de golpe.
+- **Botones y atajos**: abajo a la derecha, junto a la barra (a la izquierda va el historial), píldoras de 44 px con su tecla: *Ocultar cartas* / *Ver cartas* (**V**), *Asomarse* (**A**, mantener; solo aparece con las cartas ocultas) y *Jugar con fichas* / *Descansar* (**J**). No se activan escribiendo en un campo (como el monto de Subir), con ⌘, Ctrl o Alt ni con el selector abierto; no se usan Espacio ni Enter (activarían un Retirarse con foco) ni F, C y R (parecen retirarse, igualar y subir). Asomarse se suelta al soltar el botón o la tecla en cualquier parte, al perder el foco o la pestaña y cuando las cartas dejan de estar ocultas (la interfaz se vuelve a pintar con cada jugada: no depende del botón). Ver/Ocultar y Jugar con fichas se recuerdan en el navegador (`ppt-brazos`), como la calidad: cada mano nueva llega como la dejé. No hay atajos para Retirarse, Igualar ni Subir.
+- **Capas**: los brazos van entre los rivales y la viñeta (ver "Técnica"): la viñeta también oscurece los antebrazos en las esquinas, y las etiquetas, los montos y la interfaz quedan encima. Dentro de la capa, primero el izquierdo y luego el derecho (`capas()` en `arms.js`). Ver: brazo, carta 1, carta 2, pulgar. Ocultar: las cartas boca abajo (con su sombra), la mano encima y, al asomarme, lo levantado de cada carta encima de la mano. Jugar: las fichas, la mano encima y la ficha que va en el aire. Al empujar se mueve el brazo con lo que tiene en la mano; lo que está en la mesa (mis cartas boca abajo, las fichas) se queda.
+- Las apuestas y el botón del dealer esquivan lo que ocupa el brazo izquierdo en todas sus poses juntas, para que nada brinque al cambiar de pose. Con `?medidas` en la dirección, sobre cada brazo se dibujan el marco de su imagen, el ancla, las cartas, la caja del pulgar y el punto de las fichas.
+
+**Contrato del arte** (`personajes.json`; todo en fracciones de la imagen, de 0 a 1 desde arriba a la izquierda, como `waist` y `face`). Un personaje con arte de brazos (los números son de ejemplo):
+
+```json
+"color": "#8aba72",
+"brazos": {
+  "izquierdo": {
+    "size": [820, 1150], "ancla": [0.66, 0.30], "alto": 0.86,
+    "poses": {
+      "ver": {
+        "archivo": "alien-brazo-izq-ver",
+        "cartas": [{ "c": [0.57, 0.17], "ancho": 0.17, "angulo": -9 }, { "c": [0.71, 0.16], "ancho": 0.17, "angulo": 6 }],
+        "pulgar": { "archivo": "alien-brazo-izq-ver-pulgar", "caja": [0.46, 0.14, 0.64, 0.34] }
+      },
+      "ocultar": { "archivo": "alien-brazo-izq-ocultar" },
+      "vacio": { "archivo": "alien-brazo-izq-vacio" }
+    }
+  },
+  "derecho": {
+    "size": [820, 1150], "ancla": [0.30, 0.28], "alto": 0.80,
+    "poses": {
+      "descansar": { "archivo": "alien-brazo-der-descansar" },
+      "jugar": { "archivo": "alien-brazo-der-jugar", "fichas": [0.22, 0.20] }
+    }
+  }
+}
+```
+
+- `color` va en el personaje, no en `brazos`: el de su piel o sus manos. Es obligatorio para los que están en uso y con él se dibuja la silueta de relleno. Los seis se sacaron de sus manos en su arte: alien `#93b975`, blob `#7bbcd4`, nerd `#f4c4a0` (su piel; en las manos salía su camisa), pulpo `#bc60b8`, robot `#a7b2b3` y turista `#e7b693`.
+- Por brazo: `size`, el tamaño de la imagen grande (todas las poses de un brazo en el mismo lienzo y alineadas, como los cuadros de los rivales, para que nada brinque); `ancla`, el punto de la imagen que cae en la mesa (el izquierdo, en el centro de mis dos cartas; el derecho, junto a mi pila); `alto`, lo que mide la imagen en unidades de la mesa (como `height` de los rivales). Con eso se acomoda a cualquier pantalla.
+- `cartas`: el centro, el ancho (fracción del ancho de la imagen) y el giro en grados de cada carta en la mano. `pulgar`: su archivo y la caja que ocupa sobre el brazo (`[0, 0, 1, 1]` si viene en el mismo lienzo). `fichas`: el punto del fieltro donde van las columnitas (su tamaño lo da la mesa). `ocultar` y `vacio` no llevan anclas: las cartas boca abajo van en mi lugar de la mesa, el del `ancla`.
+- `archivo` va sin carpeta ni extensión: el juego usa `/<carpeta>/<archivo>.webp` y, en calidad baja, `-chico.webp`.
+- **Todo o nada por personaje**: si a su `brazos` le falta cualquier pieza, o alguna de sus imágenes no carga, se dibujan siluetas de relleno de su `color` (antebrazo y mano de manopla, color plano con contorno de tinta) con las anclas por defecto (`RELLENO` en `arms.js`, con el mismo formato). Mientras carga su arte no se dibujan brazos. Sin `color` se usa uno por omisión: nunca truena. Hoy los seis van con relleno.
+
+**Imágenes de cada personaje** (las hace la pendiente 7; cada una en grande y `-chico`, en su `carpeta`):
+
+| Archivo | Qué es |
+|---|---|
+| `<id>-brazo-izq-ver` | antebrazo y mano izquierda levantando dos cartas en abanico, sin las cartas (el hueco donde van) y sin el pulgar |
+| `<id>-brazo-izq-ver-pulgar` | solo el pulgar (lo que va delante de las cartas), alineado con el anterior |
+| `<id>-brazo-izq-ocultar` | la mano encima de mis cartas boca abajo, sin las cartas: tapa la mitad de atrás y deja libres las esquinas de mi lado |
+| `<id>-brazo-izq-vacio` | la mano izquierda apoyada en la mesa |
+| `<id>-brazo-der-descansar` | la mano derecha apoyada en la mesa |
+| `<id>-brazo-der-jugar` | la mano derecha en el gesto de jugar con fichas, sin las fichas |
+
+Todas con el antebrazo entrando por la orilla de abajo de la imagen (cortado derecho: sale de la pantalla), con el estilo de los personajes, sin cartas, fichas ni textos (los pone el código), sobre verde o magenta. Asomarse, el empujón y el all-in no llevan imagen. Los nombres no chocan con los de los cuadros (`<id>-<ángulo>-<cuadro>`): `optimizar-arte.py` solo borra `<id>-frente-*` y `<id>-lado-*`.
 
 ### Interfaz encima de la escena
 
@@ -304,6 +370,7 @@ Brazos por personaje, se diseñan después de la selección de personaje.
 - Tipografía: **Chewy** (Google Fonts, redonda y gordita de caricatura) para títulos, números, nombres y botones; **Patrick Hand** para textos descriptivos. No usar la letra de ninguna serie existente: su rotulado es parte de su logo.
 - Formas redondas, nada geométrico: botones de píldora, paneles con esquinas grandes y desiguales, contornos de tinta de 2.5–3 px, sombras planas, letras del logo un poco chuecas. La pantalla de inicio va sobre el tapiz del cuarto con el charco de luz de la lámpara.
 - Barra de acciones abajo con botones grandes de al menos 44px: Retirarse, Pasar o Igualar, Apostar o Subir con slider y atajos (½ bote, bote, todo).
+- En la computadora, abajo a la derecha junto a la barra, los botones de mis brazos con su tecla: Ocultar o Ver cartas (V), Asomarse (A, mantener) y Jugar con fichas o Descansar (J) (ver "Brazos del jugador").
 - Una sola franja discreta arriba con el **bote total** (incluye las apuestas de la ronda; el "Bote" escrito en la mesa es solo el montón del centro), cuánto te toca igualar, tus fichas, ciegas (y cuándo suben) y la ronda (Antes del flop, Flop, Turn, River). En la misma franja, **"Tu mano"** con el nombre de tu mejor jugada (`client/ui/hand.js`); las cartas de la mesa ya se ven en la mesa.
 - **Que siempre se entienda qué pasa:**
   - Cada rival muestra en su etiqueta su última jugada como sello de color: Pasa, Iguala 50, Sube a 200, All-in, Se retira, Ciega. Si es su turno, "Pensando…" con su tiempo. El sello salta cuando la jugada es nueva. El servidor lo manda en `player.lastAction`. Quien se retira de la mano queda solo con su nombre, apagado (sin fichas ni sello).
@@ -337,11 +404,11 @@ Efectos de caricatura: cartas, fichas cayendo y deslizándose, golpecitos en la 
 
 ### Rendimiento y accesibilidad
 
-- Debe correr fluido en celulares de gama media y en una MacBook Pro Intel de 2018 con 8 GB. La escena no usa WebGL: la mesa se dibuja una vez por tamaño, las fichas y cartas una vez por jugada, y solo la capa de los rivales se anima (30 cuadros por segundo; cada pose se reduce una sola vez al tamaño en que se ve).
+- Debe correr fluido en celulares de gama media y en una MacBook Pro Intel de 2018 con 8 GB. La escena no usa WebGL: la mesa se dibuja una vez por tamaño, las fichas y cartas una vez por jugada, y se anima la capa de los rivales (30 cuadros por segundo; cada pose se reduce una sola vez al tamaño en que se ve) y, solo mientras algo se mueve (el empujón, asomarse, las fichas con que juego), la de mis brazos, en el mismo ciclo. El arte de los brazos se carga solo en la computadora y solo el de mi personaje.
 - Las ilustraciones se precargan y decodifican antes de mostrar la mesa ("Abriendo el garaje…"), también el arte de la baraja (si una imagen de la baraja no carga, esa carta va de código). Si no cargan el fondo o los personajes, queda la vista 2D simple.
 - Calidad (Auto, Alta, Media, Baja): resolución del canvas (hasta 2x, 1.5x o 1x). En baja, poses chicas, fondo chico y 20 cuadros por segundo. En automático se usa baja solo en equipos con muy pocos núcleos o poca memoria.
 - Pausar la animación cuando la pestaña no está visible.
-- Con `prefers-reduced-motion`: sin respiración ni pulso del aro de turno.
+- Con `prefers-reduced-motion`: sin respiración ni pulso del aro de turno; mis brazos sin empujón y con las fichas quietas (asomarse sí, pero de golpe).
 - La vista 2D simple (botón "2D") sigue disponible como respaldo para quien la prefiera.
 
 ## Pruebas
@@ -359,6 +426,8 @@ En esas simulaciones, el resultado de cada mano cuadra: botes + devoluciones = l
 `test/asientos.test.js`: hay un acomodo para cada cantidad de jugadores hasta `MAXP`, de mi izquierda a mi derecha; desde cada asiento (de 2 a 6 jugadores, también con asientos salteados), cada quien ve a los demás en el orden de juego y con el personaje que eligieron (con `seatPlan`, la misma función de la escena); en práctica, cuando sale, Don Tentáculos se sienta al centro del fondo con 1 a 5 rivales y nada cambia ya empezado; con 1 a 4 rivales sale al azar y con 5 siempre; si el jugador lo eligió, ningún bot lo es y el centro es para otro bot; en la sala privada nadie se mueve.
 
 `test/seleccion.test.js` (en una mesa, sin sockets): quien crea la mesa queda con su personaje y los demás ven cuál está ocupado y por quién, en el orden de `personajes.json`; uno ocupado se rechaza con el nombre de quien lo tiene; uno inventado, retirado o vacío se rechaza; levantarse o salir antes de empezar lo deja libre, y ya empezado no; la sala se llena en la capacidad (también con menos personajes que asientos); quien se desconecta antes de empezar conserva su lugar (al recargar, o con otra pestaña abierta) y, si no vuelve a tiempo, se le levanta; ya empezado, nada se libera; en práctica los bots nunca toman el personaje del jugador y caben de 1 a 5; la sala privada no acepta bots; un apodo igual al nombre de un personaje no deja a ningún bot sin personaje. Por sockets (`test/server.test.js`): dos eligen el mismo personaje al mismo tiempo y entra exactamente uno (al otro le llega `ocupado` y el estado con ese personaje bloqueado); "Salir de la mesa" antes de empezar lo libera; recargar conserva asiento y personaje, y quien no vuelve a tiempo lo deja libre; un intento rechazado de crear mesa no deja una mesa vacía.
+
+`test/brazos.test.js`: cada personaje en uso tiene el color de sus manos y sus brazos completos (las poses de los dos brazos, el pulgar, las anclas dentro de la imagen y sus WebP grande y chico donde los busca el juego) o cae al relleno de su color con las anclas por defecto: todo o nada (con brazos de prueba: completos, sin una pose, sin pulgar, con un ancla fuera, sin una imagen, sin brazos y sin color). Cada pose se dibuja sin errores con el relleno de cada personaje y con arte (asomándose, empujando, con marcas y con una imagen que no carga), sobre un canvas de mentira; con arte, Ver va en el orden brazo, carta, carta, pulgar. Solo hay brazos en la computadora, en horizontal y sentado; qué pose toca (ocultar, asomarse solo con las cartas ocultas, sin cartas la mano vacía, al final se ven solas, sin fichas descansa); el empujón (igualar, apostar o subir el derecho, all-in los dos, nada con ciegas, pasar ni retirarse, la igualada que cierra la ronda sí, y al cargar no se repite una jugada vieja) y sus tiempos; con movimiento reducido nada se anima. En las pantallas de `mesa.test.js` (4:3 a 21:9), con las mismas cuentas de la escena (`myPlace` y `lugaresBrazos`), los antebrazos salen por abajo aun empujando, mis manos quedan adentro de la pantalla, las cartas en la mano arriba de la barra, nada tapa las comunitarias ni el bote, y la mano derecha (con sus fichas) no tapa mi pila aunque tenga 5 columnas de 12 fichas en dos filas. Los atajos y botones se revisan en el navegador (`arte/revision/brazos/`).
 
 `test/personajes.test.js`: cada personaje en uso de `personajes.json` tiene `frente` con `espera`, solo cuadros de la lista y sus WebP (grande y chico) en su carpeta, con la misma ruta que arma el juego; los retirados no se usan y el juego dibuja el personaje que manda el servidor; cada uno dice hacia dónde mira y cuántas sillas ocupa, y va en espejo solo en el lado contrario a donde mira (al centro y de frente, nunca); un cuadro que falta se dibuja con espera; con solo `espera` no parpadea, no espía, no apuesta ni se retira con pose, y en cuanto llega otro cuadro se usa; solo espera parpadea; al retirarse se ve `retirarse` y no se apaga hasta que termina; con cuadro `gana`, el que gana lo enseña mientras dura el resultado (sin él se queda en espera) y deja de celebrar con la mano nueva.
 
@@ -381,12 +450,13 @@ npm start       # producción: sirve dist/ (corre antes npm run build)
 En este orden:
 
 1. Selección de personaje: hecha (2026-10-22)
-2. Publicar en URL gratis + prueba con amigos
-3. Ajustes de sala privada
-4. Pausa/guardado vs bots
-5. Rediseño de hub/menú/logo
-6. Brazos y demás arte
-7. Sonido + dominio
+2. Brazos (lógica)
+3. Publicar en URL gratis + prueba con amigos
+4. Ajustes de sala privada
+5. Pausa/guardado vs bots
+6. Rediseño de hub/menú/logo
+7. Arte de los brazos y demás arte
+8. Sonido + dominio
 
 Notas abiertas:
 

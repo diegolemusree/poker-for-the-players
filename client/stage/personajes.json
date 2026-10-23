@@ -17,6 +17,7 @@
   "alien": {
     "name": "El Compadre Zorg",
     "carpeta": "assets/arte",
+    "color": "#93b975",
     "angles": {
       "frente": {
         "size": [400, 886],
@@ -85,6 +86,7 @@
   "blob": {
     "name": "Tío Glub",
     "carpeta": "assets/arte",
+    "color": "#7bbcd4",
     "angles": {
       "frente": {
         "size": [443, 553],
@@ -153,6 +155,7 @@
   "nerd": {
     "name": "El Profe",
     "carpeta": "assets/arte",
+    "color": "#f4c4a0",
     "angles": {
       "frente": {
         "size": [574, 975],
@@ -221,6 +224,7 @@
   "pulpo": {
     "name": "Don Tentáculos",
     "carpeta": "assets/arte",
+    "color": "#bc60b8",
     "sillas": 2,
     "angles": {
       "frente": {
@@ -290,6 +294,7 @@
   "robot": {
     "name": "La Chispa",
     "carpeta": "assets/arte",
+    "color": "#a7b2b3",
     "angles": {
       "frente": {
         "size": [597, 1000],
@@ -358,6 +363,7 @@
   "turista": {
     "name": "La Güera",
     "carpeta": "assets/arte",
+    "color": "#e7b693",
     "angles": {
       "frente": {
         "size": [334, 549],

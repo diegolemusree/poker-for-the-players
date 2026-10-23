@@ -140,6 +140,23 @@ export function roundRect(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
+// Una carta derecha (sin perspectiva), con su centro en (cx, cy), `w` px de ancho y girada `angulo` radianes: las mías
+// en el celular (.mycards) y en la mano de mi brazo (arms.js). `mark`: 'win' (contorno mostaza, de la mano ganadora) o
+// 'dim' (apagada), como las de la mesa; `line`: el grueso de la línea de tinta de la escena; `sombra`: su sombra plana.
+export function drawFlatCard(g, code, cx, cy, w, angulo = 0, { mark = null, line = 1.5, sombra = true } = {}) {
+  const h = (w * H) / W;
+  g.save();
+  g.translate(cx, cy); g.rotate(angulo);
+  if (sombra) { g.fillStyle = 'rgba(14,8,4,0.45)'; roundRect(g, -w / 2 + 4, -h / 2 + 5, w, h, w * 0.1); g.fill(); }
+  g.drawImage(cardImage(code), -w / 2, -h / 2, w, h);
+  if (mark) {
+    roundRect(g, -w / 2, -h / 2, w, h, w * 0.117);
+    if (mark === 'dim') { g.fillStyle = 'rgba(29,22,17,0.52)'; g.fill(); }
+    else { g.lineJoin = 'round'; g.lineWidth = line * 4.4; g.strokeStyle = INK; g.stroke(); g.lineWidth = line * 2.4; g.strokeStyle = '#d9a441'; g.stroke(); }
+  }
+  g.restore();
+}
+
 function papel(g) {
   g.fillStyle = PAPEL; roundRect(g, 0, 0, W, H, R); g.fill();
 }

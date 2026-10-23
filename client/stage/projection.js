@@ -102,6 +102,20 @@ export function fit(v, headWorld, cam) {
   return v;
 }
 
+// Mi lugar en la mesa (lo usan la escena y las pruebas de mis brazos): `meRow`, la fila de la pantalla justo arriba de la
+// barra de acciones (`reserve` px desde abajo); `zMe`, esa fila en la mesa; mis cartas abajo a la izquierda (`xCards`,
+// con `mineX` en fracción del ancho) y mi pila a la derecha (`xStack`); las comunitarias en fila al centro (`zBoard`, lo
+// más cerca de mí que llegan es `boardZ`) y el bote, un montón cerca de mí abajo al centro (`zPot`).
+export function myPlace(v, { W, H, reserve, mineX, boardZ }) {
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const meRow = H - reserve - 10;
+  const zMe = clamp(v.unproject(W / 2, meRow).z, 0, NEAR_Z - 0.08);
+  const xCards = clamp(v.unproject(W * mineX, meRow).x, -0.6, -0.2);
+  const xStack = clamp(v.unproject(W * 0.78, meRow).x, 0.25, 0.6);
+  const zBoard = clamp(zMe - 0.27, -0.3, boardZ), zPot = Math.max(zBoard + 0.2, zMe - 0.09);
+  return { meRow, zMe, xCards, xStack, zBoard, zPot };
+}
+
 // Lo más alto (en px) que llega la cabeza de un rival del fondo, con cualquier acomodo.
 export function headTop(v, headWorld) {
   const backs = LAYOUTS.flat().filter(s => s.row === 'back').map(s => rimPoint(s.ang));

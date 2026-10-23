@@ -51,11 +51,13 @@ function stackColumns(amount, at, across, back, seed, messy) {
 // Dónde caen sobre la mesa las columnas de una pila (el aro de turno la rodea).
 export const stackFootprint = it => stackColumns(it.amount, it.at, it.across, it.back, it.seed, it.messy);
 
-function chipColumn(g, v, col, line) {
-  const info = chipInfo(col.value);
-  const b = v.project(col.x, 0, col.z), t = v.project(col.x, col.n * CHIP_H, col.z);
+// Una columna de `col.n` fichas de `col.value` sobre (col.x, col.z); `col.y`: a qué altura empieza (0, sobre el fieltro;
+// más, en el aire: la ficha que brinca de mi mano, en arms.js).
+export function chipColumn(g, v, col, line) {
+  const info = chipInfo(col.value), y0 = col.y || 0;
+  const b = v.project(col.x, y0, col.z), t = v.project(col.x, y0 + col.n * CHIP_H, col.z);
   const rx = CHIP_R * b.s;
-  const ry = Math.abs(v.project(col.x, 0, col.z + CHIP_R).y - v.project(col.x, 0, col.z - CHIP_R).y) / 2;
+  const ry = Math.abs(v.project(col.x, y0, col.z + CHIP_R).y - v.project(col.x, y0, col.z - CHIP_R).y) / 2;
   const dh = (b.y - t.y) / col.n;
   const stripe = STRIPE[col.value] || '#e3d6b8';
   for (let j = 0; j < col.n; j++) {
@@ -112,8 +114,10 @@ export function cardCorners(at, w, h, tilt, yaw, lift = 0) {
 }
 
 // `flip` (0 a 1): qué tan ancha se ve mientras se voltea. `mark`: 'win' si es de la mano ganadora (contorno
-// mostaza, plano como el aro de turno) o 'dim' si no (apagada, como un rival retirado).
-function drawCard(g, v, it, line) {
+// mostaza, plano como el aro de turno) o 'dim' si no (apagada, como un rival retirado). `down`: boca abajo (se ve el
+// reverso; `code` es la carta de verdad) y `fold` (0 a 1): cuánto va de asomarse: aquí se dibuja solo lo que se queda
+// en la mesa, y lo levantado con drawFlap (ver FOLD).
+export function drawCard(g, v, it, line) {
   const w = CARD_W * (it.scale || 1) * (it.flip ?? 1), h = CARD_H * (it.scale || 1);
   const c = cardCorners(it.at, w, h, it.tilt || 0, it.yaw || 0, 0.002);
   const P = p => v.project(p.x, p.y, p.z);
@@ -124,8 +128,16 @@ function drawCard(g, v, it, line) {
   const tl = P(c.tl), tr = P(c.tr), bl = P(c.bl);
   const [W, H] = CARD_PX;
   g.save();
-  g.setTransform(g.getTransform().multiply(new DOMMatrix([(tr.x - tl.x) / W, (tr.y - tl.y) / W, (bl.x - tl.x) / H, (bl.y - tl.y) / H, tl.x, tl.y])));
-  g.drawImage(cardImage(it.code), 0, 0);
+  g.transform((tr.x - tl.x) / W, (tr.y - tl.y) / W, (bl.x - tl.x) / H, (bl.y - tl.y) / H, tl.x, tl.y);
+  if (it.down && it.fold > 0) { // lo que se queda en la mesa: de la línea del doblez para allá
+    const { A, B } = foldLine();
+    g.save();
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(W, 0); g.lineTo(B.x, B.y); g.lineTo(A.x, A.y); g.closePath(); g.clip();
+    g.drawImage(cardImage(null), 0, 0);
+    g.restore();
+    g.beginPath(); g.moveTo(A.x, A.y); g.lineTo(B.x, B.y);
+    g.lineCap = 'round'; g.lineWidth = (line * W) / Math.max(1, Math.hypot(tr.x - tl.x, tr.y - tl.y)); g.strokeStyle = INK; g.stroke();
+  } else g.drawImage(cardImage(it.down ? null : it.code), 0, 0);
   if (it.mark) roundRect(g, 0, 0, W, H, 30); // la orilla de la carta, ya en perspectiva
   g.restore();
   // (el trazo va con el grueso de la pantalla, no el de la carta, para que sea parejo)
@@ -135,6 +147,57 @@ function drawCard(g, v, it, line) {
     g.lineWidth = line * 4.4; g.strokeStyle = INK; g.stroke();
     g.lineWidth = line * 2.4; g.strokeStyle = '#d9a441'; g.stroke();
   }
+}
+
+// Asomarse a una carta boca abajo: la parte de mi lado, de una línea que sube más del lado izquierdo (como al levantar
+// la esquina) para acá, gira sobre esa línea y se levanta hasta quedar casi de frente a mí (`angulo`). drawCard dibuja lo
+// que se queda en la mesa y drawFlap lo levantado, que va encima de la mano (en el aire está más cerca de mí). Boca
+// abajo la cara va en espejo y, levantada, su orilla de abajo queda arriba: el índice de abajo a la derecha (en la cara
+// va de cabeza) se ve derecho, del lado izquierdo. `izquierda` y `derecha`: cuánto de la carta se levanta de cada lado.
+export const FOLD = { izquierda: 0.46, derecha: 0.3, angulo: 115 };
+// la línea del doblez en px de la carta (y = H es la orilla de mi lado)
+function foldLine() {
+  const [W, H] = CARD_PX;
+  return { A: { x: 0, y: H * (1 - FOLD.izquierda) }, B: { x: W, y: H * (1 - FOLD.derecha) } };
+}
+export function drawFlap(g, v, it, line) {
+  if (!(it.down && it.fold > 0)) return;
+  const [W, H] = CARD_PX;
+  const c = cardCorners(it.at, CARD_W * (it.scale || 1), CARD_H * (it.scale || 1), it.tilt || 0, it.yaw || 0, 0.002);
+  // de px de la carta (u a lo ancho, t de la orilla de allá a la mía) al mundo
+  const P = (u, t) => {
+    const a = u / W, b = t / H;
+    return { x: c.tl.x + (c.tr.x - c.tl.x) * a + (c.bl.x - c.tl.x) * b, y: c.tl.y + (c.tr.y - c.tl.y) * a + (c.bl.y - c.tl.y) * b,
+      z: c.tl.z + (c.tr.z - c.tl.z) * a + (c.bl.z - c.tl.z) * b };
+  };
+  const { A: Al, B: Bl } = foldLine();
+  const A = P(Al.x, Al.y), B = P(Bl.x, Bl.y), D = P(0, H);
+  // gira sobre la línea AB (Rodrigues), hacia arriba
+  const n = Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z), k = { x: (B.x - A.x) / n, y: (B.y - A.y) / n, z: (B.z - A.z) / n };
+  const rot = (p, ang) => {
+    const r = { x: p.x - A.x, y: p.y - A.y, z: p.z - A.z }, co = Math.cos(ang), si = Math.sin(ang), kr = k.x * r.x + k.y * r.y + k.z * r.z;
+    const cx = k.y * r.z - k.z * r.y, cy = k.z * r.x - k.x * r.z, cz = k.x * r.y - k.y * r.x;
+    return { x: A.x + r.x * co + cx * si + k.x * kr * (1 - co), y: A.y + r.y * co + cy * si + k.y * kr * (1 - co), z: A.z + r.z * co + cz * si + k.z * kr * (1 - co) };
+  };
+  const ang = it.fold * FOLD.angulo * Math.PI / 180;
+  const up = rot(D, ang), down = rot(D, -ang), Dr = up.y >= down.y ? up : down;
+  const S = p => v.project(p.x, p.y, p.z);
+  const sA = S(A), sB = S(B), sD = S(Dr), sD0 = S(D);
+  // de px de la carta a la pantalla, por tres puntos: A, B y la esquina de mi lado ya levantada
+  const q = Bl.y - Al.y, p = H - Al.y;
+  const f1 = { x: sB.x - sA.x, y: sB.y - sA.y }, f2 = { x: sD.x - sA.x, y: sD.y - sA.y };
+  const a = (f1.x * p - f2.x * q) / (W * p), b = (f1.y * p - f2.y * q) / (W * p), cc = f2.x / p, d = f2.y / p;
+  // si lo levantado quedó al revés en la pantalla, ya se ve su cara
+  const cross = (u, w) => u.x * w.y - u.y * w.x;
+  const cara = Math.sign(cross(f1, f2)) !== Math.sign(cross(f1, { x: sD0.x - sA.x, y: sD0.y - sA.y }));
+  g.save();
+  g.transform(a, b, cc, d, sA.x - (a * Al.x + cc * Al.y), sA.y - (b * Al.x + d * Al.y));
+  g.beginPath(); g.moveTo(Al.x, Al.y); g.lineTo(Bl.x, Bl.y); g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.clip();
+  if (cara) { g.transform(-1, 0, 0, 1, W, 0); g.drawImage(cardImage(it.code), 0, 0); }
+  else g.drawImage(cardImage(null), 0, 0);
+  g.restore();
+  g.beginPath(); g.moveTo(sA.x, sA.y); g.lineTo(sB.x, sB.y);
+  g.lineCap = 'round'; g.lineWidth = line; g.strokeStyle = INK; g.stroke();
 }
 
 function drawDealer(g, v, it, line) {
@@ -156,7 +219,7 @@ function drawDealer(g, v, it, line) {
   g.lineWidth = line; g.strokeStyle = INK; g.stroke();
 }
 
-// items: [{ kind: 'stack', amount, at, across, back, seed, messy } | { kind: 'card', code, at, tilt, yaw, scale, flip, mark } | { kind: 'dealer', at }]
+// items: [{ kind: 'stack', amount, at, across, back, seed, messy } | { kind: 'card', code, at, tilt, yaw, scale, flip, mark, down, fold } | { kind: 'dealer', at }]
 export function drawItems(g, v, items, line) {
   g.lineJoin = 'round'; g.lineCap = 'round';
   const parts = [];

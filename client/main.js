@@ -4,7 +4,7 @@
 import { io } from 'socket.io-client';
 import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel, winningCards } from './ui/hand.js';
-import { isPhone, phoneQuery } from './ui/phone.js';
+import { isPhone, phoneQuery, desktopQuery } from './ui/phone.js';
 import { SUIT_PATH } from './ui/suits.js';
 import { CHARACTERS, portraitOf } from './stage/characters.js';
 
@@ -70,6 +70,14 @@ const form = { bots: 3, difficulty: 'normal', soloMinutes: 5, tableMinutes: 15, 
 // la mesa al elegir); en una mesa con amigos se abre solo mientras no tengas asiento, salvo que elijas "Solo mirar"
 // (`watchCode`, la mesa en que lo elegiste)
 let picking = null, pickError = '', pickBusy = false, watchCode = null;
+// mis brazos (solo en la computadora, stage/arms.js): lo que elegí (Ver/Ocultar cartas y Jugar con fichas) se recuerda en
+// este navegador, como la calidad. Asomarse dura lo que se mantenga presionado su botón o la tecla A, y no depende del
+// botón (la interfaz se vuelve a pintar con cada jugada). `armsInHud`: si la interfaz ya trae los botones.
+const arms = (() => {
+  try { const b = JSON.parse(store.get('ppt-brazos') || '{}'); return { cartas: b.cartas === 'ocultas' ? 'ocultas' : 'ver', fichas: b.fichas === true }; }
+  catch { return { cartas: 'ver', fichas: false }; }
+})();
+let peeking = false, armsInHud = false;
 // celular: un solo aviso a la vez (la última jugada, un error), que se borra solo
 let note = null, noteTimer = 0, lastLogKey = null, lastLog = [];
 const NOTE_MS = 4500;
@@ -713,6 +721,9 @@ function keepFocus(fn) {
 function draw() {
   if (screen === 'table' && snap && useStage() && drawStage()) return;
   if (scene) scene.setActive(false);
+  // fuera de la mesa ilustrada (inicio, vista 2D) no hay brazos: ni botones ni atajos
+  armsInHud = false;
+  if (peeking) { peeking = false; if (scene) scene.setPeek(false); }
   const y = scrollY;
   const focus = document.activeElement && document.activeElement.id;
   const val = focus && document.activeElement.value;
@@ -721,7 +732,7 @@ function draw() {
   if (focus) { const el = document.getElementById(focus); if (el) { el.focus(); if (val != null && 'value' in el && el.type !== 'range') el.value = val; } }
   scrollTo(0, y);
 }
-addEventListener('resize', () => { if (screen === 'table' && !(scene && $app.firstChild === shell)) draw(); });
+addEventListener('resize', () => { if (screen === 'table' && !(scene && $app.firstChild === shell)) draw(); else fitArmTools(); });
 phoneQuery.addEventListener('change', () => { raiseOpen = false; if (screen === 'table') draw(); });
 
 // Mesa ilustrada: las capas se crean una vez y se quedan; solo la interfaz de encima se vuelve a pintar.
@@ -737,7 +748,9 @@ function drawStage() {
     shell = h('div', { class: 'scene-shell' }, stage, hudEl);
     $app.replaceChildren(shell);
     try {
-      scene = sceneMod.createTableScene(stage, { h, fmt, deadline });
+      // armsChanged: mis brazos empiezan o dejan de verse (computadora, horizontal, sentado): cambian los botones
+      scene = sceneMod.createTableScene(stage, { h, fmt, deadline, armsChanged: () => { if (screen === 'table' && scene && scene.armsOn !== armsInHud) draw(); } });
+      scene.setArms(arms);
     } catch (e) {
       console.error(e);
       sceneFailed = true; scene = null; shell = null;
@@ -748,6 +761,7 @@ function drawStage() {
     if ($app.firstChild !== shell) $app.replaceChildren(shell);
     hudEl.replaceChildren(...drawHud());
   });
+  fitArmTools();
   scene.update(snap);
   scene.setActive(true);
   return true;
@@ -780,9 +794,14 @@ function drawHud() {
       ...options(sound, 'opt'),
       tool('Salir', '✕', exitRoom)));
 
-  // el nombre de tu mano (las cartas de la mesa ya se ven en la mesa)
+  // el nombre de tu mano (las cartas de la mesa ya se ven en la mesa). Con mis brazos y las cartas ocultas no sale
+  // (delataría la mano), salvo mientras me asomo o cuando se enseñan al final
   const myCards = mine && mine.inHand && !mine.folded && mine.cards.length === 2 ? mine.cards : null;
-  const hand = myCards && handLabel(myCards, v.board);
+  const armsUp = armsInHud = !!(scene && scene.armsOn);
+  const shownMine = !!myCards && v.phase === 'showdown' && !!v.results && !v.results.fold && v.results.shown.includes(snap.you);
+  const hidden = armsUp && arms.cartas === 'ocultas' && !!myCards && !shownMine;
+  if (peeking && !hidden) { peeking = false; scene.setPeek(false); } // ya no hay a qué asomarse
+  const hand = myCards && !(hidden && !peeking) && handLabel(myCards, v.board);
   const info = started() && hand && h('div', { class: 'tableinfo' },
     h('div', { class: 'myhand' }, h('span', {}, 'Tu mano'), h('b', {}, hand)));
 
@@ -841,8 +860,84 @@ function drawHud() {
     h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-12).reverse().map(t => h('li', {}, t)))),
     phone && h('button', { class: 'btn small side-exit', onclick: exitRoom }, 'Salir de la mesa'));
   if (info && !phone) strip.insertBefore(info, strip.lastChild);
-  return [strip, ticker, notice, side, mycards, bar, v.finished && !showingResult() && finishOverlay(), showPicker() && characterPicker()].filter(Boolean);
+  const armButtons = armsUp && armTools(!!myCards && !shownMine);
+  return [strip, ticker, notice, side, mycards, bar, armButtons, v.finished && !showingResult() && finishOverlay(), showPicker() && characterPicker()].filter(Boolean);
 }
+
+/* ---------- mis brazos (solo en la computadora) ---------- */
+// Los botones, abajo a la derecha junto a la barra, con su tecla: Ver u Ocultar mis cartas (V), Asomarse (A, mantener;
+// solo con mis cartas ocultas) y Jugar con fichas o Descansar (J). `holding`: tengo mis dos cartas y no se enseñan.
+function armTools(holding) {
+  const key = k => h('kbd', { 'aria-hidden': 'true' }, k);
+  const hidden = arms.cartas === 'ocultas';
+  const hold = on => e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); setPeek(on); } };
+  return h('div', { class: 'arm-tools' },
+    hidden && holding && h('button', {
+      id: 'arm-peek', class: 'btn small arm peek' + (peeking ? ' held' : ''), 'aria-pressed': String(peeking), 'aria-keyshortcuts': 'A',
+      title: 'Mantén presionado para asomarte a tus cartas (tecla A)',
+      onpointerdown: e => { if (e.button === 0) { e.preventDefault(); setPeek(true); } },
+      onkeydown: hold(true), onkeyup: hold(false), oncontextmenu: e => e.preventDefault(),
+    }, 'Asomarse', key('A')),
+    h('button', { id: 'arm-cards', class: 'btn small arm', 'aria-keyshortcuts': 'V', onclick: toggleCards,
+      title: hidden ? 'Levantar tus cartas para verlas (tecla V)' : 'Poner tus cartas boca abajo en la mesa (tecla V)' },
+    hidden ? 'Ver cartas' : 'Ocultar cartas', key('V')),
+    h('button', { id: 'arm-chips', class: 'btn small arm', 'aria-keyshortcuts': 'J', 'aria-pressed': String(arms.fichas), onclick: toggleChips,
+      title: arms.fichas ? 'Dejar las fichas (tecla J)' : 'Jugar con tus fichas mientras esperas (tecla J)' },
+    arms.fichas ? 'Descansar' : 'Jugar con fichas', key('J')));
+}
+function saveArms() { store.set('ppt-brazos', JSON.stringify(arms)); }
+function toggleCards() {
+  arms.cartas = arms.cartas === 'ocultas' ? 'ver' : 'ocultas';
+  if (peeking) { peeking = false; if (scene) scene.setPeek(false); }
+  saveArms();
+  if (scene) scene.setArms(arms);
+  draw();
+}
+function toggleChips() {
+  arms.fichas = !arms.fichas;
+  saveArms();
+  if (scene) scene.setArms(arms);
+  draw();
+}
+function setPeek(on) {
+  if (on === peeking || (on && !(scene && scene.armsOn && arms.cartas === 'ocultas'))) return;
+  peeking = on;
+  if (scene) scene.setPeek(on);
+  draw();
+}
+// Los botones van a la derecha de la barra; si ahí no caben (ventana angosta, o el panel del resultado, que es más
+// ancho), se suben encima de la barra.
+function fitArmTools() {
+  const tools = hudEl && hudEl.querySelector('.arm-tools'), panel = hudEl && hudEl.querySelector('.bar .in');
+  if (!tools || !panel) return;
+  tools.style.bottom = '';
+  const r = panel.getBoundingClientRect();
+  if (innerWidth - r.right < tools.offsetWidth + 24) tools.style.bottom = `${Math.round(innerHeight - r.top + 10)}px`;
+}
+// Atajos (solo si se ven los brazos): no mientras se escribe en un campo (como el monto de Subir), con ⌘, Ctrl o Alt, ni
+// con el selector abierto. No se usan Espacio ni Enter (activarían un Retirarse con foco) ni F, C y R (parecen retirarse,
+// igualar y subir).
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || screen !== 'table' || !armsInHud || !scene || !scene.armsOn || showPicker()) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))) return;
+  const k = (e.key || '').toLowerCase();
+  if (k !== 'v' && k !== 'a' && k !== 'j') return;
+  e.preventDefault();
+  if (e.repeat) return;
+  if (k === 'v') toggleCards();
+  else if (k === 'j') toggleChips();
+  else setPeek(true);
+});
+// asomarse se suelta al soltar el botón o la tecla en cualquier parte, al perder el foco o la pestaña
+const unpeek = () => { if (peeking) setPeek(false); };
+addEventListener('keyup', e => { if (['a', 'A', ' ', 'Enter'].includes(e.key)) unpeek(); });
+addEventListener('pointerup', unpeek);
+addEventListener('pointercancel', unpeek);
+addEventListener('blur', unpeek);
+document.addEventListener('visibilitychange', () => { if (document.hidden) unpeek(); });
+// se conectó o se quitó un mouse: puede que ahora sí (o ya no) haya brazos
+desktopQuery.addEventListener('change', () => { if (screen === 'table') draw(); });
 // Calidad, sonido y vista 2D: en la franja en pantallas anchas, dentro del panel en el celular.
 function options(sound, cls) {
   return [

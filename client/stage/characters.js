@@ -6,7 +6,8 @@
 // selector de personaje (en el mismo orden) y para darle a cada bot uno distinto con su nombre.
 //
 // Del personaje: `name`, su nombre; `carpeta`, dónde están sus imágenes dentro de public/ (hoy todos en
-// assets/arte; si falta, esa).
+// assets/arte; si falta, esa); `color`, el de sus manos, y `brazos`, el arte de mis brazos en primera persona cuando
+// lo elijo (los lee arms.js; sin ese arte, siluetas de relleno de su color).
 //
 // Cada personaje tiene sus ángulos: `frente` (los del fondo) y `lado` (tres cuartos, para los de los lados).
 // Si un personaje todavía no tiene `lado`, se usa `frente`.
@@ -35,6 +36,8 @@ export const CHARACTERS = Object.fromEntries(Object.entries(DATA).filter(([, c])
   name: c.name,
   carpeta: c.carpeta || ART_DIR,
   sillas: c.sillas || 1,
+  color: c.color,
+  brazos: c.brazos,
   angles: Object.fromEntries(Object.entries(c.angles).map(([angle, a]) => [angle, {
     ...a, poses: Object.fromEntries(a.frames.map(f => [f, `${c.carpeta || ART_DIR}/${id}-${angle}-${f}`])),
   }])),

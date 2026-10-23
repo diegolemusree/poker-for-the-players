@@ -135,7 +135,9 @@ function darken(c) {
   }
   g.putImageData(d, 0, 0);
 }
-function downscale(img, pxH) {
+// Una imagen reducida a `pxH` px de alto, a la mitad varias veces para que la línea quede limpia. `fade`: el último
+// pedacito de abajo se desvanece (el de los rivales); los brazos (arms.js) lo usan sin él.
+export function downscale(img, pxH, fade = true) {
   let src = img, w = img.naturalWidth, h = img.naturalHeight;
   const tw = Math.max(1, Math.round((w * pxH) / h)), th = Math.max(1, Math.round(pxH));
   while (w / 2 >= tw * 1.05) {
@@ -151,12 +153,13 @@ function downscale(img, pxH) {
   const g = c.getContext('2d');
   g.imageSmoothingQuality = 'high';
   g.drawImage(src, 0, 0, tw, th);
+  if (!fade) return c;
   // la ilustración termina cortada (silla y rodillas): el último pedacito se desvanece por si llega a
   // asomar fuera de la mesa, para que no se vea un corte recto
-  const fade = g.createLinearGradient(0, th * 0.9, 0, th);
-  fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
+  const grad = g.createLinearGradient(0, th * 0.9, 0, th);
+  grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, 'rgba(0,0,0,1)');
   g.globalCompositeOperation = 'destination-out';
-  g.fillStyle = fade; g.fillRect(0, th * 0.9, tw, th * 0.1);
+  g.fillStyle = grad; g.fillRect(0, th * 0.9, tw, th * 0.1);
   g.globalCompositeOperation = 'source-over';   // lo que se dibuje después (las etiquetas) pinta
   return c;
 }

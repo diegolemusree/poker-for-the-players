@@ -4,20 +4,22 @@
 //      cambiar el tamaño)
 //   3. cartas, bote y fichas sobre el fieltro (se redibujan con cada jugada)
 //   4. los rivales ilustrados; la mesa los tapa de la cintura para abajo (se animan)
-//   5. etiquetas y montos en HTML, y encima la interfaz (main.js)
+//   5. mis brazos (solo en la computadora, arms.js): mis cartas y mis fichas (se redibujan cuando algo se mueve)
+//   6. etiquetas y montos en HTML, y encima la interfaz (main.js)
 // Recibe la misma vista filtrada del servidor que la vista 2D simple.
 
 import {
   CHARACTERS, characterFor, artOf, angleOf, needsMirror, visibleSpan, backgroundUrl, preloadArt, BACKGROUND, tableArtUrl, loadImage,
   loadedImage,
 } from './characters.js';
-import { makeView, fit, headTop, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z, DEG } from './projection.js';
+import { makeView, fit, headTop, frontRegion, edgeYAt, belowRow, rimPoint, myPlace, RAIL_Y, DEG } from './projection.js';
 import { CAMERAS, BACKDROP, seatPlan } from './config.js';
-import { drawTable, INK } from './table.js';
+import { drawTable } from './table.js';
 import { drawItems, cardCorners, stackFootprint, CARD_W, CARD_H, CHIP_R, CHIP_H } from './items.js';
-import { cardImage, roundRect, CARD_PX, cargarArte } from './cards.js';
+import { CARD_PX, cargarArte, drawFlatCard } from './cards.js';
 import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
-import { isPhone } from '../ui/phone.js';
+import { Brazos, brazosVisibles, lugaresBrazos } from './arms.js';
+import { isPhone, isDesktop } from '../ui/phone.js';
 import { winningCards } from '../ui/hand.js';
 
 // Final de la mano: las cartas de quienes llegaron se voltean una tras otra y luego se resalta la mano ganadora.
@@ -83,9 +85,14 @@ export function createTableScene(container, ui) {
 
   const bg = el('div', 'stage-bg');
   const tableCv = el('canvas', 'stage-cv'), itemsCv = el('canvas', 'stage-cv'), rivalsCv = el('canvas', 'stage-cv');
+  const armsCv = el('canvas', 'stage-cv');
   const shade = el('div', 'stage-shade');
   const labelLayer = el('div', 'labels');
-  container.append(bg, tableCv, itemsCv, rivalsCv, shade, labelLayer);
+  // los brazos van encima de los rivales y debajo de la viñeta (también oscurece los antebrazos en las esquinas)
+  container.append(bg, tableCv, itemsCv, rivalsCv, armsCv, shade, labelLayer);
+  // mis brazos (solo en la computadora, arms.js): si se ven y si hay que volver a pintarlos
+  const brazos = new Brazos();
+  let armsOn = false, armsWere = false, armsShown = false;
 
   // un lugar por asiento de la mesa, con su etiqueta: los asientos son los que manda el servidor (maxPlayers)
   const seats = [];
@@ -145,7 +152,8 @@ export function createTableScene(container, ui) {
     // la línea de tinta es tan gruesa como la del fondo ilustrado al tamaño en que se ve
     const line = Math.max(1.2, BG_W * back * 0.0011);
     const dpr = dprOf();
-    for (const c of [tableCv, itemsCv, rivalsCv]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    for (const c of [tableCv, itemsCv, rivalsCv, armsCv]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+    armsShown = false; // el canvas quedó en blanco: se vuelve a pintar
     const g = tableCv.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     // la mesa ilustrada (en horizontal): si su imagen todavía no está, va la de código y se redibuja cuando llegue
@@ -395,22 +403,38 @@ export function createTableScene(container, ui) {
     const seatOf = seatPlan(v.players, base, maxp, !me && !started);
     const spots = placeSeats(seatOf, v.players);
 
-    // mi lugar: la fila de la mesa justo arriba de la barra de acciones; mis cartas abajo a la izquierda
-    const meRow = L.H - L.reserve - 10;
-    const zMe = clamp(view.unproject(L.W / 2, meRow).z, 0, NEAR_Z - 0.08);
-    const xCards = clamp(view.unproject(L.W * L.mineX, meRow).x, -0.6, -0.2);
-    const xStack = clamp(view.unproject(L.W * 0.78, meRow).x, 0.25, 0.6);
-    // cartas comunitarias en fila al centro de la mesa; el bote, un montón cerca de mí abajo al centro
-    const zBoard = clamp(zMe - 0.27, -0.3, L.boardZ), zPot = Math.max(zBoard + 0.2, zMe - 0.09);
+    // mi lugar: la fila de la mesa justo arriba de la barra de acciones, mis cartas abajo a la izquierda y mi pila a la
+    // derecha; las cartas comunitarias en fila al centro de la mesa y el bote, un montón cerca de mí abajo al centro
+    const mySpot = myPlace(view, { W: L.W, H: L.H, reserve: L.reserve, mineX: L.mineX, boardZ: L.boardZ });
+    const { zMe, xCards, xStack, zBoard, zPot } = mySpot;
     const items = [], amts = [];
     let betSum = 0, myCards = null;
+    // mis brazos (solo en la computadora, en horizontal y sentado; arms.js): el izquierdo tiene mis cartas, en la mano o
+    // boca abajo en mi lugar de la mesa, y el derecho va junto a mi pila; empujan hacia el bote
+    armsOn = !L.phone && brazosVisibles({ compu: isDesktop(), W: L.W, H: L.H, sentado: !!me });
+    if (armsOn) {
+      const holding = me.inHand && !me.folded && me.cards.length === 2 && me.cards.every(Boolean);
+      brazos.acomodar({ v: view, line: L.line, dpr: L.dpr, small: small(), ...lugaresBrazos(mySpot, L.mine) });
+      brazos.poner({
+        personaje: CHARACTERS[characterFor(me)], conCartas: holding, pila: me.stack,
+        cartas: holding ? me.cards.map(code => ({ code, mark: markOf(code) })) : null,
+        enseño: shown.includes(me.id), marcasDesde: reveal.marksAt,
+      }, now, reduced.matches);
+    }
+    // mi jugada nueva empuja (se revisa siempre, para no repetir una vieja cuando los brazos vuelvan a verse)
+    if (me) { const quien = brazos.jugadas.revisar(v, me, `${snap.code}:${me.id}`); if (quien && armsOn) brazos.empujar(quien, now); }
+    const armBoxes = armsOn ? brazos.cajas() : null;
+    // la interfaz pone los botones de los brazos solo si se ven: si eso cambió (al cargar, al cambiar el tamaño de la
+    // ventana, al conectar un mouse), se le avisa cuando termine este acomodo
+    if (armsOn !== armsWere) { armsWere = armsOn; if (ui.armsChanged) queueMicrotask(ui.armsChanged); }
     // cartas comunitarias (mismas medidas que dibuja items.js) y dónde caen en pantalla
     const boardScale = L.board;
     const boardAt = i => ({ x: (i - 2) * (CARD_W * boardScale + 0.014), z: zBoard });
     boardQuads = v.board.map((_, i) => { const c = cardCorners(boardAt(i), CARD_W * boardScale, CARD_H * boardScale, TILT.board + L.lean, 0); return [c.tl, c.tr, c.br, c.bl].map(q => view.project(q.x, q.y, q.z)); });
     const amt = (at, y, text, cls) => amts.push({ at, y, text, cls });
-    const key = [zBoard, boardScale, xCards, xStack, ...[...spots].map(([seat, sp]) => `${seat}:${sp.rim.x},${sp.rim.z}`)].join('|');
-    if (key !== betKey) { betKey = key; betSpots = planBets(spots, boardAt, CARD_W * boardScale, CARD_H * boardScale, zMe, zPot, xCards, xStack); }
+    const key = [zBoard, boardScale, xCards, xStack, ...[...spots].map(([seat, sp]) => `${seat}:${sp.rim.x},${sp.rim.z}`),
+      ...(armBoxes || []).map(b => [b.x0, b.y0, b.x1, b.y1].map(Math.round).join(','))].join('|');
+    if (key !== betKey) { betKey = key; betSpots = planBets(spots, boardAt, CARD_W * boardScale, CARD_H * boardScale, zMe, zPot, xCards, xStack, armBoxes); }
 
     drawn = []; ring = null;
     const live = new Set(), fresh = new Set();
@@ -460,11 +484,13 @@ export function createTableScene(container, ui) {
           amt(at, 0.05, ui.fmt(p.bet), mine ? 'mine' : '');
         }
         // el botón del dealer va justo a la derecha de mis cartas (en el celular mis cartas van fuera de la mesa: se
-        // pasa junto a mi pila)
-        const myDealer = L.phone ? { x: xStack - 0.2, z: zMe - 0.03 } : { x: xCards + 0.11 + (CARD_W * L.mine) / 2 + 0.075, z: zMe - 0.03 };
+        // pasa junto a mi pila); con mis brazos, a la derecha de lo que ocupa mi mano
+        let myDealer = L.phone ? { x: xStack - 0.2, z: zMe - 0.03 } : { x: xCards + 0.11 + (CARD_W * L.mine) / 2 + 0.075, z: zMe - 0.03 };
+        if (armBoxes && (mine || isFront)) myDealer = clearOf(myDealer, armBoxes);
         if (started && v.dealerSeat === s.seat) items.push({ kind: 'dealer', at: mine || isFront ? myDealer : on(0.66, -0.2) });
         const holding = p.inHand && p.cards.length && !p.folded;
         if (holding && mine && L.phone) myCards = p.cards;
+        else if (holding && mine && armsOn) { /* las tiene mi brazo izquierdo (arms.js) */ }
         else if (holding && mine) p.cards.forEach((code, i) => items.push({ kind: 'card', code, mark: markOf(code), at: { x: xCards + i * 0.11, z: zMe + (i ? 0.004 : 0) }, tilt: TILT.mine + L.lean, yaw: i ? -0.07 : 0.06, scale: L.mine }));
         else if (holding && shown.includes(p.id)) {
           // las cartas que enseña, frente a él (en el celular más grandes, para que se lean)
@@ -559,11 +585,13 @@ export function createTableScene(container, ui) {
   // siempre caben); y sin cruzarse con las de sus vecinos. Para las cartas y el bote se mide con la apuesta
   // más ancha posible (5 columnas altas, con su monto encima); para lo demás, con una de 3 columnas. Así el
   // lugar es fijo para cada acomodo y no depende de cuánto apueste.
-  function planBets(spots, boardAt, cw, ch, zMe, zPot, xCards, xStack) {
+  function planBets(spots, boardAt, cw, ch, zMe, zPot, xCards, xStack, armBoxes) {
     const pad = b => ({ x0: b.x0 - 6, x1: b.x1 + 6, y0: b.y0 - 6, y1: b.y1 + 6 });
     const never = [0, 1, 2, 3, 4].map(i => { const c = cardCorners(boardAt(i), cw, ch, TILT.board + L.lean, 0); return pad(screenBox([c.tl, c.tr, c.br, c.bl])); });
     never.push(stackBox({ x: 0, z: zPot }, { x: 1, z: 0 }, { x: 0, z: -1 }, 3, 0.05));
-    if (!L.phone) for (const i of [0, 1]) { // mis cartas (en el celular van fuera de la mesa)
+    // con mis brazos, lo que ocupan mis manos (con mis cartas, en todas sus poses)
+    if (armBoxes) never.push(...armBoxes.filter(Boolean).map(pad));
+    else if (!L.phone) for (const i of [0, 1]) { // mis cartas (en el celular van fuera de la mesa)
       const c = cardCorners({ x: xCards + i * 0.11, z: zMe }, CARD_W * L.mine, CARD_H * L.mine, TILT.mine + L.lean, 0);
       never.push(pad(screenBox([c.tl, c.tr, c.br, c.bl])));
     }
@@ -619,6 +647,13 @@ export function createTableScene(container, ui) {
     if (!label) return b;
     const q = amountBox(at, label);
     return { x0: Math.min(b.x0, q.x0), x1: Math.max(b.x1, q.x1), y0: Math.min(b.y0, q.y0), y1: b.y1 };
+  }
+  // El botón del dealer (en `at`, sobre la mesa) recorrido a la derecha hasta que no quede debajo de ninguna de `boxes`.
+  function clearOf(at, boxes) {
+    const box = p => { const b = L.v.project(p.x, 0, p.z), r = 0.032 * b.s + 4; return { x0: b.x - r, x1: b.x + r, y0: b.y - r, y1: b.y + r * 0.6 }; };
+    let p = at;
+    for (let k = 0; k < 12 && boxes.some(b => b && overlapArea(b, box(p)) > 0); k++) p = { x: p.x + 0.03, z: p.z };
+    return p;
   }
   // El monto escrito encima de una apuesta (como en amt()): ~64 px de ancho y ~24 de alto.
   function amountBox(at, y = 0.05) {
@@ -677,20 +712,7 @@ export function createTableScene(container, ui) {
     const r = box.getBoundingClientRect(), c0 = container.getBoundingClientRect();
     const hgt = r.height * 0.92, w = (hgt * CARD_PX[0]) / CARD_PX[1];
     const x0 = r.left - c0.left + w * 0.08, y0 = r.top - c0.top + r.height * 0.06;
-    cards.forEach(({ code, mark }, i) => {
-      const cx = x0 + w / 2 + i * w * 0.86, cy = y0 + hgt / 2, a = (i ? 4 : -4) * Math.PI / 180;
-      g.save();
-      g.translate(cx, cy); g.rotate(a);
-      g.fillStyle = 'rgba(14,8,4,0.45)'; // sombra plana
-      roundRect(g, -w / 2 + 4, -hgt / 2 + 5, w, hgt, w * 0.1); g.fill();
-      g.drawImage(cardImage(code), -w / 2, -hgt / 2, w, hgt);
-      if (mark) {
-        roundRect(g, -w / 2, -hgt / 2, w, hgt, w * 0.117);
-        if (mark === 'dim') { g.fillStyle = 'rgba(29,22,17,0.52)'; g.fill(); }
-        else { g.lineJoin = 'round'; g.lineWidth = L.line * 4.4; g.strokeStyle = INK; g.stroke(); g.lineWidth = L.line * 2.4; g.strokeStyle = '#d9a441'; g.stroke(); }
-      }
-      g.restore();
-    });
+    cards.forEach(({ code, mark }, i) => drawFlatCard(g, code, x0 + w / 2 + i * w * 0.86, y0 + hgt / 2, w, (i ? 4 : -4) * DEG, { mark, line: L.line }));
   }
 
   // Etiquetas encima de cada rival. Cada asiento tiene un lugar fijo, pegado a su rival, que solo se
@@ -820,6 +842,18 @@ export function createTableScene(container, ui) {
     if (now - lastDraw < 1000 / (quality === 'baja' ? 20 : 30) - 2) return;
     lastDraw = now;
     drawRivals(now);
+    // mis brazos: solo cuando algo cambió o se mueve; si dejan de verse, se borran una vez
+    if (armsOn && (!armsShown || brazos.ocupado(now, reduced.matches))) drawArms(now);
+    else if (!armsOn && armsShown) { armsCv.getContext('2d').clearRect(0, 0, armsCv.width, armsCv.height); armsShown = false; }
+  }
+  function drawArms(now) {
+    if (!L) return;
+    const g = armsCv.getContext('2d');
+    g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+    g.clearRect(0, 0, L.W, L.H);
+    brazos.dibujar(g, now, reduced.matches);
+    if (MEDIDAS) brazos.medidas(g);
+    armsShown = true;
   }
   // Con ?medidas en la dirección, sobre cada rival: el marco de su imagen, la caja de la cara (face: ninguna
   // etiqueta la tapa), la línea de la cintura con su punto (waist: de ahí para abajo lo tapa la mesa) y el id
@@ -915,6 +949,10 @@ export function createTableScene(container, ui) {
   return {
     update,
     setActive(on) { active = on; sync(); },
+    // mis brazos: lo que elegí ({ cartas: 'ver' | 'ocultas', fichas }) y si me estoy asomando; si se ven ahorita
+    setArms(opciones) { brazos.elegir(opciones, performance.now(), reduced.matches); wake(); },
+    setPeek(on) { brazos.asomarse(on, performance.now(), reduced.matches); wake(); },
+    get armsOn() { return armsOn; },
     get quality() { return quality; },
     get mode() { return mode; },
     setMode(m) {
