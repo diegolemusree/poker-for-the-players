@@ -92,6 +92,17 @@ describe('personajes de los bots', () => {
     assert.ok(BOT_NAMES.length >= MAXP - 1, 'faltan nombres de repuesto para una mesa llena');
   });
 
+  test('los nombres de los bots (los de los personajes y los de repuesto) caben completos en un apodo', () => {
+    // addPlayer (engine.js) corta el apodo a 16 caracteres: un nombre más largo se vería cortado en la mesa
+    const s = createState();
+    [...CAST.map(c => c.name), ...BOT_NAMES].forEach((nombre, i) => {
+      assert.ok(nombre.length <= 16, `"${nombre}" tiene ${nombre.length} caracteres (máximo 16)`);
+      addPlayer(s, { id: 'b' + i, nick: nombre, seat: i % MAXP });
+      assert.equal(s.players.find(p => p.id === 'b' + i).nick, nombre);
+      s.players.length = 0;
+    });
+  });
+
   test('en la mesa: los bots con su personaje y los humanos con el que eligieron; todos ven lo mismo', () => {
     const LARGO = 60 * 60 * 1000, tk = n => 'token-de-prueba-' + String(n).padStart(16, '0');
     const solo = new Room({ code: 'SOLOX', solo: true }, { turnLimitMs: LARGO, botDelay: () => LARGO });

@@ -24,9 +24,9 @@ const REGISTRO = JSON.parse(readFileSync(new URL('../client/stage/personajes.jso
 export const CAST = Object.entries(REGISTRO).filter(([, c]) => !c.retirado).map(([id, c]) => ({ id, name: c.name, sillas: c.sillas || 1 }));
 
 // Nombres de repuesto, por si un bot se queda sin personaje (más bots que personajes, o un humano ya usa
-// el nombre de uno).
+// el nombre de uno). Cada uno de 16 caracteres o menos: addPlayer (engine.js) corta los apodos a 16.
 export const BOT_NAMES = [
-  'Don Chepe', 'Doña Chuy', 'La Comadre Xyla', 'Chato Quark', 'Mamá Tentáculos', 'El Licenciado Bzzt', 'Güero Nebulón',
+  'Don Chepe', 'Doña Chuy', 'La Comadre Xyla', 'Chato Quark', 'Mamá Tentáculos', 'Licenciado Bzzt', 'Güero Nebulón',
 ];
 
 export function botDelay(difficulty, rng = Math.random) {
