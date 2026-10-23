@@ -3,6 +3,7 @@
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Room } from '../server/room.js';
+import { CAST } from '../server/bots.js';
 
 const LARGO = 60 * 60 * 1000;
 const tk = n => 'token-de-prueba-' + String(n).padStart(16, '0');
@@ -16,7 +17,7 @@ async function hasta(pred, ms = 2000) {
   assert.fail('tiempo agotado');
 }
 
-// Mesa con amigos (asientos 0, 1, 2…; reparte el primero). Guarda todo lo que se le mandaría a cada
+// Mesa con amigos (cada quien con un personaje; se sientan en los asientos 0, 1, 2…; reparte el primero). Guarda todo lo que se le mandaría a cada
 // jugador y a un espectador, desde que se acomodan las cartas.
 function mesa(nombres, tuning = {}) {
   const tokens = nombres.map((_, i) => tk(i + 1));
@@ -25,7 +26,7 @@ function mesa(nombres, tuning = {}) {
     { turnLimitMs: LARGO, resultMs: LARGO, resultFoldMs: LARGO, botDelay: () => LARGO, ...tuning },
     r => { for (const [t, lista] of emitido) lista.push(r.snapshot(t)); });
   abiertas.push(room);
-  nombres.forEach((n, i) => room.sit(tokens[i], n, i));
+  nombres.forEach((n, i) => room.sit(tokens[i], n, CAST[i].id));
   room.start(tokens[0]);
   const t = Object.fromEntries(nombres.map((n, i) => [n, tokens[i]]));
   const id = n => room.playerIdOf(t[n]);
@@ -175,7 +176,7 @@ describe('Listo y tiempo del resultado', () => {
     abiertas.push(room);
     room.connections = 1; // la práctica se congela si nadie la está viendo
     const t = tk('solo');
-    room.sit(t, 'Diego', 0);
+    room.sit(t, 'Diego', CAST[0].id);
     room.addBots(t, 2, 'facil');
     room.start(t);
     // Diego se retira en cuanto le toca; a los bots se les adelanta el turno para no esperar su tiempo

@@ -11,7 +11,9 @@ import { randomInt } from 'node:crypto';
 import { RANKS, SUITS, bestHand, bestFive, cmp, handName, describeHand } from './hands.js';
 
 export const START = 5000;
-export const MAXP = 7; // yo más 6 rivales, como en la composición de la mesa
+// Máximo de jugadores en la mesa (yo más 5 rivales). Es el único lugar: el cliente lo recibe del servidor, y la mesa
+// ilustrada tiene un acomodo para cada cantidad (`LAYOUTS` en client/stage/config.js; para subirlo, agrega el suyo).
+export const MAXP = 6;
 export const TURN_LIMIT = 45000;
 // Cuánto se ve el resultado de una mano antes de repartir la siguiente (antes, si todos tocan Listo).
 export const RESULT_MS = 8000;      // cuando se enseñan cartas

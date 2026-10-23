@@ -34,18 +34,25 @@ export function botDelay(difficulty, rng = Math.random) {
   return a + rng() * (b - a);
 }
 
-// Bots nuevos: cada uno con un personaje distinto, al azar entre los que no usa ningún bot de la mesa, y el
-// nombre de ese personaje. `taken`: apodos ya usados en la mesa; `used`: personajes que ya tienen otros bots.
-export function makeBots(count, difficulty, taken = [], rng = Math.random, used = []) {
+// Bots nuevos: cada uno con un personaje distinto, al azar entre los que nadie usa en la mesa, y el nombre de ese
+// personaje. `taken`: apodos ya usados en la mesa; `used`: personajes que ya tienen otros (el que eligió el jugador
+// y los de otros bots); `cast`: los personajes en uso. Primero salen los personajes cuyo nombre nadie usa; si un
+// humano se puso de apodo el nombre de uno y hace falta ese personaje, el bot lo lleva con un nombre de repuesto.
+export function makeBots(count, difficulty, taken = [], rng = Math.random, used = [], cast = CAST) {
   const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  const cast = shuffle(CAST.filter(c => !used.includes(c.id) && !taken.includes(c.name)));
+  const free = cast.filter(c => !used.includes(c.id));
+  const looks = [...shuffle(free.filter(c => !taken.includes(c.name))), ...shuffle(free.filter(c => taken.includes(c.name)))];
   const spare = shuffle(BOT_NAMES.filter(n => !taken.includes(n)));
-  return Array.from({ length: count }, (_, i) => ({
-    name: cast[i] ? cast[i].name : spare[i - cast.length] || `Bot ${i + 1}`,
-    character: cast[i] ? cast[i].id : null,
-    difficulty,
-    style: { loose: (rng() - 0.5) * 0.1, aggr: 0.8 + rng() * 0.4 }, // cada bot con su carácter
-  }));
+  let s = 0;
+  return Array.from({ length: count }, (_, i) => {
+    const c = looks[i];
+    return {
+      name: c && !taken.includes(c.name) ? c.name : spare[s++] || `Bot ${i + 1}`,
+      character: c ? c.id : null,
+      difficulty,
+      style: { loose: (rng() - 0.5) * 0.1, aggr: 0.8 + rng() * 0.4 }, // cada bot con su carácter
+    };
+  });
 }
 
 // Los bots recompran casi siempre.

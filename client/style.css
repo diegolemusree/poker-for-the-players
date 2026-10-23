@@ -90,7 +90,6 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .seat.me .hand{--cw:46px;margin-bottom:-10px}
 .seat .dealer{position:absolute;top:-9px;right:-9px;width:22px;height:22px;border-radius:50%;background:#fff;color:#111;font-weight:800;font-size:12px;display:grid;place-items:center}
 .seat .handname{font-size:12px;font-weight:700}
-.sit{width:100%;padding:10px 6px;border-radius:12px;border:1.5px dashed rgba(255,255,255,.55);background:rgba(0,0,0,.25);color:#fff;cursor:pointer;font-weight:700;font-size:14px;min-height:44px}
 .emptyseat{width:100%;padding:10px 6px;border-radius:12px;border:1.5px dashed rgba(255,255,255,.25);color:rgba(255,255,255,.5);font-size:13px}
 .bet{position:absolute;transform:translate(-50%,-50%);z-index:1;background:rgba(0,0,0,.45);color:#fff;border-radius:999px;padding:2px 9px 2px 4px;font-size:13px;font-weight:700;display:flex;align-items:center;gap:5px}
 .chips{display:inline-flex;gap:2px;align-items:flex-end;vertical-align:middle}
@@ -124,6 +123,22 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .side li{padding:3px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:20;display:grid;place-items:center;padding:16px}
 .overlay .card-panel{max-width:460px;width:100%}
+/* selector de personaje (sencillo: el diseño final llega con el rediseño del menú). Si no cabe, se desliza por dentro */
+.picker .card-panel{max-width:560px;max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto}
+.pick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.pick{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:44px;padding:8px 6px 10px;background:var(--paper3);color:var(--ink);
+  border:2.5px solid var(--ink);border-radius:16px 20px 14px 18px;box-shadow:2px 3px 0 var(--ink);cursor:pointer;font-family:var(--hand)}
+.pick:hover:not(:disabled){background:#fff3cc}
+.pick:active:not(:disabled){transform:translate(1px,2px);box-shadow:1px 1px 0 var(--ink)}
+.pick:disabled{cursor:not-allowed;box-shadow:none;background:var(--paper2)}
+.pick-face{position:relative;display:block;width:100%;max-width:104px;aspect-ratio:1;overflow:hidden;border:2px solid var(--ink);border-radius:12px;background:#cdbb91}
+.pick-face img{position:absolute;max-width:none;height:auto}
+.pick.taken .pick-face img{filter:grayscale(1) brightness(.85);opacity:.6}
+.pick-name{font-family:var(--display);font-size:17px;line-height:1.05;text-align:center}
+.pick-state{font-size:15px;line-height:1.1;color:var(--muted);text-align:center}
+.pick.taken .pick-state{color:var(--brick)}
+@media (max-width:420px){.pick-grid{gap:7px}.pick{padding:6px 4px 8px}.pick-name{font-size:15px}.pick-state{font-size:13px}}
+@media (prefers-reduced-motion:reduce){.pick:active:not(:disabled){transform:none}}
 .big{font-family:var(--serif);font-size:28px;font-weight:900;color:var(--gold);margin:0;text-align:center}
 @media (max-width:640px){
   .table{aspect-ratio:3/4.3;width:min(100%,calc(60vh * .7));margin-top:26px}
@@ -180,14 +195,8 @@ input[type=text],input[type=password],input[type=number],select{background:var(-
 .seat-tag::after{content:'';position:absolute;left:calc(50% + var(--tail,0px));bottom:-7px;width:10px;height:10px;margin-left:-6px;
   background:inherit;border:solid var(--ink);border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
 .seat-tag.below::after{bottom:auto;top:-7px;border-width:2.5px 0 0 2.5px}
-.seat-tag:has(.sit)::after,.seat-tag:has(.emptyseat)::after{display:none}
 .seat-tag.pop .act{animation:pop .5s ease-out}
 @keyframes pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:none}}
-.seat-tag:has(.sit),.seat-tag:has(.emptyseat){background:none;border:0;box-shadow:none;padding:0}
-.seat-tag button{pointer-events:auto}
-.seat-tag .sit{background:var(--paper);color:var(--ink);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);font-family:var(--hand);font-size:17px}
-.seat-tag .emptyseat{color:var(--paper);border:2px dashed rgba(239,228,200,.5);background:rgba(29,22,17,.35);font-size:15px}
-.seat-tag .linkbtn{color:var(--ink);min-height:32px;padding:2px 6px;font-size:14px}
 
 /* montos sobre las apuestas y el bote */
 .amt{position:absolute;left:0;top:0;will-change:transform;font-family:var(--display);font-size:18px;letter-spacing:.02em;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums;

@@ -12,7 +12,7 @@ import {
   loadedImage,
 } from './characters.js';
 import { makeView, fit, headTop, frontRegion, edgeYAt, belowRow, rimPoint, RAIL_Y, NEAR_Z, DEG } from './projection.js';
-import { CAMERAS, LAYOUTS, BACKDROP } from './config.js';
+import { CAMERAS, BACKDROP, seatPlan } from './config.js';
 import { drawTable, INK } from './table.js';
 import { drawItems, cardCorners, stackFootprint, CARD_W, CARD_H, CHIP_R, CHIP_H } from './items.js';
 import { cardImage, roundRect, CARD_PX, cargarArte } from './cards.js';
@@ -20,7 +20,6 @@ import { RivalAnim, poseCanvas, clearPoseCache } from './rivals.js';
 import { isPhone } from '../ui/phone.js';
 import { winningCards } from '../ui/hand.js';
 
-const MAXP = 7;
 // Final de la mano: las cartas de quienes llegaron se voltean una tras otra y luego se resalta la mano ganadora.
 const FLIP_MS = 320, FLIP_GAP = 170, MARK_PAUSE = 180;
 // Cuánto se levantan las cartas sobre la mesa (0 = acostadas): las comunitarias, las mías y las que enseña cada
@@ -32,7 +31,6 @@ const MEDIDAS = new URLSearchParams(location.search).has('medidas');
 const LONGEST_NAME = Object.values(CHARACTERS).map(c => c.name).reduce((a, b) => (b.length > a.length ? b : a), 'Don Chepe');
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 export const QUALITIES = ['alta', 'media', 'baja'];
-const FIXED = LAYOUTS[MAXP - 1]; // sin asiento y antes de empezar: cada asiento en su lugar
 const [BG_W, BG_H] = BACKGROUND.sizes[BACKGROUND.sizes.length - 1];
 const ACTION = {
   check: () => 'Pasa', call: a => `Iguala ${a}`, bet: a => `Apuesta ${a}`, raise: a => `Sube a ${a}`,
@@ -89,11 +87,15 @@ export function createTableScene(container, ui) {
   const labelLayer = el('div', 'labels');
   container.append(bg, tableCv, itemsCv, rivalsCv, shade, labelLayer);
 
-  const seats = Array.from({ length: MAXP }, (_, seat) => {
-    const label = el('div', 'seat-tag');
-    labelLayer.append(label);
-    return { seat, label, show: false, ax: 0, ay: 0, layer: 0 };
-  });
+  // un lugar por asiento de la mesa, con su etiqueta: los asientos son los que manda el servidor (maxPlayers)
+  const seats = [];
+  function ensureSeats(n) {
+    while (seats.length < n) {
+      const label = el('div', 'seat-tag');
+      labelLayer.append(label);
+      seats.push({ seat: seats.length, label, show: false, ax: 0, ay: 0, layer: 0 });
+    }
+  }
   const amounts = [];
   function amountLabel(i) {
     if (!amounts[i]) { const a = el('div', 'amt'); labelLayer.append(a); amounts[i] = { el: a, x: 0, y: 0, on: false }; }
@@ -368,6 +370,8 @@ export function createTableScene(container, ui) {
     const v = snap.view, { v: view } = L;
     const now = performance.now();
     const me = v.players.find(p => p.id === snap.you);
+    const maxp = snap.maxPlayers;
+    ensureSeats(maxp);
     const started = v.handNo > 0, betting = BETTING.includes(v.phase);
     const showdown = v.phase === 'showdown' && v.results;
     const shown = showdown && !v.results.fold ? v.results.shown : [];
@@ -382,17 +386,13 @@ export function createTableScene(container, ui) {
     const win5 = winningCards(showdown ? v.results : null);
     const markOf = code => (win5.size ? (win5.has(code) ? 'win' : 'dim') : null);
     // Sin asiento se mira desde un asiento libre para que nadie tape la mesa.
-    const free = Array.from({ length: MAXP }, (_, i) => i).find(i => !v.players.some(p => p.seat === i));
+    const free = Array.from({ length: maxp }, (_, i) => i).find(i => !v.players.some(p => p.seat === i));
     const base = me ? me.seat : free ?? 0;
-    const rel = seat => (seat - base + MAXP) % MAXP;
-    const front = !me ? v.players.find(p => p.seat === base) : null; // jugador en "mi" lugar si miro sin asiento
-    const others = v.players.filter(p => p.seat !== base).sort((a, b) => rel(a.seat) - rel(b.seat));
+    const rel = seat => (seat - base + maxp) % maxp;
 
-    // dónde va cada asiento: el acomodo según cuántos rivales hay, en el orden real de juego
-    // (el primero es el que habla después de mí, a mi izquierda)
-    const seatOf = new Map();
-    if (!me && !started) for (let r = 1; r < MAXP; r++) seatOf.set((base + r) % MAXP, FIXED[r - 1]);
-    else others.slice(0, MAXP - 1).forEach((p, i) => seatOf.set(p.seat, LAYOUTS[Math.min(MAXP - 1, others.length)][i]));
+    // dónde va cada asiento: el acomodo según cuántos jugadores hay, en el orden real de juego (el primero es el que
+    // habla después de mí, a mi izquierda); sin asiento y antes de empezar, cada asiento en su lugar
+    const seatOf = seatPlan(v.players, base, maxp, !me && !started);
     const spots = placeSeats(seatOf, v.players);
 
     // mi lugar: la fila de la mesa justo arriba de la barra de acciones; mis cartas abajo a la izquierda
@@ -482,7 +482,7 @@ export function createTableScene(container, ui) {
       s.face = null;
       if (isFront) { const q = view.project(0, 0.1, zMe); s.ax = q.x; s.ay = q.y; }
       else if (spot) { const f = faceBox(spot); s.face = f; s.ax = (f.x0 + f.x1) / 2; s.ay = p ? f.y0 + spot.hpx * 0.02 : f.y0 + spot.hpx * 0.25; }
-      s.show = fillLabel(s, p, { mine, me, started, v, shown, winners, empty: !p && (spot || isFront) });
+      s.show = fillLabel(s, p, { mine, me, started, v, shown, winners });
       s.label.style.display = s.show ? '' : 'none';
     }
     for (const id of anims.keys()) if (!live.has(id)) anims.delete(id);
@@ -773,13 +773,8 @@ export function createTableScene(container, ui) {
     const { h, fmt, deadline } = ui;
     const lab = s.label;
     lab.className = 'seat-tag';
-    if (o.mine) return false;
-    if (!p) {
-      if (o.started || !o.empty) return false;
-      if (!o.me) lab.replaceChildren(h('button', { class: 'sit', onclick: () => ui.onSit(s.seat) }, 'Sentarme aquí'));
-      else return false;
-      return true;
-    }
+    // un asiento libre no lleva etiqueta: uno se sienta al elegir su personaje (main.js)
+    if (o.mine || !p) return false;
     const v = o.v;
     const name = () => h('div', { class: 'nm', title: p.nick }, p.nick, p.isBot && h('span', { class: 'bot', title: 'Controlado por la computadora' }, 'BOT'));
     const dealer = () => o.started && v.dealerSeat === p.seat && h('span', { class: 'dl', title: 'Reparte' }, 'D');
@@ -814,7 +809,6 @@ export function createTableScene(container, ui) {
         : thinking ? h('div', { class: 'act a-think' }, 'Pensando…', !p.isBot && snap.turnLeftMs != null && [' ', deadline(snap.turnLeftMs, 'low')])
           : badge || (tag && h('div', { class: 'tg' }, tag)),
       dealer(),
-      p.isBot && !o.started && o.me && h('button', { class: 'linkbtn', onclick: () => ui.onRemoveBot(p.seat) }, 'Quitar'),
     ].filter(Boolean));
     return true;
   }

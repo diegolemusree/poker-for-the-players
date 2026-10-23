@@ -2,6 +2,8 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { io as connect } from 'socket.io-client';
 import { createApp } from '../server/index.js';
+import { MAXP } from '../server/engine.js';
+import { CAST } from '../server/bots.js';
 
 const TUNING = { turnLimitMs: 400, resultMs: 20, resultFoldMs: 20, rebuyWindowMs: 300, botDelay: () => 0, levelMs: 1500 };
 
@@ -37,14 +39,17 @@ describe('servidor', () => {
   before(async () => { srv = createApp({ tuning: TUNING }); url = `http://localhost:${await srv.listen(0)}`; });
   after(async () => { await srv.close(); });
 
-  test('/api/config indica si hace falta código', async () => {
-    const r = await fetch(url + '/api/config');
-    assert.deepEqual(await r.json(), { accessRequired: false });
+  test('/api/config indica si hace falta código, cuántos se sientan y los personajes', async () => {
+    const c = await (await fetch(url + '/api/config')).json();
+    assert.equal(c.accessRequired, false);
+    assert.equal(c.maxPlayers, MAXP);
+    assert.equal(c.capacity, Math.min(MAXP, CAST.length));
+    assert.deepEqual(c.cast, CAST.map(({ id, name }) => ({ id, name })), 'los mismos personajes que acepta el servidor');
   });
 
   test('práctica en solitario: un torneo completo contra bots termina con un campeón con todas las fichas', async () => {
     const c = cliente(url, tk('1')); await c.ready;
-    const r = await c.emit('room:create', { nick: 'Diego', solo: true, bots: 3, difficulty: 'facil', levelMinutes: 2 });
+    const r = await c.emit('room:create', { nick: 'Diego', solo: true, bots: 3, difficulty: 'facil', levelMinutes: 2, character: 'alien' });
     assert.ok(r.ok, r.error);
     assert.match(r.code, /^[A-Z]{5}$/);
 
@@ -72,15 +77,17 @@ describe('servidor', () => {
   test('mesa con amigos: cada quien ve solo sus cartas, valida turnos y se reconecta con su token', async () => {
     const a = cliente(url, tk('a')); const b = cliente(url, tk('b'));
     await Promise.all([a.ready, b.ready]);
-    const r = await a.emit('room:create', { nick: 'Ana', solo: false });
+    const r = await a.emit('room:create', { nick: 'Ana', solo: false, character: 'turista' });
     assert.ok(r.ok, r.error);
     assert.ok((await b.emit('room:join', { code: r.code.toLowerCase() })).ok);
-    assert.ok((await b.emit('sit', { nick: '<b>Beto</b>', seat: 4 })).ok);
-    assert.equal((await b.emit('sit', { nick: 'Otra vez', seat: 5 })).ok, undefined, 'no se puede sentar dos veces');
+    assert.ok((await b.emit('sit', { nick: '<b>Beto</b>', character: 'robot' })).ok);
+    assert.equal((await b.emit('sit', { nick: 'Otra vez', character: 'nerd' })).ok, undefined, 'no se puede sentar dos veces');
     assert.ok((await b.emit('room:join', { code: 'ZZZZZ' })).error, 'mesa inexistente');
 
     await a.until(st => st.view.players.length === 2);
-    assert.equal(a.state.view.players.find(p => p.seat === 4).nick, 'bBeto/b', 'los < > se eliminan del apodo');
+    const beto = a.state.view.players.find(p => p.seat === 1);
+    assert.equal(beto.nick, 'bBeto/b', 'los < > se eliminan del apodo');
+    assert.equal(beto.character, 'robot');
     assert.ok((await a.emit('start', {})).ok);
     await Promise.all([a.until(st => st.view.phase === 'preflop'), b.until(st => st.view.phase === 'preflop')]);
 
@@ -118,9 +125,7 @@ describe('servidor', () => {
 
   test('quien no juega dos turnos seguidos queda ausente y la mesa sigue', async () => {
     const a = cliente(url, tk('x')); await a.ready;
-    const r = await a.emit('room:create', { nick: 'Solo', solo: false });
-    await a.emit('bots:add', { count: 1, difficulty: 'facil' });
-    assert.ok((await a.emit('start', {})).ok);
+    const r = await a.emit('room:create', { nick: 'Solo', solo: true, bots: 1, difficulty: 'facil', character: 'blob' });
     await a.until(st => st.view.players.find(p => p.id === st.you).sittingOut, 15000);
     await a.until(st => st.view.handNo >= 3, 15000); // los bots siguen jugando sin esperarlo
     assert.ok((await a.emit('sitin', {})).ok);
@@ -128,22 +133,103 @@ describe('servidor', () => {
     assert.ok(r.ok);
   });
 
-  test('validaciones: bots, torneo iniciado y práctica privada', async () => {
-    const a = cliente(url, tk('v1')); const b = cliente(url, tk('v2'));
-    await Promise.all([a.ready, b.ready]);
-    assert.ok((await a.emit('room:create', { nick: 'X', solo: true, bots: 9, difficulty: 'normal' })).error);
-    assert.ok((await a.emit('room:create', { nick: 'X', solo: true, bots: 2, difficulty: 'imposible' })).error);
-    const r = await a.emit('room:create', { nick: 'X', solo: false });
-    assert.ok((await a.emit('bots:add', { count: 20, difficulty: 'normal' })).error);
-    assert.ok((await a.emit('bots:add', { count: 2, difficulty: 'normal' })).ok);
-    assert.ok((await a.emit('start', {})).ok);
-    assert.ok((await a.emit('bots:add', { count: 1, difficulty: 'normal' })).error, 'no se agregan bots con el torneo en marcha');
-    await b.emit('room:join', { code: r.code });
-    assert.ok((await b.emit('sit', { nick: 'Tarde', seat: 3 })).error, 'no se puede entrar una vez iniciado');
+  test('validaciones: personaje, rivales, torneo iniciado y práctica privada', async () => {
+    const a = cliente(url, tk('v1')); const b = cliente(url, tk('v2')); const c = cliente(url, tk('v3'));
+    await Promise.all([a.ready, b.ready, c.ready]);
+    const antes = srv.rooms.size;
+    const crea = d => a.emit('room:create', { nick: 'X', solo: true, bots: 2, difficulty: 'normal', character: 'alien', ...d });
+    assert.ok((await crea({ bots: 9 })).error);
+    assert.ok((await crea({ bots: MAXP })).error, `con ${MAXP} rivales ya no cabe el jugador`);
+    assert.ok((await crea({ difficulty: 'imposible' })).error);
+    assert.ok((await crea({ character: undefined })).error, 'sin personaje');
+    assert.ok((await crea({ solo: false, character: 'blorp' })).error, 'con un personaje retirado');
+    assert.equal(srv.rooms.size, antes, 'un intento rechazado no deja una mesa vacía');
 
-    const s = await a.emit('room:create', { nick: 'X', solo: true, bots: 2, difficulty: 'facil' });
+    const r = await a.emit('room:create', { nick: 'X', solo: false, character: 'alien' });
+    assert.match((await a.emit('start', {})).error, /al menos 2 jugadores/, 'la sala privada no tiene bots: hace falta otro humano');
+    await b.emit('room:join', { code: r.code });
+    assert.ok((await b.emit('sit', { nick: 'Y', character: 'nerd' })).ok);
+    assert.ok((await a.emit('start', {})).ok);
+    await c.emit('room:join', { code: r.code });
+    assert.ok((await c.emit('sit', { nick: 'Tarde', character: 'robot' })).error, 'no se puede entrar una vez iniciado');
+
+    const s = await a.emit('room:create', { nick: 'X', solo: true, bots: 2, difficulty: 'facil', character: 'alien' });
     assert.ok((await b.emit('room:join', { code: s.code })).error, 'las prácticas son privadas');
-    [a, b].forEach(c => c.socket.close());
+    [a, b, c].forEach(x => x.socket.close());
+  });
+});
+
+describe('selección de personaje por sockets', () => {
+  let srv, url;
+  before(async () => { srv = createApp({ tuning: { ...TUNING, releaseMs: 400 } }); url = `http://localhost:${await srv.listen(0)}`; });
+  after(async () => { await srv.close(); });
+  const espera = ms => new Promise(res => setTimeout(res, ms));
+  const holder = (st, id) => st.cast.find(c => c.id === id).holder;
+
+  test('dos eligen el mismo personaje al mismo tiempo: entra exactamente uno y al otro se le pide otro', async () => {
+    const [ana, beto, caro] = ['p1', 'p2', 'p3'].map(n => cliente(url, tk(n)));
+    await Promise.all([ana, beto, caro].map(x => x.ready));
+    const r = await ana.emit('room:create', { nick: 'Ana', solo: false, character: 'turista' });
+    await Promise.all([beto, caro].map(x => x.emit('room:join', { code: r.code })));
+    // quien entra ve a La Güera ocupada por Ana y los demás libres
+    const vista = await beto.until(st => st.cast && holder(st, 'turista'));
+    assert.equal(vista.view.players.find(p => p.id === holder(vista, 'turista')).nick, 'Ana');
+    assert.ok(vista.cast.filter(c => c.id !== 'turista').every(c => c.holder === null));
+
+    const [rb, rc] = await Promise.all([
+      beto.emit('sit', { nick: 'Beto', character: 'robot' }),
+      caro.emit('sit', { nick: 'Caro', character: 'robot' }),
+    ]);
+    assert.equal([rb, rc].filter(x => x.ok).length, 1, 'exactamente uno se sienta');
+    const [gana, pierde, no] = rb.ok ? ['Beto', caro, rc] : ['Caro', beto, rb];
+    assert.equal(no.code, 'ocupado');
+    assert.match(no.error, new RegExp(`^${gana} ya eligió a La Chispa`));
+    // al que perdió le llega el estado con La Chispa bloqueada; sigue sin asiento y elige otro
+    const st = await pierde.until(x => holder(x, 'robot'));
+    assert.equal(st.you, null);
+    assert.ok((await pierde.emit('sit', { nick: 'Otro', character: 'robot' })).error, 'sigue ocupada');
+    assert.ok((await pierde.emit('sit', { nick: 'Otro', character: 'nerd' })).ok);
+    const fin = await ana.until(x => x.view.players.length === 3);
+    assert.deepEqual(fin.view.players.map(p => p.character), ['turista', 'robot', 'nerd']);
+    [ana, beto, caro].forEach(x => x.socket.close());
+  });
+
+  test('"Salir de la mesa" antes de empezar deja libre el personaje', async () => {
+    const [ana, beto] = ['s1', 's2'].map(n => cliente(url, tk(n)));
+    await Promise.all([ana.ready, beto.ready]);
+    const r = await ana.emit('room:create', { nick: 'Ana', solo: false, character: 'turista' });
+    await beto.emit('room:join', { code: r.code });
+    assert.ok((await beto.emit('sit', { nick: 'Beto', character: 'robot' })).ok);
+    await ana.until(st => st.view.players.length === 2);
+    assert.ok((await beto.emit('room:exit', {})).ok);
+    const st = await ana.until(x => x.view.players.length === 1);
+    assert.equal(holder(st, 'robot'), null);
+    [ana, beto].forEach(x => x.socket.close());
+  });
+
+  test('recargar antes de empezar conserva asiento y personaje; quien no vuelve a tiempo lo deja libre', async () => {
+    const ana = cliente(url, tk('r1')), beto = cliente(url, tk('r2'));
+    await Promise.all([ana.ready, beto.ready]);
+    const r = await ana.emit('room:create', { nick: 'Ana', solo: false, character: 'turista' });
+    await beto.emit('room:join', { code: r.code });
+    assert.ok((await beto.emit('sit', { nick: 'Beto', character: 'robot' })).ok);
+    const asiento = (await ana.until(st => st.view.players.length === 2)).view.players.find(p => p.nick === 'Beto').seat;
+
+    // recarga: se cierra su conexión y vuelve con el mismo token, antes de que se acabe su tiempo
+    beto.socket.close();
+    const otra = cliente(url, tk('r2')); await otra.ready;
+    await otra.emit('room:join', { code: r.code });
+    const st = await otra.until(x => x.you);
+    const yo = st.view.players.find(p => p.id === st.you);
+    assert.deepEqual([yo.character, yo.seat], ['robot', asiento]);
+    await espera(600); // más que su tiempo de gracia (400 ms en esta prueba)
+    assert.ok(srv.rooms.get(r.code).playerIdOf(tk('r2')), 'volvió a tiempo: no se le levanta');
+
+    // ahora se va y no vuelve: se le levanta y La Chispa queda libre
+    otra.socket.close();
+    const libre = await ana.until(x => x.view.players.length === 1, 3000);
+    assert.equal(holder(libre, 'robot'), null);
+    ana.socket.close();
   });
 });
 
@@ -151,7 +237,7 @@ describe('código de acceso', () => {
   test('se valida en el servidor', async () => {
     const srv = createApp({ accessCode: 'noche-de-poker', tuning: TUNING });
     const url = `http://localhost:${await srv.listen(0)}`;
-    assert.deepEqual(await (await fetch(url + '/api/config')).json(), { accessRequired: true });
+    assert.equal((await (await fetch(url + '/api/config')).json()).accessRequired, true);
     await assert.rejects(cliente(url, tk('1')).ready, /Código de acceso/);
     await assert.rejects(cliente(url, tk('2'), 'otro').ready, /Código de acceso/);
     const ok = cliente(url, tk('3'), 'noche-de-poker');
@@ -168,10 +254,10 @@ describe('final de la mano por sockets', () => {
     const url = `http://localhost:${await srv.listen(0)}`;
     const [ana, beto, carla, mira] = ['s1', 's2', 's3', 's4'].map(n => cliente(url, tk(n)));
     await Promise.all([ana, beto, carla, mira].map(c => c.ready));
-    const r = await ana.emit('room:create', { nick: 'Ana', solo: false });
-    for (const [c, nick, seat] of [[beto, 'Beto', 1], [carla, 'Carla', 2]]) {
+    const r = await ana.emit('room:create', { nick: 'Ana', solo: false, character: CAST[0].id });
+    for (const [c, nick, character] of [[beto, 'Beto', CAST[1].id], [carla, 'Carla', CAST[2].id]]) {
       await c.emit('room:join', { code: r.code });
-      assert.ok((await c.emit('sit', { nick, seat })).ok);
+      assert.ok((await c.emit('sit', { nick, character })).ok);
     }
     await mira.emit('room:join', { code: r.code }); // espectador
     // cómo juega cada quien: en la mano 1 Beto se retira y Ana y Carla pasan o igualan hasta el final;
@@ -233,7 +319,7 @@ describe('mesas vacías', () => {
     const srv = createApp({ tuning: TUNING, emptyTtlMs: 0 });
     const url = `http://localhost:${await srv.listen(0)}`;
     const c = cliente(url, tk('9')); await c.ready;
-    const r = await c.emit('room:create', { nick: 'X', solo: false });
+    const r = await c.emit('room:create', { nick: 'X', solo: false, character: 'alien' });
     assert.ok(srv.rooms.has(r.code));
     c.socket.close();
     await new Promise(res => setTimeout(res, 100));

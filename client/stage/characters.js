@@ -1,8 +1,12 @@
 // Personajes ilustrados (recortes con fondo transparente en public/assets/arte/). Sus datos viven en
-// personajes.json, que escribe scripts/optimizar-arte.py (comando `registrar`): tamaño y cuadros los pone
-// el script; el nombre (el del bot que usa ese personaje), la cintura (`waist`), la cabeza (`face`) y el
-// alto (`height`) se ponen o miden a mano en ese archivo. Especificación del arte: docs/ESPEC-PERSONAJES.md.
-// El servidor lee el mismo archivo para darle a cada bot un personaje distinto con su nombre.
+// personajes.json, el único registro de personajes: agregar uno es agregar su entrada ahí (más su arte), sin tocar
+// código. Lo escribe scripts/optimizar-arte.py (comando `registrar`): tamaño y cuadros los pone el script; el nombre
+// (el del bot que usa ese personaje), la cintura (`waist`), la cabeza (`face`) y el alto (`height`) se ponen o miden a
+// mano en ese archivo. Especificación del arte: docs/ESPEC-PERSONAJES.md. El servidor lee el mismo archivo para el
+// selector de personaje (en el mismo orden) y para darle a cada bot uno distinto con su nombre.
+//
+// Del personaje: `name`, su nombre; `carpeta`, dónde están sus imágenes dentro de public/ (hoy todos en
+// assets/arte; si falta, esa).
 //
 // Cada personaje tiene sus ángulos: `frente` (los del fondo) y `lado` (tres cuartos, para los de los lados).
 // Si un personaje todavía no tiene `lado`, se usa `frente`.
@@ -12,7 +16,7 @@
 //   height  alto de la imagen en unidades de la mesa (radio de la mesa = 1)
 //   mira    hacia dónde ve la imagen: 'izquierda', 'derecha' o 'frente' (la de lado, por regla, 'derecha'). En la
 //           mesa se dibuja en espejo si su asiento queda del otro lado del centro, para que vea hacia el centro
-//   frames  cuadros que existen; archivo <id>-<ángulo>-<cuadro>.webp
+//   frames  cuadros que existen; archivo <carpeta>/<id>-<ángulo>-<cuadro>.webp
 //   franjas por cuadro, la franja vacía de cada carta que tiene en la mano, donde el juego escribe la etiqueta del
 //           logo (rivals.js): la anota scripts/generar-personaje.py aprobar-cartas
 // Del personaje (no de un ángulo): `sillas`, cuántas sillas ocupa (Don Tentáculos, 2): necesita más espacio en la
@@ -26,11 +30,13 @@ import TABLE_ART from './mesa.json' with { type: 'json' };
 // el personaje se queda en espera (no parpadea, no apuesta...); cuando se registra, se usa solo.
 export const POSES = ['espera', 'parpadeo', 'espia', 'apuesta', 'retirarse', 'gana'];
 
+export const ART_DIR = 'assets/arte';
 export const CHARACTERS = Object.fromEntries(Object.entries(DATA).filter(([, c]) => !c.retirado).map(([id, c]) => [id, {
   name: c.name,
+  carpeta: c.carpeta || ART_DIR,
   sillas: c.sillas || 1,
   angles: Object.fromEntries(Object.entries(c.angles).map(([angle, a]) => [angle, {
-    ...a, poses: Object.fromEntries(a.frames.map(f => [f, `${id}-${angle}-${f}`])),
+    ...a, poses: Object.fromEntries(a.frames.map(f => [f, `${c.carpeta || ART_DIR}/${id}-${angle}-${f}`])),
   }])),
 }]));
 const IDS = Object.keys(CHARACTERS);
@@ -54,13 +60,23 @@ export function needsMirror(charId, angle, x) {
   return !!hacia && mira !== 'frente' && mira !== hacia;
 }
 
-// Qué personaje dibuja a un jugador: el que le asignó el servidor (cada bot uno distinto, con su nombre;
-// los humanos, los que no usa ningún bot). Si no trae uno que exista aquí (o es un asiento vacío), el primero.
+// Qué personaje dibuja a un jugador: el que manda el servidor (el que eligió, o el de cada bot, uno distinto con su
+// nombre). Si no trae uno que exista aquí (o es un asiento vacío), el primero.
 export function characterFor(player) {
   return player && CHARACTERS[player.character] ? player.character : IDS[0];
 }
 
-export const artUrl = (file, small) => `/assets/arte/${file}${small ? '-chico' : ''}.webp`;
+// `file` es un cuadro de `poses` (ya trae la carpeta del personaje).
+export const artUrl = (file, small) => `/${file}${small ? '-chico' : ''}.webp`;
+
+// La cara de un personaje para el selector: su cuadro de espera de frente (el chico basta) y, en fracciones de la
+// imagen, su tamaño y la caja de la cabeza. Sin arte nuevo.
+export function portraitOf(charId) {
+  const c = CHARACTERS[charId];
+  if (!c) return null;
+  const a = c.angles.frente;
+  return { url: artUrl(a.poses.espera, true), size: a.size, face: a.face };
+}
 
 // Fondo: dos tamaños; se usa el grande cuando la pantalla tiene más pixeles de alto que el chico.
 export const BACKGROUND = { file: 'fondo-garaje', sizes: [[1920, 1072], [3840, 2143]] };

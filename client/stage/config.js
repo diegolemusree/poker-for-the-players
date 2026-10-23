@@ -81,9 +81,12 @@ const back = (ang, portrait) => ({ ang, row: 'back', cut: 'edge', portrait: { an
 const LEFT = { ang: 197, out: 0.22, row: 'side', side: 'left', scale: 1.15, cut: 'edge', portrait: { ang: 205, out: 0.02 } };
 const RIGHT = { ang: 343, out: 0.22, row: 'side', side: 'right', scale: 1.15, cut: 'edge', portrait: { ang: 335, out: 0.02 } };
 
-// Acomodo según cuántos rivales hay, en el orden real de juego: el que habla después de mí es el
-// primero (a mi izquierda) y sigue el reloj por el fondo hasta el de mi derecha. Se llena primero el
-// fondo desde el centro y luego los dos lados a la vez, para que nunca quede un lado vacío y el otro lleno.
+// Acomodo según cuántos jugadores hay en la mesa (yo incluido): LAYOUTS[n - 1] trae los lugares de los n - 1 rivales,
+// en el orden real de juego: el que habla después de mí es el primero (a mi izquierda) y sigue el reloj por el fondo
+// hasta el de mi derecha. Se llena primero el fondo desde el centro y luego los dos lados a la vez, para que nunca
+// quede un lado vacío y el otro lleno. Hay uno por cada cantidad hasta el máximo de la mesa (MAXP en
+// server/engine.js); el de 7 ya está listo para cuando suba. Para una mesa de 8, se agrega aquí el suyo (con 7
+// rivales) y se sube MAXP: la escena no cambia (test/asientos.test.js revisa que no falte ninguno).
 export const LAYOUTS = [
   [],
   [back(270)],
@@ -93,3 +96,22 @@ export const LAYOUTS = [
   [LEFT, back(222, 235), back(270), back(318, 305), RIGHT],
   [LEFT, back(213, 226), back(247, 252), back(293, 288), back(327, 314), RIGHT],
 ];
+export const layoutFor = players => LAYOUTS[players - 1] || [];
+
+// Dónde va cada uno de los demás en mi pantalla: un Map asiento -> lugar de LAYOUTS. `base` es mi asiento (si miro sin
+// asiento, uno libre) y `maxp` los asientos de la mesa (MAXP). Cada quien ve la mesa girada desde su asiento: los
+// demás van en el orden de juego desde él, con el acomodo de su cantidad. Con `fixed` (miro sin asiento antes de que
+// empiece) cada asiento queda en su lugar de la mesa llena, ocupado o no.
+export function seatPlan(players, base, maxp, fixed = false) {
+  const rel = seat => (seat - base + maxp) % maxp;
+  const out = new Map();
+  if (fixed) {
+    const all = layoutFor(maxp);
+    for (let r = 1; r < maxp; r++) out.set((base + r) % maxp, all[r - 1]);
+    return out;
+  }
+  const others = players.filter(p => p.seat !== base).sort((a, b) => rel(a.seat) - rel(b.seat));
+  const spots = layoutFor(others.length + 1);
+  others.forEach((p, i) => { if (spots[i]) out.set(p.seat, spots[i]); });
+  return out;
+}

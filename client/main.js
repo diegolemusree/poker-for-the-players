@@ -6,8 +6,8 @@ import { breakdown, chipInfo, STARTING_CHIPS, CHIPS } from './chips.js';
 import { handLabel, winningCards } from './ui/hand.js';
 import { isPhone, phoneQuery } from './ui/phone.js';
 import { SUIT_PATH } from './ui/suits.js';
+import { CHARACTERS, portraitOf } from './stage/characters.js';
 
-const MAXP = 7;
 const SUIT_NAME = { s: 'picas', h: 'corazones', d: 'diamantes', c: 'tréboles' };
 const BETTING = ['preflop', 'flop', 'turn', 'river'];
 const DIF = { facil: 'Fácil', normal: 'Normal', dificil: 'Difícil' };
@@ -61,6 +61,15 @@ let raise = { key: '', value: 0 };
 let prevBoard = { hand: 0, len: 0 };
 let showSide = false;
 let raiseOpen = false;        // celular: el panel de Subir está abierto en lugar de los tres botones
+// lo que dice el servidor antes de entrar a una mesa (/api/config): cuántos se sientan y los personajes. Si no
+// contesta, los del registro del cliente (el servidor valida de todos modos).
+let config = { capacity: Object.keys(CHARACTERS).length, cast: Object.entries(CHARACTERS).map(([id, c]) => ({ id, name: c.name })) };
+// opciones del inicio: se guardan aquí para que no se pierdan al volver a pintar (por ejemplo, al abrir el selector)
+const form = { bots: 3, difficulty: 'normal', soloMinutes: 5, tableMinutes: 15, code: '' };
+// selector de personaje: en el inicio se abre con "Empezar práctica" o "Crear mesa" (`picking.create`: con qué se crea
+// la mesa al elegir); en una mesa con amigos se abre solo mientras no tengas asiento, salvo que elijas "Solo mirar"
+// (`watchCode`, la mesa en que lo elegiste)
+let picking = null, pickError = '', pickBusy = false, watchCode = null;
 // celular: un solo aviso a la vez (la última jugada, un error), que se borra solo
 let note = null, noteTimer = 0, lastLogKey = null, lastLog = [];
 const NOTE_MS = 4500;
@@ -90,6 +99,7 @@ function connectSocket() {
   socket = io({ auth: { token, accessCode: store.get('ppt-access') || '' }, reconnectionDelay: 800 });
   socket.on('connect', () => {
     error = ''; toast = '';
+    pickBusy = false; pickError = ''; // si se cortó a media elección, el estado de la mesa dirá si quedaste sentado
     const fromUrl = new URLSearchParams(location.search).get('mesa');
     const code = fromUrl || store.get('ppt-room');
     if (code) joinRoom(code, !fromUrl); // también al reconectar tras perder la red: recupera asiento y cartas
@@ -99,10 +109,19 @@ function connectSocket() {
     if (/acceso/i.test(e.message)) { store.del('ppt-access'); screen = 'access'; error = store.get('ppt-access-tried') ? e.message : ''; draw(); socket.disconnect(); }
     else { error = 'No hay conexión con el servidor. Reintentando…'; draw(); }
   });
-  socket.on('state', (st) => { snap = st; snapAt = performance.now(); screen = 'table'; draw(); });
+  socket.on('state', (st) => {
+    snap = st; snapAt = performance.now(); screen = 'table';
+    if (st.you) pickError = ''; // ya tienes asiento: el aviso del selector ya no aplica
+    draw();
+  });
   socket.on('disconnect', () => { toast = 'Se perdió la conexión. Reconectando…'; draw(); });
 }
 const send = (ev, data) => new Promise(res => socket.emit(ev, data || {}, res));
+// Elegir personaje con tiempo límite: si la conexión se corta a la mitad, la respuesta nunca llegaría y el selector se
+// quedaría trabado; así contesta con un error (al cortarse, o a los PICK_MS) y se puede volver a elegir.
+const PICK_MS = 8000;
+const sendPick = (ev, data) => new Promise(res => socket.timeout(PICK_MS).emit(ev, data, (err, r) => res(err
+  ? { error: 'No hubo respuesta del servidor. Si no quedaste sentado, elige de nuevo.' } : r)));
 async function run(ev, data) {
   const r = await send(ev, data);
   error = r && r.error ? r.error : '';
@@ -182,12 +201,15 @@ function logo() {
 function drawHome() {
   const nickIn = h('input', { type: 'text', maxLength: 16, id: 'nick', value: nick, placeholder: 'Tu apodo', autocomplete: 'off' });
   nickIn.addEventListener('input', () => { nick = nickIn.value; store.set('ppt-nick', nick); });
-  const need = () => { if (!nick.trim()) { error = 'Escribe tu apodo primero.'; draw(); nickIn.focus(); return false; } return true; };
+  const need = () => { if (!nick.trim()) { error = 'Escribe tu apodo primero.'; draw(); document.getElementById('nick')?.focus(); return false; } return true; };
 
-  const bots = h('select', { id: 'bots', 'aria-label': 'Número de rivales' }, [1, 2, 3, 4, 5, 6].map(n => h('option', { value: n, selected: n === 3 }, `${n} ${n === 1 ? 'rival' : 'rivales'}`)));
-  const dif = h('select', { id: 'dif', 'aria-label': 'Dificultad' }, Object.entries(DIF).map(([v, t]) => h('option', { value: v, selected: v === 'normal' }, t)));
-  const lvlSolo = levelSelect(5), lvlMesa = levelSelect(15);
-  const code = h('input', { type: 'text', maxLength: 5, id: 'code', placeholder: 'ABCDE', autocomplete: 'off', style: 'text-transform:uppercase;letter-spacing:.2em' });
+  // de 1 rival a los que quepan en la mesa (cada quien con un personaje distinto)
+  const rivals = Math.max(1, config.capacity - 1), nBots = Math.min(form.bots, rivals);
+  const bots = h('select', { id: 'bots', 'aria-label': 'Número de rivales', onchange: e => { form.bots = +e.target.value; } },
+    Array.from({ length: rivals }, (_, i) => i + 1).map(n => h('option', { value: n, selected: n === nBots }, `${n} ${n === 1 ? 'rival' : 'rivales'}`)));
+  const dif = h('select', { id: 'dif', 'aria-label': 'Dificultad', onchange: e => { form.difficulty = e.target.value; } }, Object.entries(DIF).map(([v, t]) => h('option', { value: v, selected: v === form.difficulty }, t)));
+  const lvlSolo = levelSelect(form.soloMinutes, m => { form.soloMinutes = m; }), lvlMesa = levelSelect(form.tableMinutes, m => { form.tableMinutes = m; });
+  const code = h('input', { type: 'text', maxLength: 5, id: 'code', value: form.code, placeholder: 'ABCDE', autocomplete: 'off', style: 'text-transform:uppercase;letter-spacing:.2em', oninput: e => { form.code = e.target.value; } });
 
   return h('main', { class: 'home' }, logo(),
     h('p', { class: 'tagline' }, 'Torneo de Texas Hold\'em con fichas virtuales. 5,000 fichas, una recompra y gana quien se quede con todas.'),
@@ -197,20 +219,95 @@ function drawHome() {
       h('h2', {}, 'Jugar contra la compu'),
       h('div', { class: 'row' }, bots, dif),
       h('label', { class: 'field' }, 'Cada nivel de ciegas dura', lvlSolo),
-      h('button', { class: 'btn go', onclick: () => need() && run('room:create', { nick, solo: true, bots: +bots.value, difficulty: dif.value, levelMinutes: +lvlSolo.value }).then(afterCreate) }, 'Empezar práctica')),
+      h('button', { class: 'btn go', onclick: () => need() && openPicker({ solo: true, bots: Math.min(form.bots, rivals), difficulty: form.difficulty, levelMinutes: form.soloMinutes }) }, 'Empezar práctica')),
     h('section', { class: 'card-panel' },
       h('h2', {}, 'Crear mesa'),
       h('p', { class: 'note' }, 'Te damos un código de 5 letras para pasárselo a tus amigos.'),
       h('label', { class: 'field' }, 'Cada nivel de ciegas dura', lvlMesa),
-      h('button', { class: 'btn gold', onclick: () => need() && run('room:create', { nick, solo: false, levelMinutes: +lvlMesa.value }).then(afterCreate) }, 'Crear mesa')),
+      h('button', { class: 'btn gold', onclick: () => need() && openPicker({ solo: false, levelMinutes: form.tableMinutes }) }, 'Crear mesa')),
     h('section', { class: 'card-panel' },
       h('h2', {}, 'Unirme con código'),
-      h('div', { class: 'row' }, code, h('button', { class: 'btn', onclick: () => code.value.trim() && joinRoom(code.value.trim().toUpperCase(), false) }, 'Unirme'))));
+      h('div', { class: 'row' }, code, h('button', { class: 'btn', onclick: () => code.value.trim() && joinRoom(code.value.trim().toUpperCase(), false) }, 'Unirme'))),
+    picking && characterPicker());
 }
-function levelSelect(def) {
-  return h('select', { 'aria-label': 'Minutos por nivel' }, [2, 5, 10, 15, 20, 30].map(m => h('option', { value: m, selected: m === def }, `${m} minutos`)));
+function levelSelect(def, onPick) {
+  return h('select', { 'aria-label': 'Minutos por nivel', onchange: e => onPick(+e.target.value) }, [2, 5, 10, 15, 20, 30].map(m => h('option', { value: m, selected: m === def }, `${m} minutos`)));
 }
 function afterCreate(r) { if (r && r.ok) { store.set('ppt-room', r.code); history.replaceState(null, '', '?mesa=' + r.code); } }
+
+/* ---------- selector de personaje ---------- */
+// Sencillo y funcional (el diseño final llega con el rediseño del menú): un botón por personaje con su cara, su nombre
+// y si está libre. Antes de crear la mesa (práctica o con amigos) están todos libres; en una mesa con amigos, los
+// ocupados salen bloqueados con el nombre de quien lo tiene y se actualiza con cada estado. Elegir es sentarse, y el
+// servidor decide: si dos eligen el mismo al mismo tiempo, gana el primero y al otro se le avisa aquí para que elija
+// otro.
+function openPicker(create) { picking = { create }; pickError = ''; error = ''; draw(); }
+function closePicker() {
+  pickError = '';
+  if (screen === 'table' && snap) watchCode = snap.code; // "Solo mirar": en esta mesa ya no se abre solo
+  else picking = null;
+  draw();
+}
+// ¿Se ve? En el inicio, si se abrió; en una mesa, mientras no tengas asiento y no haya empezado el torneo.
+function showPicker() {
+  if (screen !== 'table' || !snap) return !!picking;
+  return !me() && !started() && watchCode !== snap.code;
+}
+async function pickCharacter(id) {
+  if (pickBusy) return;
+  if (!nick.trim()) { pickError = 'Escribe tu apodo primero.'; draw(); document.getElementById('pick-nick')?.focus(); return; }
+  // sin conexión no se manda nada: socket.io lo guardaría y lo mandaría al volver, antes de regresar a la mesa
+  if (!socket || !socket.connected) { pickError = 'Sin conexión: espera a que vuelva y elige de nuevo.'; draw(); return; }
+  pickBusy = true;
+  // en el inicio, elegir crea la mesa contigo sentado con ese personaje; en una mesa, te sienta en el siguiente lugar
+  const create = screen !== 'table' && picking ? picking.create : null;
+  const r = await sendPick(create ? 'room:create' : 'sit', { ...create, nick, character: id });
+  pickBusy = false;
+  if (r && r.ok) {
+    pickError = ''; error = '';
+    if (create) { picking = null; afterCreate(r); }
+  } else pickError = (r && r.error) || 'Algo salió mal. Intenta de nuevo.';
+  draw();
+}
+function characterPicker() {
+  const inTable = screen === 'table' && !!snap;
+  const cast = inTable ? snap.cast : config.cast.map(c => ({ ...c, holder: null }));
+  const players = inTable ? snap.view.players : [];
+  const full = inTable && players.length >= snap.capacity;
+  const nickIn = h('input', { type: 'text', maxLength: 16, id: 'pick-nick', value: nick, placeholder: 'Tu apodo', autocomplete: 'off' });
+  nickIn.addEventListener('input', () => { nick = nickIn.value; store.set('ppt-nick', nick); });
+  const note = !inTable ? (picking.create.solo ? 'Los bots toman los que sobren.' : 'Tus amigos eligen después de ti, entre los que sobren.')
+    : full ? 'La mesa está llena. Puedes quedarte a mirar.' : 'Los que ya tienen dueño salen bloqueados con su nombre.';
+  const grid = h('div', { class: 'pick-grid' }, cast.map(c => {
+    const holder = c.holder ? players.find(p => p.id === c.holder) : null;
+    const state = holder ? (holder.id === snap.you ? 'Tú' : `Lo tiene ${holder.nick}`) : full ? 'Mesa llena' : 'Libre';
+    return h('button', { class: 'pick' + (holder ? ' taken' : ''), id: 'pick-' + c.id, disabled: !!holder || full, 'aria-label': `${c.name}: ${state}`, onclick: () => pickCharacter(c.id) },
+      pickFace(c.id), h('span', { class: 'pick-name' }, c.name), h('span', { class: 'pick-state' }, state));
+  }));
+  return h('div', { class: 'overlay picker', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'pick-title', onkeydown: e => { if (e.key === 'Escape') closePicker(); } },
+    h('div', { class: 'card-panel' },
+      h('h2', { id: 'pick-title' }, 'Elige tu personaje'),
+      h('p', { class: 'note' }, note),
+      h('label', { class: 'field' }, 'Tu apodo', nickIn),
+      pickError && h('p', { class: 'err', role: 'alert' }, pickError),
+      grid,
+      h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: closePicker }, inTable ? 'Solo mirar' : 'Cancelar'))));
+}
+// La cara de un personaje: su cuadro de espera recortado a la caja de su cabeza (`face`), con un poco de aire.
+function pickFace(id) {
+  const box = h('span', { class: 'pick-face', 'aria-hidden': 'true' });
+  const pt = portraitOf(id);
+  if (!pt) return box;
+  const [W, H] = pt.size, [l, t, r, b] = pt.face;
+  const fw = (r - l) * W, fh = (b - t) * H, m = Math.max(fw, fh) * 1.12;
+  const img = h('img', { src: pt.url, alt: '', decoding: 'async' });
+  // en % del cuadrito (es cuadrado): la caja de la cabeza queda centrada y lo llena
+  img.style.width = `${(100 * W) / m}%`;
+  img.style.left = `${100 * ((1 - fw / m) / 2 - (l * W) / m)}%`;
+  img.style.top = `${100 * ((1 - fh / m) / 2 - (t * H) / m)}%`;
+  box.append(img);
+  return box;
+}
 
 /* ---------- mesa ---------- */
 const me = () => snap.view.players.find(p => p.id === snap.you);
@@ -259,16 +356,15 @@ function drawTable() {
       pot > 0 && h('div', { class: 'pot' }, chipStack(pot, true), fmt(pot)), msg));
 
   // asientos
-  const base = mine ? mine.seat : 0;
+  const base = mine ? mine.seat : 0, maxp = snap.maxPlayers;
   const portrait = matchMedia('(max-width:640px)').matches;
-  for (let seat = 0; seat < MAXP; seat++) {
-    const ang = Math.PI / 2 + ((seat - base + MAXP) % MAXP) * (2 * Math.PI / MAXP);
+  for (let seat = 0; seat < maxp; seat++) {
+    const ang = Math.PI / 2 + ((seat - base + maxp) % maxp) * (2 * Math.PI / maxp);
     const rx = portrait ? 44 : 46, ry = portrait ? 45 : 44;
     const el = h('div', { class: 'seat', style: `left:${50 + rx * Math.cos(ang)}%;top:${50 + ry * Math.sin(ang)}%` });
     const p = v.players.find(q => q.seat === seat);
     if (!p) {
-      if (!mine && !started()) el.append(h('button', { class: 'sit', onclick: () => sit(seat) }, 'Sentarme aquí'));
-      else el.append(h('div', { class: 'emptyseat' }, 'Libre'));
+      el.append(h('div', { class: 'emptyseat' }, 'Libre'));
       table.append(el); continue;
     }
     seatContent(el, p, v);
@@ -282,7 +378,8 @@ function drawTable() {
     h('div', {}, h('h2', {}, 'Posiciones'), h('ol', {}, standings(v))),
     h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-10).reverse().map(t => h('li', {}, t)))));
 
-  return h('div', {}, top, notice, h('main', { class: 'stage' }, table), actionBar(), side, ended && !showingResult() && finishOverlay());
+  return h('div', {}, top, notice, h('main', { class: 'stage' }, table), actionBar(), side, ended && !showingResult() && finishOverlay(),
+    showPicker() && characterPicker());
 }
 
 function standings(v) {
@@ -333,7 +430,6 @@ function seatContent(el, p, v) {
   else if (tag) box.append(h('div', { class: 'tag' }, tag));
   if (v.toAct === p.id && !p.isBot && snap.turnLeftMs != null) box.append(h('div', { class: 'tag' }, deadline(snap.turnLeftMs, 'low')));
   if (v.dealerSeat === p.seat && started()) box.append(h('div', { class: 'dealer', title: 'Reparte' }, 'D'));
-  if (p.isBot && !started() && me()) box.append(h('button', { class: 'linkbtn', onclick: () => run('bots:remove', { seat: p.seat }) }, 'Quitar'));
   el.append(hand, box);
 }
 
@@ -349,11 +445,10 @@ function actionBar(phone = false) {
 
   if (!mine) {
     if (started()) hint('El torneo ya empezó. Estás mirando la mesa.');
+    else if (v.players.length >= snap.capacity) hint('La mesa está llena. Estás mirando.');
     else {
-      hint('Escribe tu apodo y elige un asiento libre en la mesa.');
-      const inp = h('input', { type: 'text', id: 'nick', maxLength: 16, value: nick, placeholder: 'Tu apodo', 'aria-label': 'Tu apodo' });
-      inp.addEventListener('input', () => { nick = inp.value; store.set('ppt-nick', nick); });
-      inner.append(h('div', { class: 'row' }, inp));
+      hint('Para sentarte, elige tu personaje.');
+      inner.append(h('div', { class: 'row' }, h('button', { class: 'btn go', onclick: () => { watchCode = null; pickError = ''; draw(); } }, 'Elegir personaje')));
     }
     return h('div', { class: 'bar' }, inner);
   }
@@ -395,17 +490,14 @@ function lobbyControls(inner) {
   const v = snap.view;
   const link = `${location.origin}/?mesa=${snap.code}`;
   inner.append(
-    h('p', { class: 'hint' }, `Mesa ${snap.code}. Pásales este link a tus amigos y siéntense. Torneo: ${fmt(5000)} fichas, ciegas cada ${snap.levelMinutes} min, una recompra por persona; termina cuando alguien tenga todas las fichas.`),
+    h('p', { class: 'hint' }, `Mesa ${snap.code}. Pásales este link a tus amigos: cada quien elige su personaje y se sienta. Torneo: ${fmt(5000)} fichas, ciegas cada ${snap.levelMinutes} min, una recompra por persona; termina cuando alguien tenga todas las fichas.`),
     h('p', { class: 'hint startchips' }, 'Cada quien recibe 32 fichas: ',
       STARTING_CHIPS.map((c, i) => [i ? (i === STARTING_CHIPS.length - 1 ? ' y ' : ', ') : '', chipStack(c.value), ` ${c.count} de ${fmt(c.value)}`]), '.'),
     h('div', { class: 'row' },
       h('button', { class: 'btn small', onclick: () => copy(link) }, 'Copiar link'),
-      h('span', { class: 'hint' }, `${v.players.length}/${snap.maxPlayers} jugadores`)));
-  const dif = h('select', { 'aria-label': 'Dificultad del bot' }, Object.entries(DIF).map(([k, t]) => h('option', { value: k, selected: k === 'normal' }, t)));
-  const libres = snap.maxPlayers - v.players.length;
-  inner.append(h('div', { class: 'row' }, dif,
-    h('button', { class: 'btn small', disabled: libres < 1, onclick: () => run('bots:add', { count: 1, difficulty: dif.value }) }, 'Agregar bot'),
-    h('button', { class: 'btn small', onclick: () => run('leave') }, 'Levantarme'),
+      h('span', { class: 'hint' }, `${v.players.length}/${snap.capacity} jugadores`)));
+  inner.append(h('div', { class: 'row' },
+    h('button', { class: 'btn small', onclick: () => { watchCode = null; run('leave'); } }, 'Levantarme'),
     h('button', { class: 'btn go', disabled: v.players.length < 2, onclick: () => run('start') }, 'Empezar torneo')));
 }
 
@@ -595,13 +687,10 @@ function finishOverlay() {
 }
 
 /* ---------- acciones ---------- */
-function sit(seat) {
-  if (!nick.trim()) { error = 'Escribe tu apodo abajo antes de sentarte.'; draw(); return; }
-  run('sit', { nick, seat });
-}
 async function exitRoom() {
-  await send('room:exit');
+  await send('room:exit'); // antes de empezar también te levanta: tu personaje queda libre
   store.del('ppt-room'); snap = null; error = ''; screen = 'home';
+  picking = null; pickError = ''; watchCode = null;
   history.replaceState(null, '', location.pathname);
   draw();
 }
@@ -645,11 +734,7 @@ function drawStage() {
     shell = h('div', { class: 'scene-shell' }, stage, hudEl);
     $app.replaceChildren(shell);
     try {
-      scene = sceneMod.createTableScene(stage, {
-        h, fmt, deadline,
-        onSit: sit,
-        onRemoveBot: seat => run('bots:remove', { seat }),
-      });
+      scene = sceneMod.createTableScene(stage, { h, fmt, deadline });
     } catch (e) {
       console.error(e);
       sceneFailed = true; scene = null; shell = null;
@@ -753,7 +838,7 @@ function drawHud() {
     h('div', {}, h('h2', {}, 'Últimas jugadas'), h('ul', {}, v.log.slice(-12).reverse().map(t => h('li', {}, t)))),
     phone && h('button', { class: 'btn small side-exit', onclick: exitRoom }, 'Salir de la mesa'));
   if (info && !phone) strip.insertBefore(info, strip.lastChild);
-  return [strip, ticker, notice, side, mycards, bar, v.finished && !showingResult() && finishOverlay()].filter(Boolean);
+  return [strip, ticker, notice, side, mycards, bar, v.finished && !showingResult() && finishOverlay(), showPicker() && characterPicker()].filter(Boolean);
 }
 // Calidad, sonido y vista 2D: en la franja en pantallas anchas, dentro del panel en el celular.
 function options(sound, cls) {
@@ -781,7 +866,11 @@ setInterval(() => { // cuentas regresivas
 (async () => {
   loadScene();
   draw();
-  try { accessRequired = (await (await fetch('/api/config')).json()).accessRequired; } catch { /* sigue */ }
+  try {
+    const c = await (await fetch('/api/config')).json();
+    accessRequired = c.accessRequired;
+    if (Array.isArray(c.cast) && c.cast.length) config = { capacity: c.capacity, cast: c.cast };
+  } catch { /* sigue con la lista del cliente */ }
   if (accessRequired && !store.get('ppt-access')) { screen = 'access'; draw(); }
   connectSocket();
   if (screen === 'access') socket.disconnect();

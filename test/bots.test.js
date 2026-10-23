@@ -73,7 +73,7 @@ describe('personajes de los bots', () => {
     assert.ok(![...BOT_NAMES, ...CAST.map(c => c.name)].includes('Madame Blorp'));
   });
 
-  test('con 6 bots o menos, cada uno con un personaje distinto y el nombre de ese personaje', () => {
+  test(`con ${MAXP - 1} bots o menos, cada uno con un personaje distinto y el nombre de ese personaje`, () => {
     for (let n = 1; n <= MAXP - 1; n++) {
       for (let k = 0; k < 20; k++) {
         const bots = makeBots(n, 'normal', ['Ana'], rng(n * 100 + k));
@@ -92,27 +92,29 @@ describe('personajes de los bots', () => {
     assert.ok(BOT_NAMES.length >= MAXP - 1, 'faltan nombres de repuesto para una mesa llena');
   });
 
-  test('en la mesa: los bots con su personaje y los humanos con los que sobran', () => {
+  test('en la mesa: los bots con su personaje y los humanos con el que eligieron; todos ven lo mismo', () => {
     const LARGO = 60 * 60 * 1000, tk = n => 'token-de-prueba-' + String(n).padStart(16, '0');
     const solo = new Room({ code: 'SOLOX', solo: true }, { turnLimitMs: LARGO, botDelay: () => LARGO });
-    solo.sit(tk(1), 'Diego', 0);
+    solo.sit(tk(1), 'Diego', 'nerd');
     solo.addBots(tk(1), MAXP - 1, 'facil');
     let vista = solo.snapshot(tk(1)).view.players;
     const bots = vista.filter(p => p.isBot);
-    assert.equal(new Set(bots.map(p => p.character)).size, MAXP - 1, 'en práctica con 6 rivales se repitió un personaje');
+    assert.equal(new Set(bots.map(p => p.character)).size, MAXP - 1, `en práctica con ${MAXP - 1} rivales se repitió un personaje`);
     for (const p of bots) assert.equal(p.nick, nombreDe(p.character));
-    assert.ok(vista.find(p => p.id === solo.playerIdOf(tk(1))).character, 'el humano no tiene personaje');
+    assert.equal(vista.find(p => p.id === solo.playerIdOf(tk(1))).character, 'nerd', 'el humano no se ve con el que eligió');
+    assert.ok(!bots.some(p => p.character === 'nerd'), 'un bot tomó el personaje del humano');
     solo.close();
 
+    // sala privada: solo humanos, cada uno con el que eligió
     const amigos = new Room({ code: 'AMIGO', solo: false }, { turnLimitMs: LARGO, botDelay: () => LARGO });
-    amigos.sit(tk(2), 'Ana', 0);
-    amigos.sit(tk(3), 'Beto', 1);
-    amigos.addBots(tk(2), 3, 'normal');
+    amigos.sit(tk(2), 'Ana', 'pulpo');
+    amigos.sit(tk(3), 'Beto', 'turista');
+    amigos.sit(tk(4), 'Caro', 'alien');
     vista = amigos.snapshot(tk(2)).view.players;
-    const deBots = vista.filter(p => p.isBot).map(p => p.character);
-    const deHumanos = vista.filter(p => !p.isBot).map(p => p.character);
-    assert.equal(new Set([...deBots, ...deHumanos]).size, 5, 'con 5 jugadores, todos distintos');
-    assert.deepEqual(amigos.snapshot(tk(3)).view.players.map(p => p.character), vista.map(p => p.character), 'todos ven lo mismo');
+    assert.deepEqual(vista.map(p => [p.nick, p.character, p.isBot]), [['Ana', 'pulpo', false], ['Beto', 'turista', false], ['Caro', 'alien', false]]);
+    for (const t of [tk(3), tk(4), tk(9)]) {
+      assert.deepEqual(amigos.snapshot(t).view.players.map(p => p.character), vista.map(p => p.character), 'todos ven lo mismo');
+    }
     amigos.close();
   });
 });

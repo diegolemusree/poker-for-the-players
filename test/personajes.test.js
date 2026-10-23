@@ -4,20 +4,24 @@ import { existsSync, readFileSync } from 'node:fs';
 import { CHARACTERS, POSES, poseFile, hasPose, characterFor, needsMirror } from '../client/stage/characters.js';
 import { RivalAnim, lugarEtiqueta } from '../client/stage/rivals.js';
 
-const arte = file => new URL(`../public/assets/arte/${file}.webp`, import.meta.url);
+// la misma ruta que arma el juego (artUrl): cada cuadro ya trae la carpeta de su personaje
+const arte = file => new URL(`../public/${file}.webp`, import.meta.url);
 const registrados = Object.entries(CHARACTERS); // los de personajes.json en uso (antes de agregar los de prueba)
 const REGISTRO = JSON.parse(readFileSync(new URL('../client/stage/personajes.json', import.meta.url), 'utf8'));
 
-test('cada personaje registrado tiene frente con espera, solo cuadros conocidos y sus imágenes', () => {
+test('cada personaje registrado tiene frente con espera, solo cuadros conocidos y sus imágenes en su carpeta', () => {
   assert.ok(registrados.length > 0, 'no hay personajes en uso');
   for (const [id, c] of registrados) {
     assert.ok(c.angles.frente, `${id} sin frente`);
+    assert.equal(c.carpeta, REGISTRO[id].carpeta || 'assets/arte', `${id}: el juego no usa su carpeta`);
     for (const [angle, a] of Object.entries(c.angles)) {
       assert.ok(a.frames.includes('espera'), `${id} ${angle} sin espera`);
       for (const f of a.frames) {
         assert.ok(POSES.includes(f), `${id} ${angle}: cuadro desconocido ${f}`);
-        assert.ok(existsSync(arte(`${id}-${angle}-${f}`)), `falta ${id}-${angle}-${f}.webp`);
-        assert.ok(existsSync(arte(`${id}-${angle}-${f}-chico`)), `falta ${id}-${angle}-${f}-chico.webp`);
+        const file = poseFile(id, angle, f);
+        assert.ok(file.startsWith(`${c.carpeta}/${id}-`), `${id} ${angle} ${f}: no está en su carpeta`);
+        assert.ok(existsSync(arte(file)), `falta public/${file}.webp`);
+        assert.ok(existsSync(arte(`${file}-chico`)), `falta public/${file}-chico.webp`);
       }
     }
   }
