@@ -46,7 +46,8 @@ En el prototipo, el estado completo (incluyendo el mazo y las cartas de todos) s
 ```
 poker-for-the-players/
   CLAUDE.md
-  README.md
+  README.md         # qué es, cómo publicarlo en Render, el código de acceso y el dominio propio (para principiante)
+  render.yaml       # la configuración de Render (ver "Publicación")
   package.json
   server/
     index.js        # Express + Socket.IO, manejo de salas
@@ -474,8 +475,8 @@ Notas abiertas:
 
 ## Publicación con dominio propio (cuando funcione en local)
 
-- Publicar en Render o Railway (ambos soportan WebSockets) y conectar el dominio propio del proyecto.
-- HTTPS obligatorio (ambos servicios lo dan gratis con el dominio conectado).
-- Configurar `ACCESS_CODE` y `PORT` como variables de entorno en el servicio, nunca dentro del código.
-- Agregar un `README.md` con los pasos de despliegue y de conexión del dominio (registros DNS), explicados para alguien que lo hace por primera vez.
-- Ojo con planes gratuitos que "duermen" el servidor: si el servidor se reinicia, las mesas en memoria se pierden. Para un grupo de amigos es aceptable, pero la pantalla debe avisar claramente si la mesa ya no existe y ofrecer crear otra.
+- Se publica en **Render** (decisión del dueño, 2026-10-27): un solo servicio web de Node que sirve la página y el servidor de Socket.IO en el mismo dominio. La configuración está en `render.yaml` (Blueprint: plan gratis, región ohio, rama `main` con publicación automática en cada commit, build `npm ci --include=dev && npm run build` porque Vite está en devDependencies, `npm start`, Node 24 y revisión de salud en `/api/config`). Los pasos para crearlo, cambiar el código y conectar el dominio están en `README.md`, explicados para alguien que lo hace por primera vez.
+- **Vercel no sirve** (se probó el 2026-10-27): solo publica la página y funciones cortas, sin un servidor prendido ni conexiones en vivo, así que la página carga pero dice "No hay conexión". Usarlo pediría reescribir el servidor (estado en una base de datos, relojes como fechas límite, polling); se descartó.
+- HTTPS obligatorio (Render lo da gratis, también con el dominio conectado).
+- Configurar `ACCESS_CODE` como variable de entorno en el servicio, nunca dentro del código (`sync: false` en `render.yaml`: Render lo pide al crear el servicio). Render pone `PORT` solo.
+- Ojo con el plan gratis: si nadie tiene el juego abierto 15 minutos, el servidor se duerme (las conexiones de Socket.IO abiertas lo mantienen despierto) y al dormirse o reiniciarse (también en cada publicación) las mesas en memoria se pierden. Para un grupo de amigos es aceptable: quien vuelve ve "Tu mesa anterior ya no existe. Puedes crear otra." (`joinRoom` en `main.js`).

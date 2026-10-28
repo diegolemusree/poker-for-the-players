@@ -1,0 +1,19 @@
+# Publicación en Render (https://render.com/docs/blueprint-spec): el juego es un solo servicio web de Node que sirve la
+# página y el servidor de Socket.IO, siempre en el mismo dominio. Los pasos para crearlo están en README.md.
+services:
+  - type: web
+    name: poker-for-the-players
+    runtime: node
+    plan: free
+    region: ohio               # no se puede cambiar después de crearlo
+    branch: main               # cada commit a main se publica solo
+    autoDeployTrigger: commit
+    # Vite (que arma la página) está en devDependencies: se instalan aunque Render construya en modo producción
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/config
+    envVars:
+      - key: NODE_VERSION      # la misma versión con que se desarrolla y se prueba
+        value: "24"
+      - key: ACCESS_CODE       # el código del grupo: Render lo pide al crear el servicio (nunca va en el repositorio)
+        sync: false
