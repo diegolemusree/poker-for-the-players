@@ -14,6 +14,8 @@ sonrisa = "the lips become a smug, satisfied closed-mouth smile"
 
 # apuesta, retirarse y gana (zona de brazos)
 manos = "human hands with tanned skin"
+# mis brazos (comando brazos): el antebrazo que entra por la orilla de abajo
+antebrazos = "thin bare tanned forearms with nothing on the wrists"
 fichas = "red and white poker chips"   # nunca del color del fondo: el chroma key las borraría
 
 opacas = ["the lenses of the sunglasses"]

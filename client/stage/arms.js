@@ -11,12 +11,14 @@
 //     ancla  el punto de la imagen que cae en la mesa: el del izquierdo, en el centro de mis dos cartas; el del derecho,
 //            junto a mi pila (a su derecha)
 //     alto   lo que mide la imagen de alto en unidades de la mesa (como `height` de los rivales)
+//     mano   (opcional) [izquierda, arriba, derecha, abajo]: lo que ocupa la mano en todas las poses juntas, sin el
+//            antebrazo (la mide optimizar-arte.py brazos); sin ella, una caja genérica alrededor del ancla
 //     poses  izquierdo: ver, ocultar y vacio; derecho: descansar y jugar. Cada una con su `archivo` (sin carpeta ni
 //            extensión: /<carpeta>/<archivo>.webp, y -chico.webp en calidad baja) y, según la pose:
 //              ver.cartas    [{ c, ancho, angulo }, { … }]: el centro, el ancho (fracción del ancho de la imagen) y el
 //                            giro en grados de cada carta en la mano
 //              ver.pulgar    { archivo, caja }: el pulgar, que va encima de las cartas, y la caja que ocupa sobre el
-//                            brazo ([0, 0, 1, 1] si viene en el mismo lienzo)
+//                            brazo (su imagen viene recortada a esa caja; [0, 0, 1, 1] si viene en el mismo lienzo)
 //              jugar.fichas  el punto del fieltro donde van las fichas con que juega (su tamaño lo da la mesa)
 // `color` es del personaje, no de `brazos`: el de sus manos, para el relleno.
 
@@ -53,6 +55,7 @@ export function faltanBrazos(b, existe = () => true) {
     if (!(Array.isArray(a.size) && a.size.length === 2 && a.size.every(n => n > 0))) faltan.push(`${lado}: size`);
     if (!punto(a.ancla)) faltan.push(`${lado}: ancla`);
     if (!(a.alto > 0)) faltan.push(`${lado}: alto`);
+    if (a.mano !== undefined && !caja(a.mano)) faltan.push(`${lado}: mano`);
     for (const pose of POSES_BRAZO[lado]) {
       const p = a.poses && a.poses[pose];
       if (!p) faltan.push(`${lado}: sin ${pose}`);
@@ -210,8 +213,9 @@ const unir = cs => cs.filter(Boolean).reduce((a, b) => (a ? { x0: Math.min(a.x0,
 
 // Mismo formato que el arte, en un lienzo de 1000 × 1400. Sus figuras (cada una, una curva cerrada y suave por sus puntos)
 // van por pose y capa: 'brazo' (el antebrazo y la mano, con un solo contorno) y 'pulgar'. `mano`: lo que ocupa la mano en
-// cada pose (para que las apuestas no queden debajo); con arte, una caja alrededor del ancla.
-const LIENZO = [1000, 1400];
+// cada pose (para que las apuestas no queden debajo); con arte, una caja alrededor del ancla. LIENZO y FIGURAS se exportan
+// para scripts/generar-personaje.py brazos: sus bocetos para Gemini son estas siluetas, así el arte cae en las mismas anclas.
+export const LIENZO = [1000, 1400];
 export const RELLENO = {
   izquierdo: {
     size: LIENZO, ancla: [0.6, 0.26], alto: 0.69,
@@ -223,7 +227,11 @@ export const RELLENO = {
       ocultar: {}, vacio: {},
     },
   },
-  derecho: { size: LIENZO, ancla: [0.4, 0.25], alto: 0.69, poses: { descansar: {}, jugar: { fichas: [0.46, 0.12] } } },
+  // un poco más chico que el izquierdo: una mano dibujada es más ancha que la manopla, y entre mi pila y la orilla de
+  // la pantalla en 4:3 cabe justa (LUGAR en scripts/generar-personaje.py); por lo mismo, las fichas con que juega van un
+  // poco a la izquierda de la manopla: una mano que llega a ellas con el índice y el medio se abre hacia la derecha, y así
+  // queda al centro de lo que cabe
+  derecho: { size: LIENZO, ancla: [0.4, 0.25], alto: 0.67, poses: { descansar: {}, jugar: { fichas: [0.37, 0.12] } } },
 };
 const ANTEBRAZO_VER = [[468, 440], [655, 475], [590, 680], [470, 1000], [360, 1440], [70, 1440], [200, 1000], [330, 680], [400, 510]];
 const PALMA_VER = [[452, 342], [560, 300], [690, 232], [780, 166], [838, 198], [842, 288], [790, 374], [700, 450], [600, 502], [505, 500], [446, 448]];
@@ -240,7 +248,7 @@ const PULGAR_DESCANSA = [[320, 356], [362, 368], [384, 404], [354, 428], [304, 4
 const MANO_JUEGA = [[300, 300], [352, 250], [420, 212], [490, 206], [548, 240], [572, 300], [556, 368], [490, 404], [410, 400], [340, 372], [304, 340]];
 const PULGAR_JUEGA = [[318, 352], [360, 362], [382, 398], [352, 422], [302, 412], [276, 384]];
 const ANTEBRAZO_DER = [[470, 360], [570, 340], [630, 600], [700, 1000], [740, 1440], [480, 1440], [460, 1000], [420, 640], [410, 420]];
-const FIGURAS = {
+export const FIGURAS = {
   izquierdo: {
     ver: { brazo: [ANTEBRAZO_VER, PALMA_VER], pulgar: [PULGAR_VER], mano: [PALMA_VER, PULGAR_VER] },
     ocultar: { brazo: [ANTEBRAZO_MESA, MANO_MESA], mano: [MANO_MESA] },
@@ -292,7 +300,7 @@ function cajaFiguras(figuras) {
   return [Math.min(...pts.map(p => p[0])) - m, Math.min(...pts.map(p => p[1])) - m, Math.max(...pts.map(p => p[0])) + m, Math.max(...pts.map(p => p[1])) + m]
     .map((v, i) => v / LIENZO[i % 2]);
 }
-// Con arte: lo que ocupa la mano, alrededor del ancla (en fracciones de la imagen).
+// Con arte sin `mano` medida: lo que ocupa la mano, alrededor del ancla (en fracciones de la imagen).
 const MANO_ARTE = { izquierda: 0.24, derecha: 0.24, arriba: 0.14, abajo: 0.06 };
 
 /* ---------- la capa ---------- */
@@ -465,9 +473,9 @@ export class Brazos {
     if (!this.def || !this.geo) return [];
     return LADOS.map(lado => {
       const l = this.lugar(lado), b = this.def[lado], enImagen = c => ({ x0: l.x + c[0] * l.w, y0: l.y + c[1] * l.h, x1: l.x + c[2] * l.w, y1: l.y + c[3] * l.h });
-      const manos = this.def.arte
-        ? [enImagen([b.ancla[0] - MANO_ARTE.izquierda, b.ancla[1] - MANO_ARTE.arriba, b.ancla[0] + MANO_ARTE.derecha, b.ancla[1] + MANO_ARTE.abajo])]
-        : POSES_BRAZO[lado].map(p => enImagen(cajaFiguras(FIGURAS[lado][p].mano)));
+      const manos = !this.def.arte ? POSES_BRAZO[lado].map(p => enImagen(cajaFiguras(FIGURAS[lado][p].mano)))
+        : b.mano ? [enImagen(b.mano)]
+        : [enImagen([b.ancla[0] - MANO_ARTE.izquierda, b.ancla[1] - MANO_ARTE.arriba, b.ancla[0] + MANO_ARTE.derecha, b.ancla[1] + MANO_ARTE.abajo])];
       const extra = [];
       if (lado === 'izquierdo') {
         extra.push(...b.poses.ver.cartas.map(c => cajaDe(esquinasCarta(c, l))));

@@ -14,6 +14,8 @@ sonrisa = "the mouth becomes a smug, satisfied closed-mouth grin, and the four e
 
 # apuesta, retirarse y gana (zona de brazos)
 manos = "thin green hands with long fingers"
+# mis brazos (comando brazos): el antebrazo que entra por la orilla de abajo
+antebrazos = "thin bare green forearms; the short sleeves of the olive t-shirt end above the elbow, out of view"
 fichas = "dark blue and white poker chips"   # nunca del color del fondo: el chroma key las borraría
 
 opacas = []   # partes que nunca dejan ver el fondo (el alien no tiene nada cercano al magenta)

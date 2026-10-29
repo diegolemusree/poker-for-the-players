@@ -14,6 +14,8 @@ sonrisa = "the mouth under the face tentacles becomes a smug, satisfied grin"
 
 # apuesta, retirarse y gana (zona de brazos)
 manos = "purple tentacles with pink suckers instead of hands, their tips curling around what they hold"
+# mis brazos (comando brazos): el antebrazo que entra por la orilla de abajo
+antebrazos = "a thick purple tentacle with pink suckers on its underside instead of a forearm"
 fichas = "red and white poker chips"   # nunca del color del fondo: el chroma key las borraría
 
 opacas = []
@@ -23,3 +25,36 @@ rasgos = ["the tentacles around the mouth", "the dark spots on the head"]
 # manos con los antebrazos hasta cerca del codo, que entran a la zona cuando el tamaño de las cartas cambia mucho
 caja_cartas = [430, 420, 596, 560]
 caja_manos = [295, 470, 815, 680]   # los tentáculos que sostienen las cartas, completos
+
+# mis brazos: el texto de cada toma habla de dedos y pulgar; el pulpo los cambia por la punta de su tentáculo
+[brazos.izq-ver]
+detalle = """
+The two blank cards stay exactly as they are in the placeholder: the same place, size and angle, plain cream white \
+with a dark outline and nothing on them (no letters, pips or symbols). The tentacle wraps behind the cards and only \
+its curled tip is in front of them, pressing their lower left corners, where the placeholder thumb is.
+"""
+
+[brazos.izq-mesa]
+pulgar = false   # el boceto sin el pulgar recogido: con él, Gemini dibuja una mano de tentáculos
+detalle = """
+The two plain cards lying on the table stay exactly as they are in the placeholder: the same place, size and shape, \
+plain cream with a dark outline and nothing on them. The tentacle lies only on their far half (the upper half in the \
+image), like the placeholder hand: the half of each card closest to the bottom of the image, with its two corners, \
+stays completely visible, with nothing over it. It is one single tentacle, not several, about as thick as the \
+placeholder hand: it comes in from the bottom left, passes to the left of the cards without touching them, bends and \
+lies flat along the far half of both cards, and its tip curls slightly at the right end, where the placeholder hand \
+ends, well before the right edge. No tentacle tip hangs down over the near half of the cards.
+"""
+
+[brazos.der-descansar]
+detalle = """
+The tentacle tip rests coiled on the felt in a compact curl, no wider than the placeholder hand, and holds nothing.
+"""
+
+[brazos.der-jugar]
+detalle = """
+The two small stacks of chips stay exactly as they are in the placeholder: the same place and size, plain cream with \
+a dark outline, with no colors, stripes, numbers or symbols. The tentacle rises and its curled tip touches the bottom \
+of the stacks, as if about to pick up the top chip, leaving most of the stacks visible; it is no wider than the \
+placeholder hand.
+"""

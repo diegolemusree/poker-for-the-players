@@ -75,6 +75,28 @@ de client/stage/cards.js, con las franjas que aprobar-cartas anota en client/sta
     .venv-rembg/bin/python scripts/generar-personaje.py cartas --simular          # la tabla y los dibujos, sin gastar
     .venv-rembg/bin/python scripts/generar-personaje.py cartas blob               # genera (pide confirmación)
     .venv-rembg/bin/python scripts/generar-personaje.py aprobar-cartas blob       # espera, parpadeo y franjas
+
+MIS BRAZOS EN PRIMERA PERSONA
+-----------------------------
+El arte de mis brazos (ver "Brazos del jugador" en CLAUDE.md) no tiene base aprobada que editar. El boceto es la
+silueta de relleno del juego (RELLENO y FIGURAS de client/stage/arms.js, leídas con node), del "color" del personaje y
+sobre su fondo; Gemini la redibuja como el brazo del personaje, con su espera aprobada de referencia. Así el arte cae
+en las anclas del relleno y no hay que medir nada. Cuatro tomas, una llamada cada una (máximo MAX_LLAMADAS):
+izq-ver (de ella salen el brazo y el pulgar), izq-mesa (ocultar y vacio, la misma imagen), der-descansar y der-jugar.
+En izq-ver el boceto trae las dos cartas en blanco donde el juego pone las de verdad: su papel se vuelve transparente y
+lo que quedó encima de ellas desde su orilla es el pulgar. En der-jugar, dos columnitas de fichas de prueba donde el
+juego pone las de verdad: los dedos deben llegar a ellas, y luego se borran (salvo los dedos). La ficha necesita
+`antebrazos`; el tamaño va en [brazos] de prompts-personaje.toml. Revisiones: la silueta contra la del boceto
+(IOU_MIN), las orillas (el antebrazo sale por abajo), el lugar (LUGAR: la mano derecha, entre mi pila y la orilla
+de la pantalla, que en 4:3 puede pasar un poco), una sola pieza, el fondo, el texto, en izq-ver las cartas en su lugar y en blanco y el pulgar
+encima, y en der-jugar las fichas en su lugar con los dedos llegando a ellas sin taparlas.
+
+    .venv-rembg/bin/python scripts/generar-personaje.py brazos alien --simular    # bocetos, prompts y costo
+    .venv-rembg/bin/python scripts/generar-personaje.py brazos alien              # las cuatro (o --toma izq-ver)
+    .venv-rembg/bin/python scripts/generar-personaje.py recomponer-brazos alien --toma der-descansar --version 2
+                                                      # rearma con lo ya pagado y las revisiones de hoy, sin gastar
+    .venv-rembg/bin/python scripts/generar-personaje.py aprobar-brazos alien      # a arte/personajes/alien/
+    .venv-rembg/bin/python scripts/optimizar-arte.py brazos alien                 # WebP y `brazos` en personajes.json
 """
 import argparse, base64, glob, importlib.util, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, tomllib
 from datetime import datetime
@@ -1730,6 +1752,659 @@ def cmd_aprobar_cartas(args):
           f"  .venv-rembg/bin/python scripts/optimizar-arte.py gif {pid}")
 
 
+# ---------- mis brazos en primera persona (comando brazos) ----------
+
+TOMAS = {   # cada toma es una imagen: (lado, la pose de FIGURAS que es su boceto, los archivos que salen de ella)
+    "izq-ver": ("izquierdo", "ver", ["izq-ver", "izq-ver-pulgar"]),
+    "izq-mesa": ("izquierdo", "ocultar", ["izq-ocultar", "izq-vacio"]),   # en el relleno también son la misma silueta
+    "der-descansar": ("derecho", "descansar", ["der-descansar"]),
+    "der-jugar": ("derecho", "jugar", ["der-jugar"]),
+}
+LUZ_BRAZO = {"izquierdo": (14, -12), "derecho": (-14, -12)}   # LUZ de arms.js: la sombra plana va del otro lado
+TINTA_BOCETO = 4       # grueso de la tinta del boceto, en unidades del lienzo del relleno (1000 x 1400)
+SUPER = 3              # el boceto se dibuja al triple y se reduce, para que sus orillas salgan suaves
+LADO_PX = {"1K": 1024, "2K": 2048, "4K": 4096}   # lo que mide la salida 1:1 de cada tamaño
+PAPEL_CARTA = (248, 242, 228)    # #f8f2e4, el papel de las cartas del juego (PAPEL en client/stage/cards.js)
+PAPEL_LUMA, PAPEL_SAT = 195, 40  # más claro que esto y con menos color que esto es el papel de una carta...
+PAPEL_TIBIO = 10       # ...y crema: rojo menos azul (en lo de Gemini, de 18 a 27; el metal de la robot es neutro o azul)
+IOU_MIN = 0.6          # lo visible de Gemini contra la silueta del boceto (sus dedos no son la manopla del relleno)
+PIEZA_MIN = 0.97       # de lo visible, lo que debe estar en una sola pieza
+CARTA_PAPEL_MIN = 0.55 # de cada carta en blanco, lo que debe seguir siendo papel (el pulgar tapa un poco)
+PAPEL_FUERA_MAX = 0.03 # papel fuera de las cartas, en fracción de su área: se movieron o dibujó otra
+PULGAR_MIN = 300       # px del pulgar encima de las cartas (a 2K)
+DIBUJO_MAX = 300       # px de algo suelto dentro de las cartas que no llega a su orilla: dibujó en ellas
+APLANADO = 0.37        # alto entre ancho del óvalo de una ficha con la cámara de la computadora
+LEJOS = 0.87           # las fichas de jugar están más lejos que el ancla: se ven así de chicas (medido con la proyección
+                       # del juego, igual en 4:3, 16:10 y 16:9)...
+LEJOS_ALTO = 0.81      # ...y su alto, un poco menos (de lado se ve más corto)
+FICHAS_PAPEL_MIN = 0.4 # de las fichas de prueba de jugar, lo que debe seguir siendo papel (los dedos tapan algo)
+FICHAS_DEDOS_MIN = 0.01  # de las fichas, lo que deben tapar los dedos: que lleguen a su base...
+DEDO_MIN = 300         # px (a 2K) de un pedazo de dedo encima de las fichas; lo más chico es la orilla suave de su tinta
+MOTA_MAX = 20          # px (a 2K): un pedazo del color del fondo así de chico es tinta mezclada con fondo, no una parte
+ZONA_FICHAS = 0.6      # alrededor de las fichas de prueba (fracción de lo que mide una de lado), lo que se borra con ellas
+CERCA_LIBRE_MIN = 0.85 # de mis cartas boca abajo, la parte de mi lado (la que se levanta al asomarse) que queda libre:
+                       # con 86 y 88 % (una franja de la palma junto al doblez) el paso a asomarse se ve limpio en el
+                       # juego; con 81 % (el pulgar de la robot sobre la esquina) la carta sube a través del pulgar
+TAPADO_MIN = 0.3       # y de la parte de allá, lo que tapa la mano (está sobre ellas, no al lado)
+FICHAS_DEDOS_MAX = 0.5   # ...sin taparlas
+FIELTRO = (84, 110, 64)   # el verde de la mesa, para las hojas de revisión
+# Dónde puede caer cada mano (de la punta de los dedos a MUÑECA abajo del ancla, lo que mide `mano`), en fracciones del
+# ancho de su imagen, para pasar la prueba de pantallas de test/brazos.test.js: la derecha, entre mi pila (0.206) y la
+# orilla de la pantalla, que en 4:3 puede pasarse un poco (SALE_EN_4_3 de la prueba: 0.729), medido con la geometría de
+# esa prueba y el `alto` del relleno (si cambia, se vuelve a medir). La izquierda no tiene nada cerca.
+LUGAR = {"derecho": (0.207, 0.726)}
+# El boceto de izq-mesa no es tal cual el relleno: una mano dibujada es más gruesa que la manopla, y donde su muñeca se
+# une al antebrazo tapaba la esquina de mi lado de la carta izquierda (la que más sube al asomarse). Aquí el antebrazo
+# pasa más a la izquierda, con espacio antes de esa esquina, y lleva el pulgar recogido a lo largo de la orilla de abajo
+# de la mano, arriba del doblez (en unidades del lienzo, como FIGURAS).
+BOCETO_MESA = {
+    "antebrazo": [[140, 300], [290, 296], [266, 560], [226, 900], [190, 1440], [-60, 1440], [-20, 900], [40, 560], [100, 400]],
+    "pulgar": [[372, 342], [430, 334], [500, 332], [540, 340], [530, 358], [470, 364], [400, 362], [368, 354]],
+}
+
+
+def _curva(pts, n=10):
+    """La curva cerrada y suave que pasa por los puntos, como curva() de arms.js (Catmull-Rom como Bézier), en un
+    polígono de n puntos por tramo."""
+    P = np.array(pts, float)
+    m, t = len(P), np.linspace(0, 1, n, endpoint=False)[:, None]
+    tramos = []
+    for i in range(m):
+        p0, p1, p2, p3 = P[(i - 1) % m], P[i], P[(i + 1) % m], P[(i + 2) % m]
+        c1, c2 = p1 + (p2 - p0) / 6, p2 - (p3 - p1) / 6
+        tramos.append((1 - t) ** 3 * p1 + 3 * (1 - t) ** 2 * t * c1 + 3 * (1 - t) * t ** 2 * c2 + t ** 3 * p2)
+    return np.concatenate(tramos)
+
+
+def _carta_en_mano(c, W, H, aspecto, menos=0.0):
+    """Las orillas de una carta en la mano (su `c`, `ancho` y `angulo` de RELLENO, en unidades del lienzo), con las
+    esquinas redondas de las del juego (R = 26 de 256 en cards.js) y girada como en esquinasCarta de arms.js. `menos`
+    la achica por todos lados (el papel va por dentro de la tinta)."""
+    w = c["ancho"] * W
+    hw, hh, r = w / 2 - menos, w * aspecto / 2 - menos, max(0.0, w * 26 / 256 - menos)
+    pts = [(sx * (hw - r) + r * np.cos(a), sy * (hh - r) + r * np.sin(a))
+           for sx, sy, a0 in ((1, 1, 0), (-1, 1, 90), (-1, -1, 180), (1, -1, 270))
+           for a in np.radians(np.linspace(a0, a0 + 90, 7))]
+    co, si = np.cos(np.radians(c["angulo"])), np.sin(np.radians(c["angulo"]))
+    cx, cy = c["c"][0] * W, c["c"][1] * H
+    return np.array([(cx + x * co - y * si, cy + x * si + y * co) for x, y in pts])
+
+
+def _reducir(mascara, tam):
+    return np.asarray(Image.fromarray(mascara.astype(np.uint8) * 255).resize(tam, Image.BOX)) > 127
+
+
+def _con_pulgar(ficha, toma):
+    """Si el boceto de la toma lleva el pulgar recogido de BOCETO_MESA (el pulpo no: un pulgar dibujado invita a
+    dibujar una mano de tentáculos). En la ficha: `pulgar = false` en [brazos.<toma>]."""
+    return ficha.get("brazos", {}).get(toma, {}).get("pulgar", True)
+
+
+def boceto_brazo(R, lado, pose, color, K, escala, sup=SUPER, pulgar_mesa=True):
+    """El boceto de una toma como pinta el relleno de arms.js (pintarSilueta: color plano, una sombra plana del lado
+    contrario a la luz y la tinta por fuera), a `escala` px por unidad del lienzo y sobre el color del fondo K. En ver,
+    encima del brazo van las dos cartas en blanco (las de RELLENO, del tamaño y con las esquinas de las del juego) y
+    encima de ellas el pulgar. Debajo de la mano, donde los pone el juego: en jugar, dos columnitas de fichas; en
+    ocultar, mis dos cartas boca abajo. Todo lo de prueba es papel liso con tinta. Regresa la imagen y sus máscaras:
+    silueta (todo lo dibujado), cartas (las de la mano), debajo (lo de debajo de la mano), cerca (de mis cartas boca
+    abajo, la parte de mi lado, la que se levanta al asomarse) y pulgar."""
+    W, H = R["LIENZO"]
+    w, h = round(W * escala), round(H * escala)
+    s, tam = escala * sup, (round(W * escala) * sup, round(H * escala) * sup)
+    img = Image.new("RGB", tam, tuple(int(c) for c in K))
+    d = ImageDraw.Draw(img)
+    claro = _hex(color)
+    oscuro = tuple(round(c * 0.78) for c in claro)   # oscuro() de arms.js
+    figuras = {k: [_curva(f) for f in fs] for k, fs in R["FIGURAS"][lado][pose].items()}
+    if pose == "ocultar":   # el antebrazo (la figura que sale por abajo) más a la izquierda, y el pulgar recogido
+        figuras["brazo"] = [_curva(BOCETO_MESA["antebrazo"]) if f[:, 1].max() > H else f for f in figuras["brazo"]]
+        figuras["pulgar"] = [_curva(BOCETO_MESA["pulgar"])]
+    luz = np.array(LUZ_BRAZO[lado], float)
+
+    def silueta(curvas):
+        for c in curvas:
+            d.line([tuple(p) for p in np.vstack([c, c[:1]]) * s], fill=TINTA, width=max(1, round(2 * TINTA_BOCETO * s)),
+                   joint="curve")
+        M = np.logical_or.reduce([_mascara_poligono(c * s, tam) for c in curvas])
+        lit = M & np.logical_or.reduce([_mascara_poligono((c + luz) * s, tam) for c in curvas])
+        a = np.asarray(img).copy()
+        a[M], a[lit] = oscuro, claro
+        img.paste(Image.fromarray(a))
+        return M
+
+    debajo, cerca = [], []
+    if pose == "jugar":   # detrás de los dedos, como en el juego (la capa de las fichas va debajo del brazo)
+        for col in _fichas_en_boceto(R):
+            _columna(d, col, s, 1.5 * TINTA_BOCETO * s, PAPEL_CARTA)
+            debajo.append(_mascara_columna(col, s, tam))
+    if pose == "ocultar":   # mis cartas boca abajo, donde las pone el juego (la capa de las cartas va debajo del brazo)
+        for esq in R["CARTAS_MESA"]:
+            q = np.array(esq) * s
+            d.polygon([tuple(p) for p in q], fill=PAPEL_CARTA)
+            d.line([tuple(p) for p in np.vstack([q, q[:1]])], fill=TINTA, width=max(1, round(1.5 * TINTA_BOCETO * s)),
+                   joint="curve")
+            debajo.append(_mascara_poligono(q, tam))
+            cerca.append(_mascara_poligono(_de_mi_lado(esq, R["FOLD"]) * s, tam))
+    silueta(figuras["brazo"])
+    if pose == "ocultar" and pulgar_mesa:
+        silueta(figuras["pulgar"])
+    cartas, pulgar = [], None
+    if pose == "ver":
+        aspecto = R["CARD_PX"][1] / R["CARD_PX"][0]
+        for c in R["RELLENO"][lado]["poses"]["ver"]["cartas"]:
+            orilla = _carta_en_mano(c, W, H, aspecto) * s
+            d.polygon([tuple(p) for p in orilla], fill=TINTA)
+            d.polygon([tuple(p) for p in _carta_en_mano(c, W, H, aspecto, 7 / 256 * c["ancho"] * W) * s], fill=PAPEL_CARTA)
+            cartas.append(_mascara_poligono(orilla, tam))
+        pulgar = silueta(figuras["pulgar"])
+    dibujado = np.abs(np.asarray(img).astype(np.int16) - np.asarray(K).astype(np.int16)).max(axis=2) > 10
+    if sup > 1:
+        img = img.resize((w, h), Image.LANCZOS)
+        dibujado, cartas = _reducir(dibujado, (w, h)), [_reducir(c, (w, h)) for c in cartas]
+        debajo, cerca = [_reducir(m, (w, h)) for m in debajo], [_reducir(m, (w, h)) for m in cerca]
+        pulgar = _reducir(pulgar, (w, h)) if pulgar is not None else None
+    return img, {"silueta": dibujado, "cartas": cartas, "debajo": debajo, "cerca": cerca, "pulgar": pulgar}
+
+
+def _de_mi_lado(esquinas, fold):
+    """De una de mis cartas boca abajo (sus esquinas de CARTAS_MESA: allá a la izquierda, allá a la derecha, acá a la
+    derecha, acá a la izquierda), la parte que se levanta al asomarse: de la orilla de mi lado al doblez de FOLD
+    (items.js), que sube más del lado izquierdo."""
+    tl, tr, br, bl = np.array(esquinas, float)
+    return np.array([bl, br, br + fold["derecha"] * (tr - br), bl + fold["izquierda"] * (tl - bl)])
+
+
+def _fichas_en_boceto(R):
+    """Las dos columnitas con que juega la mano derecha, donde las pone el juego (fichasEnMesa de arms.js: bajo el ancla
+    `fichas`, separadas CHIP_R + 0.008), en unidades del lienzo: [(centro, base, rx, ry, alto)]. Una unidad de la mesa
+    mide H / alto del lienzo en el ancla, y LEJOS de eso donde van las fichas; el óvalo, aplanado como se ve con la
+    cámara de la computadora."""
+    W, H = R["LIENZO"]
+    der = R["RELLENO"]["derecho"]
+    u = H / der["alto"]
+    fx, fy = der["poses"]["jugar"]["fichas"]
+    rx, sep = R["CHIP_R"] * u * LEJOS, (R["CHIP_R"] + 0.008) * u * LEJOS
+    alto = R["FICHAS"]["columna"] * R["CHIP_H"] * u * LEJOS_ALTO
+    return [(fx * W + k * sep, fy * H, rx, rx * APLANADO, alto) for k in (-1, 1)]
+
+
+def _cilindro(d, col, s, color, m=0.0):
+    """El cilindro de una columnita de fichas (el óvalo de abajo, el cuerpo y el de arriba), achicado `m` px."""
+    cx, base, rx, ry, alto = (v * s for v in col)
+    d.ellipse((cx - rx + m, base - ry + m, cx + rx - m, base + ry - m), fill=color)
+    d.rectangle((cx - rx + m, base - alto, cx + rx - m, base), fill=color)
+    d.ellipse((cx - rx + m, base - alto - ry + m, cx + rx - m, base - alto + ry - m), fill=color)
+
+
+def _columna(d, col, s, ancho, relleno):
+    """Una columnita de fichas: un cilindro de `relleno` con su óvalo de arriba y la tinta por fuera, de `ancho` px."""
+    _cilindro(d, col, s, TINTA)
+    _cilindro(d, col, s, relleno, ancho)
+    cx, base, rx, ry, alto = (v * s for v in col)
+    d.ellipse((cx - rx, base - alto - ry, cx + rx, base - alto + ry), outline=TINTA, width=max(1, round(ancho)))
+
+
+def _mascara_columna(col, s, tam):
+    m = Image.new("L", tam, 0)
+    _cilindro(ImageDraw.Draw(m), col, s, 255)
+    return np.asarray(m) > 0
+
+
+def prompt_brazo(P, ficha, toma, correcciones=()):
+    """El prompt de una toma: [brazos] de prompts-personaje.toml con su toma y la ficha. La ficha puede cambiar el texto
+    de una toma en [brazos.<toma>] (el pulpo, que tiene tentáculos y no dedos ni pulgar)."""
+    B = P["brazos"]
+    t = {**B["tomas"][toma], **ficha.get("brazos", {}).get(toma, {})}
+    valores = dict(ficha, toma=limpiar(t["toma"]), detalle=limpiar(t["detalle"]), sin=t["sin"],
+                   lado="left" if TOMAS[toma][0] == "izquierdo" else "right")
+    try:
+        prompt = limpiar(B["texto"]).format_map(valores)
+    except KeyError as e:
+        sys.exit(f"A la ficha le falta {e}, que pide el prompt de los brazos.")
+    frases = {**P["correcciones"], **B["correcciones"]}
+    return " ".join([prompt] + [frases[c] for c in correcciones if c in frases])
+
+
+def capas_brazo(gen, mas, toma):
+    """Lo que regresó Gemini (ya en el lienzo del brazo, sobre el fondo) sin el fondo, y sin lo de prueba, que pone el
+    juego. En ver, en dos capas como las dibuja el juego: el brazo sin las cartas (ahí van las de verdad, que lo tapan)
+    y el pulgar, lo que quedó encima de las cartas desde su orilla (lo suelto adentro serían dibujos en las cartas). En
+    jugar y en ocultar, sin lo que va debajo de la mano (las fichas o mis cartas boca abajo: las del juego van debajo
+    del brazo) salvo la mano que entra a ello desde su orilla. Regresa (brazo RGBA, pulgar RGBA o None, lo visible,
+    medidas)."""
+    rgba = np.asarray(OPT.quitar_fondo(gen, "brazo", reportar=False)).copy()
+    visible = rgba[..., 3] > 127
+    rgba[_motas_del_fondo(gen)[0], :3] = TINTA
+    if not mas["cartas"] and not mas["debajo"]:
+        return rgba, None, visible, {}
+    g = np.asarray(gen).astype(np.float32)
+    papel = (g @ LUMA > PAPEL_LUMA) & (g.max(axis=2) - g.min(axis=2) < PAPEL_SAT) & (g[..., 0] - g[..., 2] >= PAPEL_TIBIO)
+    if mas["debajo"]:
+        debajo = np.logical_or.reduce(mas["debajo"])
+        borde = max(2, round(0.07 * np.sqrt(mas["debajo"][0].sum())))   # la tinta de su orilla, y un poco más
+        dentro = ndi.binary_erosion(debajo, iterations=borde)
+        piel = dentro & visible & ~papel & (g @ LUMA >= 70)   # ni papel ni tinta (las rayas de las fichas son tinta)
+        lab, _ = ndi.label(piel)
+        tocan = np.unique(lab[dentro & ~ndi.binary_erosion(dentro)])
+        grandes = np.flatnonzero(np.bincount(lab.ravel()) >= DEDO_MIN)   # sin el borde suave de la tinta
+        mano = np.isin(lab, np.intersect1d(tocan[tocan > 0], grandes))
+        v = {"mano_debajo": round(float(mano.sum() / dentro.sum()), 3),
+             "papel_debajo": round(float((papel & dentro).sum() / dentro.sum()), 3),
+             "papel_fuera": round(float((papel & visible & ~ndi.binary_dilation(debajo, iterations=6)).sum()
+                                        / debajo.sum()), 4)}
+        zona = debajo
+        if not mas["cerca"]:   # las fichas: Gemini las vuelve a dibujar más altas; se borra todo lo de alrededor menos la mano
+            zona = ndi.binary_dilation(debajo, iterations=max(2, round(ZONA_FICHAS * np.sqrt(mas["debajo"][0].sum()))))
+            alrededor = zona & ~ndi.binary_erosion(zona)
+            piel_zona = zona & visible & ~papel & (g @ LUMA >= 70)
+            lab, _ = ndi.label(piel_zona)
+            tocan = np.unique(lab[alrededor & piel_zona])
+            mano = mano | np.isin(lab, tocan[tocan > 0])
+            v["papel_fuera"] = round(float((papel & visible & ~zona).sum() / debajo.sum()), 4)
+        if mas["cerca"]:   # mis cartas boca abajo: libre lo de mi lado, tapado (algo) lo de allá
+            cerca = np.logical_or.reduce(mas["cerca"]) & dentro
+            v["libre_cerca"] = round(float((papel & cerca).sum() / cerca.sum()), 3)
+            v["tapado_alla"] = round(float((mano & dentro & ~cerca).sum() / (dentro & ~cerca).sum()), 3)
+        mano = ndi.binary_dilation(ndi.binary_fill_holes(mano), iterations=borde + 3) & visible & ~papel
+        rgba[ndi.binary_dilation(zona, iterations=2) & ~mano, 3] = 0
+        return rgba, None, visible, v
+    cartas = np.logical_or.reduce(mas["cartas"])
+    borde = max(2, round(0.03 * np.sqrt(mas["cartas"][0].sum())))   # la tinta de la orilla de la carta, y un poco más
+    dentro = ndi.binary_erosion(cartas, iterations=borde)
+    encima = dentro & ~papel & visible
+    lab, _ = ndi.label(encima)
+    tocan = np.unique(lab[dentro & ~ndi.binary_erosion(dentro)])
+    pulgar = np.isin(lab, tocan[tocan > 0])
+    v = {"pulgar_px": int(pulgar.sum()), "dibujos_px": int((encima & ~pulgar).sum())}
+    # el pulgar cruza la orilla de la carta: se lleva su pedazo de encima de la tinta, para que la del juego no lo corte
+    pulgar = ndi.binary_dilation(ndi.binary_fill_holes(pulgar), iterations=borde + 3) & visible & ~papel
+    capa_pulgar = rgba.copy()
+    capa_pulgar[..., 3] = (rgba[..., 3] * pulgar).astype(np.uint8)
+    rgba[ndi.binary_dilation(cartas, iterations=2), 3] = 0
+    v["papel_dentro"] = [round(float((papel & ndi.binary_erosion(c, iterations=borde)).sum()
+                                     / max(1, ndi.binary_erosion(c, iterations=borde).sum())), 3) for c in mas["cartas"]]
+    v["papel_fuera"] = round(float((papel & visible & ~ndi.binary_dilation(cartas, iterations=6)).sum() / cartas.sum()), 4)
+    return rgba, capa_pulgar, visible, v
+
+
+def _motas_del_fondo(gen):
+    """Lo de un color cercano al del fondo (cercanos_al_fondo) en dos: las motas de hasta MOTA_MAX px, que son tinta
+    mezclada con el fondo donde se cruzan dos líneas (la orilla de un dedo con la de una ficha) y se pintan de tinta, y
+    lo más grande, que sería una parte del color del fondo (la revisión `fondo`)."""
+    m = cercanos_al_fondo(gen)
+    lab, _ = ndi.label(m)
+    chicas = np.flatnonzero(np.bincount(lab.ravel()) <= MOTA_MAX)
+    motas = np.isin(lab, chicas[chicas > 0])
+    return motas, m & ~motas
+
+
+def _queda(brazo, pulgar):
+    """Lo visible de las capas de una toma (el brazo y, en ver, el pulgar)."""
+    return (brazo[..., 3] > 0) | (pulgar[..., 3] > 0 if pulgar is not None else False)
+
+
+def revisar_brazo(gen, visible, mas, toma, v, R, queda=None):
+    """Las revisiones de una toma. `queda`: lo que sigue visible en sus capas (sin lo de prueba, que pone el juego); el
+    fondo solo se revisa ahí. Regresa ({revisión: motivo} de lo que falló, medidas)."""
+    fallas, sil = {}, mas["silueta"]
+    v["iou"] = round(float((visible & sil).sum() / max(1, (visible | sil).sum())), 3)
+    if v["iou"] < IOU_MIN:
+        fallas["alineacion"] = f"no coincide con la silueta del boceto (IoU {v['iou']:.2f}, mínimo {IOU_MIN})"
+    # orillas: el antebrazo sale por abajo; arriba nada, y a los lados solo donde el boceto también llega
+    lados = np.zeros_like(visible)
+    lados[:, :4] = lados[:, -4:] = True
+    v["orilla_lados"] = int((visible & lados & ~ndi.binary_dilation(sil, iterations=20)).sum())
+    if visible[:4].any():
+        fallas["borde"] = "algo toca la orilla de arriba"
+    elif not visible[-4:].any():
+        fallas["borde"] = "el antebrazo no llega a la orilla de abajo"
+    elif v["orilla_lados"] > 50:
+        fallas["borde"] = f"algo toca la orilla de un lado donde el boceto no llega ({v['orilla_lados']} px)"
+    # lugar: la mano cabe donde el juego la necesita (sin lo de prueba, que pone el juego)
+    lado = TOMAS[toma][0]
+    if lado in LUGAR:
+        mano = visible & ~np.logical_or.reduce(mas["cartas"] + mas["debajo"] + [np.zeros_like(visible)])
+        corte = round((R["RELLENO"][lado]["ancla"][1] + OPT.MUÑECA) * visible.shape[0])
+        x0, _, x1, _ = OPT.caja_visible(mano.astype(np.uint8) * 255, corte)
+        v["mano_x"] = [round(float(x0), 3), round(float(x1), 3)]
+        if x0 < LUGAR[lado][0] or x1 > LUGAR[lado][1]:
+            fallas["lugar"] = (f"la mano ocupa de {x0:.2f} a {x1:.2f} del ancho y solo cabe de {LUGAR[lado][0]} a "
+                               f"{LUGAR[lado][1]} (taparía mi pila o se saldría de la pantalla en 4:3)")
+    lab, n = ndi.label(visible)
+    v["pieza"] = round(float(np.bincount(lab.ravel())[1:].max() / visible.sum()), 4) if n else 0.0
+    if v["pieza"] < PIEZA_MIN:
+        fallas["pieza"] = f"no está en una sola pieza ({v['pieza']:.1%} en la más grande)"
+    # fondo: ni restos teñidos del fondo ni colores cercanos a él (el chroma key los volvería agujeros)
+    a = np.asarray(gen).astype(np.float32)
+    K, tipo, _ = OPT.fondo_de(a, "brazo")
+    rgba = np.asarray(OPT.quitar_fondo(gen, "brazo", reportar=False)).astype(np.float32)
+    queda = np.ones_like(visible) if queda is None else ndi.binary_dilation(queda, iterations=2)
+    v["restos"] = int((OPT.mascara_restos(rgba[..., :3], rgba[..., 3] / 255, K, tipo) & queda).sum())
+    # del color del fondo, solo cuenta lo que quedaría como agujero en medio del brazo: lo que toca una línea de tinta
+    # es un hueco entre dedos o una sombra que Gemini pintó en el fondo junto al brazo, y que sea fondo está bien
+    grandes = _motas_del_fondo(gen)[1] & queda
+    lab, _ = ndi.label(grandes)
+    junto_a_tinta = np.unique(lab[ndi.binary_dilation(a @ LUMA < 60, iterations=3) & grandes])
+    v["cercanos"] = int((grandes & ~np.isin(lab, junto_a_tinta[junto_a_tinta > 0])).sum())
+    if v["cercanos"] > CERCANOS_MAX:
+        fallas["fondo"] = f"{v['cercanos']} px de un color cercano al del fondo: el chroma key los volvería agujeros"
+    elif v["restos"]:
+        fallas["fondo"] = f"quedan {v['restos']} px teñidos del color del fondo"
+    # texto: el boceto no tiene ninguno (al OCR, a 512 de alto: con la zona al triple ya es del tamaño de una base)
+    chica = gen.resize((round(gen.size[0] * 512 / gen.size[1]), 512), Image.LANCZOS)
+    ys, xs = np.where(_reducir(visible, chica.size))
+    leidos = textos(chica, (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1)) if len(xs) else set()
+    v["texto"] = "sin OCR (no hay swiftc): revísalo a ojo" if leidos is None else sorted(leidos)
+    if leidos:
+        fallas["texto"] = f"el OCR lee texto: {', '.join(sorted(leidos))}"
+    # cartas: siguen en su lugar y en blanco, con el pulgar encima
+    if mas["cartas"]:
+        if min(v["papel_dentro"]) < CARTA_PAPEL_MIN or v["papel_fuera"] > PAPEL_FUERA_MAX:
+            fallas["cartas"] = (f"las cartas no quedaron en su lugar (papel adentro {v['papel_dentro']}, mínimo "
+                                f"{CARTA_PAPEL_MIN}; afuera {v['papel_fuera']:.1%})")
+        elif v["dibujos_px"] > DIBUJO_MAX:
+            fallas["cartas"] = f"dibujó algo dentro de las cartas ({v['dibujos_px']} px)"
+        elif v["pulgar_px"] < PULGAR_MIN:
+            fallas["pulgar"] = f"no hay pulgar encima de las cartas ({v['pulgar_px']} px)"
+    # fichas de jugar: siguen en su lugar y los dedos llegan a ellas sin taparlas
+    if mas["debajo"] and not mas["cerca"]:
+        if v["papel_debajo"] < FICHAS_PAPEL_MIN or v["papel_fuera"] > PAPEL_FUERA_MAX:
+            fallas["fichas"] = (f"las fichas de prueba no quedaron en su lugar (papel adentro {v['papel_debajo']}, mínimo "
+                                f"{FICHAS_PAPEL_MIN}; afuera {v['papel_fuera']:.1%})")
+        elif v["mano_debajo"] > FICHAS_DEDOS_MAX:
+            fallas["fichas"] = f"los dedos tapan las fichas ({v['mano_debajo']:.0%} de ellas)"
+        elif v["mano_debajo"] < FICHAS_DEDOS_MIN:
+            fallas["dedos"] = f"los dedos no llegan a las fichas ({v['mano_debajo']:.1%} de ellas)"
+    # mis cartas boca abajo de ocultar: siguen en su lugar, la mano sobre su parte de allá y la de mi lado libre (de
+    # ahí se levantan al asomarse: si la mano la tapa, lo levantado sale encima de la palma)
+    if mas["cerca"]:
+        if v["papel_fuera"] > PAPEL_FUERA_MAX:
+            fallas["mesa"] = f"las cartas de prueba no quedaron en su lugar (papel afuera {v['papel_fuera']:.1%})"
+        elif v["libre_cerca"] < CERCA_LIBRE_MIN:
+            fallas["cerca"] = (f"la mano tapa la parte de mi lado de las cartas (libre {v['libre_cerca']:.0%}, mínimo "
+                               f"{CERCA_LIBRE_MIN:.0%}): al asomarse lo levantado saldría encima de la mano")
+        elif v["tapado_alla"] < TAPADO_MIN:
+            fallas["tapa"] = f"la mano no está sobre la parte de allá de las cartas (tapa {v['tapado_alla']:.0%})"
+    return fallas, v
+
+
+def en_fieltro(brazo, pulgar, R, lado, pose, escala):
+    """Cómo se verá en el juego, sobre el verde de la mesa: el brazo, en ver dos cartas de prueba (papel, tinta y un
+    rombo rojo) y el pulgar encima; en jugar dos columnitas de fichas azules debajo, y en ocultar mis cartas boca abajo
+    (papel con un marco rojo) debajo, con la parte que se levanta al asomarse marcada."""
+    img = Image.new("RGBA", brazo.size, FIELTRO + (255,))
+    if pose == "jugar":
+        for col in _fichas_en_boceto(R):
+            _columna(ImageDraw.Draw(img), col, escala, 1.5 * TINTA_BOCETO * escala, (46, 52, 81))
+    if pose == "ocultar":
+        d = ImageDraw.Draw(img)
+        for esq in R["CARTAS_MESA"]:
+            q = np.array(esq) * escala
+            d.polygon([tuple(p) for p in q], fill=PAPEL_CARTA, outline=TINTA, width=max(1, round(2 * escala)))
+            centro = q.mean(axis=0)
+            d.polygon([tuple(p) for p in centro + (q - centro) * 0.8], outline=(176, 58, 46), width=max(1, round(3 * escala)))
+            linea = _de_mi_lado(esq, R["FOLD"])[2:] * escala
+            d.line([tuple(p) for p in linea], fill=(224, 181, 82), width=max(1, round(3 * escala)))
+    img.alpha_composite(brazo)
+    if pose == "ver":
+        W, H = R["LIENZO"]
+        d = ImageDraw.Draw(img)
+        aspecto = R["CARD_PX"][1] / R["CARD_PX"][0]
+        for c in R["RELLENO"][lado]["poses"]["ver"]["cartas"]:
+            d.polygon([tuple(p) for p in _carta_en_mano(c, W, H, aspecto) * escala], fill=TINTA)
+            d.polygon([tuple(p) for p in _carta_en_mano(c, W, H, aspecto, 7 / 256 * c["ancho"] * W) * escala],
+                      fill=PAPEL_CARTA)
+            cx, cy, r = c["c"][0] * W * escala, c["c"][1] * H * escala, c["ancho"] * W * escala * 0.18
+            d.polygon([(cx, cy - r * 1.3), (cx + r, cy), (cx, cy + r * 1.3), (cx - r, cy)], fill=(196, 52, 40))
+        img.alpha_composite(pulgar)
+    return img.convert("RGB")
+
+
+def revision_brazo(boceto, gen, final, destino, rotulo):
+    """La hoja de una toma: el boceto que recibió Gemini, lo que regresó y cómo se verá en el juego."""
+    W = 420
+    paneles = [i.resize((W, round(i.size[1] * W / i.size[0])), Image.LANCZOS) for i in (boceto, gen, final)]
+    hoja = Image.new("RGB", (3 * W + 32, paneles[0].size[1] + 56), "white")
+    t = ImageDraw.Draw(hoja)
+    for i, (p, r) in enumerate(zip(paneles, ["boceto (lo que recibe Gemini)", "Gemini", "en el juego (cartas de prueba)"])):
+        hoja.paste(p, (i * (W + 16), 52))
+        t.text((i * (W + 16) + 2, 30), r, fill="black", font=fuente(16))
+    t.text((2, 4), rotulo, fill="black", font=fuente(18))
+    hoja.save(destino, quality=90)
+
+
+def cmd_brazos(args):
+    P = cargar_toml(PROMPTS)
+    cfg = dict(P["config"], image_size=P["brazos"]["tamano"])
+    if args.modelo:
+        cfg["modelo"] = args.modelo
+    if args.tamano:
+        cfg["image_size"] = args.tamano
+    pid = args.personaje
+    ficha = cargar_ficha(pid)
+    color = OPT.leer_registro().get(pid, {}).get("color")
+    if not color:
+        sys.exit(f"{pid}: falta su \"color\" en {rel(OPT.REGISTRO)} (el de sus manos): con él se dibuja el boceto.")
+    base_path = aprobado(pid, "frente", "espera")
+    base = Image.open(base_path).convert("RGB")
+    K, tipo, _ = OPT.fondo_de(np.asarray(base).astype(np.float32), os.path.basename(base_path))
+    if tipo != ficha["fondo"]:
+        sys.exit(f"La ficha de {pid} dice fondo {ficha['fondo']}, pero su base tiene fondo {tipo}.")
+    tomas = args.toma or list(TOMAS)
+    maximo = args.llamadas or MAX_LLAMADAS
+    if not 1 <= maximo <= MAX_LLAMADAS:
+        sys.exit(f"--llamadas va de 1 a {MAX_LLAMADAS}.")
+    R = OPT.relleno_brazos()
+    os.makedirs(carpeta(pid), exist_ok=True)
+
+    print(f"Modelo {cfg['modelo']} a {cfg['image_size']}. Referencia {rel(base_path)} (fondo {tipo}); bocetos con las "
+          f"siluetas de relleno de client/stage/arms.js en {color}. Máximo {maximo} llamada(s) por toma.")
+    # por llamada, lo más caro entre el estimado y lo que de verdad se ha cobrado por una toma de brazos a ese tamaño
+    cobrado = [r.get("costo_usd") or 0 for path in glob.glob(os.path.join(ARTE, "generadas", "*", "registro.jsonl"))
+               for r in map(json.loads, filter(str.strip, open(path))) if r.get("zona") == "brazo"
+               and r.get("tamano") == cfg["image_size"] and r.get("modelo") == cfg["modelo"]]
+    planes, total = [], 0
+    for toma in tomas:
+        lado, pose, archivos = TOMAS[toma]
+        boceto, _ = boceto_brazo(R, lado, pose, color, K, 1024 / R["LIENZO"][1], pulgar_mesa=_con_pulgar(ficha, toma))
+        prompt = prompt_brazo(P, ficha, toma)
+        c = max([costo_estimado(cfg["modelo"], cfg["image_size"], prompt, imagenes=2) or 0] + cobrado)
+        total += c
+        planes.append((toma, boceto))
+        print(f"  {toma}: sale {', '.join(f'{pid}-brazo-{a}' for a in archivos)}; hasta ${c:.3f} por llamada"
+              + (" (la más cara cobrada)" if cobrado and c == max(cobrado) else ""))
+        if args.simular:
+            destino = os.path.join(carpeta(pid), f"boceto-{pid}-brazo-{toma}.png")
+            boceto.save(destino)
+            print(f"    boceto en {rel(destino)}\n    prompt: {prompt}\n")
+    print(f"Costo estimado: ~${total:.2f} USD (hasta ${total * maximo:.2f} si todo se reintenta)")
+    if args.simular:
+        return
+    if "pendiente" in ficha:
+        sys.exit(f"La ficha de {pid} está pendiente ({ficha['pendiente']}): revísala antes de gastar.")
+    if not args.si and input("¿Generar? [s/N] ").strip().lower() not in ("s", "si", "sí"):
+        print("Cancelado.")
+        return
+    client = cliente()
+    referencia = png64(a_cuadrado(base, K)[0])
+    for toma, boceto in planes:
+        generar_brazo(client, cfg, P, ficha, pid, toma, boceto, referencia, K, R, maximo)
+    hoja_brazos(pid, R)
+    print(f"Gastado en total según los registros de arte/generadas/: ${gastado_en_total():.4f} USD")
+
+
+def generar_brazo(client, cfg, P, ficha, pid, toma, boceto, referencia, K, R, maximo):
+    """Una toma: Gemini redibuja el boceto como el brazo del personaje (como mucho `maximo` peticiones), y de lo que
+    regresa salen sus capas, ya sin fondo, en el lienzo del relleno."""
+    lado, pose, _ = TOMAS[toma]
+    nombre = f"{pid}-brazo-{toma}"
+    prefijo = os.path.join(carpeta(pid), con_version(nombre, siguiente_version(pid, nombre)))
+    boceto.save(f"{prefijo}-boceto.png")
+    lienzo, _ = a_cuadrado(boceto, K)
+    n = LADO_PX[cfg["image_size"]]
+    escala = n / R["LIENZO"][1]
+    _, mas = boceto_brazo(R, lado, pose, "#000000", K, escala, sup=1,   # las máscaras, al tamaño de la salida
+                          pulgar_mesa=_con_pulgar(ficha, toma))
+    w = mas["silueta"].shape[1]
+    dentro = ((n - w) // 2, 0, (n - w) // 2 + w, n)
+    gastado, correcciones, fallas, ultimo = 0, [], {}, None
+    print(f"{os.path.basename(prefijo)}:", flush=True)
+    for intento in range(1, maximo + 1):
+        prompt = prompt_brazo(P, ficha, toma, correcciones)
+        print(f"  llamada {intento} de {maximo}...", flush=True)
+        t0, r, error, gen, crudo = time.time(), None, None, None, None
+        try:
+            r = pedir(client, cfg, prompt, png64(lienzo), [referencia])
+        except Exception as e:   # también cuenta como llamada: un tiempo agotado pudo cobrarse
+            error = f"{type(e).__name__} (código {getattr(e, 'status_code', None)}): {str(e)[:300]}"
+            if "Free Tier" in str(e):
+                sys.exit("    El proyecto de la API key está en el nivel gratuito, que no genera imágenes.")
+            if getattr(e, "status_code", None) == 402:
+                sys.exit("    La cuenta se quedó sin crédito (402): recarga en AI Studio.")
+        if r is not None and r.output_image and r.output_image.data:
+            crudo = f"{prefijo}-crudo{intento}.png"
+            gen = Image.open(io.BytesIO(base64.b64decode(r.output_image.data))).convert("RGB")
+            gen.save(crudo)   # tal cual llegó, antes de cualquier otra cosa: ya está pagada
+            if gen.size != (n, n):
+                gen = gen.resize((n, n), Image.LANCZOS)
+            gen = gen.crop(dentro)
+        usd, tokens = costo(cfg["modelo"], r.usage) if r is not None else (None, None)
+        gastado += usd or 0
+        if gen is None:
+            fallas, v = {"sin_imagen": f"no regresó imagen ({error or r.status})"}, {}
+        else:
+            brazo, pulgar, visible, v = capas_brazo(gen, mas, toma)
+            fallas, v = revisar_brazo(gen, visible, mas, toma, v, R, _queda(brazo, pulgar))
+            ultimo = (gen, brazo, pulgar)
+        with open(os.path.join(carpeta(pid), "registro.jsonl"), "a") as f:
+            f.write(json.dumps({
+                "fecha": datetime.now().isoformat(timespec="seconds"), "cuadro": os.path.basename(prefijo),
+                "cambio": 1, "zona": "brazo", "llamada": intento, "archivo": os.path.basename(crudo) if crudo else None,
+                "modelo": cfg["modelo"], "tamano": cfg["image_size"], "base": rel(aprobado(pid, "frente", "espera")),
+                "entrada": rel(f"{prefijo}-boceto.png"), "prompt": prompt,
+                "costo_usd": round(usd, 5) if usd is not None else None,
+                "tokens": tokens, "error": error, "revisiones": fallas, "medidas": v,
+            }, ensure_ascii=False, default=str) + "\n")
+        print(f"    {time.time() - t0:.0f} s" + (f", ${usd:.4f}" if usd is not None else ", sin costo reportado")
+              + (f" -> {rel(crudo)}" if crudo else ""), flush=True)
+        if not fallas:
+            print("    revisiones: todas bien  " + ", ".join(f"{k} {x}" for k, x in v.items()), flush=True)
+            break
+        print("    FALLÓ: " + "; ".join(fallas.values()), flush=True)
+        correcciones = list(fallas)
+    if ultimo is None:
+        print(f"  {os.path.basename(prefijo)}: sin imagen en {maximo} llamada(s). Costo: ${gastado:.4f} USD.")
+        return
+    guardar_brazo(prefijo, boceto, *ultimo, fallas, R, toma, escala)
+    print(f"    costo: ${gastado:.4f} USD")
+
+
+def guardar_brazo(prefijo, boceto, gen, brazo, pulgar, fallas, R, toma, escala, origen=""):
+    """Lo que se deja para revisar: las capas (o -FALLA) y la hoja con el boceto, lo que regresó Gemini y cómo se verá
+    en el juego."""
+    lado, pose, _ = TOMAS[toma]
+    p = f"{prefijo}-FALLA" if fallas else prefijo
+    Image.fromarray(brazo).save(f"{p}.png")
+    if pulgar is not None:
+        Image.fromarray(pulgar).save(f"{p}-pulgar.png")
+    final = en_fieltro(Image.fromarray(brazo), Image.fromarray(pulgar) if pulgar is not None else None, R, lado, pose,
+                       escala)
+    revision_brazo(boceto, gen, final, f"{p}-revision.jpg", f"{os.path.basename(p)}{origen}: "
+                   + ("FALLÓ: " + "; ".join(fallas.values()) if fallas else "pasó las revisiones"))
+    print(f"  {'No pasó las revisiones; lo último quedó en' if fallas else 'Listo, por revisar:'} {rel(p)}.png\n"
+          f"    hoja (boceto, Gemini y como en el juego): {rel(p)}-revision.jpg")
+
+
+def cmd_recomponer_brazos(args):
+    """Vuelve a armar una toma con las respuestas de Gemini ya pagadas (los -crudoN.png de una versión), sin llamar a
+    la API: las capas y las revisiones de hoy. Con --mover, la respuesta se recorre a los lados esa fracción del ancho
+    (para una mano que se pasa un poco de su LUGAR; el antebrazo sigue saliendo por abajo). La primera que pasa queda
+    como versión nueva (para aprobar-brazos)."""
+    pid, toma = args.personaje, args.toma
+    if args.mover and abs(args.mover) > 0.05:
+        sys.exit("--mover es para una mano que se pasa un poco: como mucho 0.05 del ancho.")
+    lado, pose, _ = TOMAS[toma]
+    nombre = f"{pid}-brazo-{toma}"
+    viejo = os.path.join(carpeta(pid), con_version(nombre, args.version))
+    crudos = sorted(glob.glob(f"{viejo}-crudo*.png"))
+    if args.llamada:
+        crudos = [c for c in crudos if c.endswith(f"-crudo{args.llamada}.png")]
+    if not crudos:
+        sys.exit(f"No hay respuestas guardadas de {rel(viejo)} (sus -crudoN.png).")
+    R, ficha = OPT.relleno_brazos(), cargar_ficha(pid)
+    boceto = Image.open(f"{viejo}-boceto.png").convert("RGB")
+    for crudo in crudos:
+        gen = Image.open(crudo).convert("RGB")
+        n = gen.size[0]
+        K = OPT.fondo_de(np.asarray(gen).astype(np.float32), os.path.basename(crudo))[0]
+        escala = n / R["LIENZO"][1]
+        _, mas = boceto_brazo(R, lado, pose, "#000000", K, escala, sup=1, pulgar_mesa=_con_pulgar(ficha, toma))
+        w = mas["silueta"].shape[1]
+        dx = round((args.mover or 0) * w)   # recorrer a la derecha es tomar el recorte más a la izquierda
+        gen = gen.crop(((n - w) // 2 - dx, 0, (n - w) // 2 - dx + w, n))
+        brazo, pulgar, visible, v = capas_brazo(gen, mas, toma)
+        fallas, v = revisar_brazo(gen, visible, mas, toma, v, R, _queda(brazo, pulgar))
+        print(f"{rel(crudo)}: " + ("FALLA: " + "; ".join(fallas.values()) if fallas else "pasa  " + ", ".join(
+            f"{k} {x}" for k, x in v.items())), flush=True)
+        if not fallas:
+            prefijo = os.path.join(carpeta(pid), con_version(nombre, siguiente_version(pid, nombre)))
+            boceto.save(f"{prefijo}-boceto.png")
+            guardar_brazo(prefijo, boceto, gen, brazo, pulgar, fallas, R, toma, escala,
+                          f" (de {os.path.basename(crudo)}" + (f", recorrida {args.mover:+}" if args.mover else "") + ")")
+            return
+    print("Ninguna pasa las revisiones de hoy.")
+
+
+def hoja_brazos(pid, R):
+    """Las cuatro tomas (la versión más reciente que pasó de cada una) como se verán en el juego, lado a lado."""
+    paneles = []
+    for toma, (lado, pose, _) in TOMAS.items():
+        vs = versiones(pid, f"{pid}-brazo-{toma}")
+        if not vs:
+            continue
+        path = vs[max(vs)]
+        brazo = Image.open(path).convert("RGBA")
+        pulgar = Image.open(path[:-4] + "-pulgar.png").convert("RGBA") if pose == "ver" else None
+        img = en_fieltro(brazo, pulgar, R, lado, pose, brazo.size[1] / R["LIENZO"][1])
+        paneles.append(img.resize((360, round(img.size[1] * 360 / img.size[0])), Image.LANCZOS))
+    if paneles:
+        destino = os.path.join(carpeta(pid), f"{pid}-brazos-hoja.jpg")
+        _hoja(paneles, f"{pid}: mis brazos ({', '.join(TOMAS)}), la versión más reciente de cada uno", destino)
+        print(f"Las tomas juntas: {rel(destino)}")
+
+
+def cmd_aprobar_brazos(args):
+    """Pasa las tomas revisadas a arte/personajes/<id>/ con los nombres del juego (respalda las que reemplazan): de
+    izq-ver salen el brazo y el pulgar; de izq-mesa, ocultar y vacio (la misma imagen)."""
+    pid = args.personaje
+    tomas = args.toma or list(TOMAS)
+    if args.version and len(tomas) > 1:
+        sys.exit("--version es para una sola toma (con --toma).")
+    hora = f"{datetime.now():%Y%m%d-%H%M%S}"
+    for toma in tomas:
+        nombre = f"{pid}-brazo-{toma}"
+        vs = versiones(pid, nombre)
+        if not vs:
+            sys.exit(f"No hay versiones de {nombre} que hayan pasado las revisiones en {rel(carpeta(pid))}/.")
+        n = args.version or max(vs)
+        if n not in vs:
+            sys.exit(f"No existe la versión {n} de {nombre} (hay: {sorted(vs)}).")
+        archivos = TOMAS[toma][2]
+        origenes = ({archivos[0]: vs[n], archivos[1]: vs[n][:-4] + "-pulgar.png"} if toma == "izq-ver"
+                    else {a: vs[n] for a in archivos})
+        for archivo, origen in origenes.items():
+            destino = os.path.join(ARTE, "personajes", pid, f"{pid}-brazo-{archivo}.png")
+            if os.path.exists(destino):
+                respaldo = os.path.join(ARTE, "respaldos", f"{pid}-brazo-{archivo}-{hora}.png")
+                os.makedirs(os.path.dirname(respaldo), exist_ok=True)
+                shutil.copy2(destino, respaldo)
+                print(f"  el que estaba quedó respaldado en {rel(respaldo)}")
+            shutil.copy2(origen, destino)
+            print(f"  {rel(origen)} -> {rel(destino)}")
+    print(f"Sigue, para que el juego lo use (cuando estén las cuatro tomas):\n"
+          f"  .venv-rembg/bin/python scripts/optimizar-arte.py brazos {pid}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Genera los cuadros de un personaje editando su base aprobada con Gemini.")
     sub = ap.add_subparsers(dest="comando", required=True)
@@ -1761,9 +2436,28 @@ def main():
     ac = sub.add_parser("aprobar-cartas", help="pasa la espera con el reverso nuevo y su parpadeo a arte/personajes/")
     ac.add_argument("personaje")
     ac.add_argument("--version", type=int, help="otra versión en vez de la más reciente, por ejemplo 2")
+    b = sub.add_parser("brazos", help="mis brazos en primera persona: Gemini redibuja las siluetas de relleno del juego")
+    b.add_argument("personaje")
+    b.add_argument("--toma", action="append", choices=list(TOMAS), help="solo esta toma (se puede repetir; sin esto, las cuatro)")
+    b.add_argument("--simular", action="store_true", help="los bocetos, los prompts y el costo, sin llamar a la API")
+    b.add_argument("--si", action="store_true", help="no pedir confirmación")
+    b.add_argument("--modelo", help="otro modelo en vez del de prompts-personaje.toml")
+    b.add_argument("--tamano", choices=["1K", "2K", "4K"], help="otro tamaño en vez del de [brazos] en prompts-personaje.toml")
+    b.add_argument("--llamadas", type=int, help=f"tope de llamadas por toma (de 1 a {MAX_LLAMADAS}; sin esto, {MAX_LLAMADAS})")
+    rb = sub.add_parser("recomponer-brazos", help="rearma una toma con sus respuestas ya pagadas, sin llamar a la API")
+    rb.add_argument("personaje")
+    rb.add_argument("--toma", required=True, choices=list(TOMAS))
+    rb.add_argument("--version", type=int, required=True, help="la versión de <id>-brazo-<toma>, por ejemplo 2")
+    rb.add_argument("--llamada", type=int, help="usar la respuesta de esta llamada (sin esto, la primera que pase)")
+    rb.add_argument("--mover", type=float, help="recorrerla a los lados, en fracción del ancho (+ a la derecha), máximo 0.05")
+    ab = sub.add_parser("aprobar-brazos", help="pasa las tomas revisadas a arte/personajes/ con los nombres del juego")
+    ab.add_argument("personaje")
+    ab.add_argument("--toma", action="append", choices=list(TOMAS), help="solo esta toma (se puede repetir)")
+    ab.add_argument("--version", type=int, help="otra versión en vez de la más reciente (con una sola --toma)")
     args = ap.parse_args()
     {"generar": cmd_generar, "aprobar": cmd_aprobar, "cartas": cmd_cartas, "recomponer-cartas": cmd_recomponer_cartas,
-     "aprobar-cartas": cmd_aprobar_cartas}[args.comando](args)
+     "aprobar-cartas": cmd_aprobar_cartas, "brazos": cmd_brazos, "recomponer-brazos": cmd_recomponer_brazos,
+     "aprobar-brazos": cmd_aprobar_brazos}[args.comando](args)
 
 
 if __name__ == "__main__":

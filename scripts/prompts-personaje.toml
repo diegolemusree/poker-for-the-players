@@ -112,3 +112,96 @@ franja = "Keep the empty red band across the middle of each card fully visible a
 dedos = "The fingers must be in front of the cards, visibly gripping their bottom edge and sides."
 azul = "No part of the old navy blue card backs remains."
 rojo = "Keep the red of the cards a pure brick red, never pink or purple."
+
+# ---------- mis brazos en primera persona (comando brazos) ----------
+# No hay base aprobada que editar: la primera imagen es un boceto, la silueta de relleno del juego (RELLENO y FIGURAS
+# de client/stage/arms.js) del color de las manos del personaje y sobre su fondo; en izq-ver lleva encima las dos
+# cartas en blanco donde el juego pone las de verdad, y encima de ellas el pulgar. La segunda es su espera aprobada, de
+# referencia; en der-jugar lleva detrás de los dedos dos columnitas de fichas de prueba, y en izq-mesa debajo de la mano
+# mis dos cartas boca abajo de prueba, donde el juego pone las de verdad.
+# Así el arte cae en las mismas anclas que el relleno. Lo que va entre llaves sale de la ficha ({manos}, {antebrazos},
+# {fondo}) o de la toma ({toma}, {detalle}, {sin}: lo demás que no se dibuja; {lado}).
+[brazos]
+tamano = "2K"   # en una pantalla 5K el brazo se ve de unos 1550 px de alto; a 1K mediría 1024
+texto = """
+The first attached image is a rough placeholder for a first-person view in a cartoon poker game: {toma} \
+Redraw the placeholder arm and hand as the player's own {lado} forearm and hand, drawn as the character in the \
+second attached image ({manos}; {antebrazos}). The second image is only a reference for the design, the colors, the \
+line work and the art style: do not copy its pose, its chair or its cards. Use the same style as that character: flat \
+colors with a single flat shadow, a thin uniform dark brown ink outline, no gradients and no shine. Keep the \
+position, size and angle of the placeholder: the forearm comes in from the bottom edge of the image and is cut \
+straight by it, and the hand stays where the placeholder hand is. The placeholder is only a rough mitten-like shape: \
+draw a real hand with the character's own fingers in that same space. {detalle} Draw nothing else: no \
+table, {sin}no other hand, no cast shadow, and no text, letters, numbers or logos. The flat {fondo} \
+background stays flat and unchanged everywhere else.
+"""
+
+[brazos.tomas.izq-ver]
+toma = "the player raises the left hand in front of the face and holds two playing cards fanned out, facing the player."
+detalle = """
+The two blank cards stay exactly as they are in the placeholder: the same place, size and angle, plain cream white \
+with a dark outline and nothing on them (no letters, pips or symbols). The fingers are behind the cards and only the \
+thumb is in front of them, pressing their lower left corners, as in the placeholder.
+"""
+sin = "no chips, no other cards, "
+
+[brazos.tomas.izq-mesa]
+toma = """
+the player's left hand lies flat on the poker table, palm down, resting on the far half of two face-down cards that \
+lie on the table, seen from the player's own eyes looking down at the table at a low angle, so the hand looks short \
+and wide.
+"""
+detalle = """
+The two plain cards lying on the table stay exactly as they are in the placeholder: the same place, size and shape, \
+plain cream with a dark outline and nothing on them. The hand rests only on their far half (the upper half in the \
+image), like the placeholder hand: the half of each card closest to the bottom of the image, with its two corners, \
+stays completely visible, with no fingers, thumb or palm over it. The thumb is tucked against the side of the index \
+finger, on top of the far half of the left card: it does not hang down toward the player. The forearm comes in from \
+the bottom left and passes to the left of the cards without touching them. The fingers point to the right, toward \
+the middle of the table. The whole hand, fingertips included, stays inside the \
+image and ends where the placeholder hand ends, well before the right edge: the fingers lie together and are no \
+longer than the placeholder hand.
+"""
+sin = "no chips, no other cards, "
+
+[brazos.tomas.der-descansar]
+toma = """
+the player's right hand rests relaxed on the poker table, a compact, loosely closed hand lying on the felt with the \
+fingers curled in, seen from the player's own eyes looking down at the table at a low angle.
+"""
+detalle = """
+The hand is no wider than the placeholder hand: the fingers do not stretch out to the left or to the right. The \
+thumb lies on the felt at the bottom, as in the placeholder. The hand holds nothing and is not raised: it is not \
+reaching or grabbing.
+"""
+sin = "no chips, no cards, "
+
+[brazos.tomas.der-jugar]
+toma = """
+the player's right hand on the poker table, playing with two small stacks of poker chips: the fingertips reach \
+forward and touch the bottom of the stacks, as if about to pick up the top chip, seen from the player's own eyes \
+looking down at the table at a low angle.
+"""
+detalle = """
+The two small stacks of chips stay exactly as they are in the placeholder: the same place and size, plain cream with \
+a dark outline, with no colors, stripes, numbers or symbols. The fingers are in front of the stacks and only their \
+tips overlap the bottom of the stacks, leaving most of the stacks visible. The hand is clearly raised and reaching \
+up, unlike a hand at rest. Only the index finger and the middle finger reach the stacks (the index the left stack, \
+the middle finger the right one); the ring and little fingers stay curled toward the palm, so the hand is no wider \
+than the placeholder hand and nothing sticks out to the right. The thumb is at the bottom left, as in the placeholder.
+"""
+sin = "no cards, no other chips, "
+
+# las frases de las revisiones propias de este comando, para el reintento (las demás, de [correcciones])
+[brazos.correcciones]
+alineacion = "Keep the arm and hand exactly where the placeholder is, with the same size, angle and outline."
+borde = "The forearm comes in from the bottom edge of the image, and nothing touches the top edge or the sides."
+pieza = "Draw a single arm and hand in one piece, with nothing else around it."
+cartas = "Keep the two blank cards exactly as they are in the placeholder: the same place, size and angle, plain and blank."
+pulgar = "The thumb must be in front of the cards, pressing their lower left corners."
+fichas = "Keep the two small stacks of plain cream chips exactly as they are in the placeholder, mostly visible, with only the fingertips over their bottom."
+dedos = "The fingertips must touch the bottom of the two small stacks of chips."
+lugar = "Keep the hand no wider than the placeholder hand: the fingers do not reach further left or right than it."
+mesa = "Keep the two plain cards on the table exactly as they are in the placeholder."
+cerca = "Leave the near half of both cards (the half closest to the bottom of the image) completely visible: the hand rests only on their far half, like the placeholder hand."
+tapa = "The hand rests on the far half of the two cards, covering it, like the placeholder hand."

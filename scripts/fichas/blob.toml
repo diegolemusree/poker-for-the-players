@@ -14,6 +14,8 @@ sonrisa = "the grin becomes even wider and more satisfied"
 
 # apuesta, retirarse y gana (zona de brazos)
 manos = "soft, slimy blue hands with short stubby fingers"
+# mis brazos (comando brazos): el antebrazo que entra por la orilla de abajo
+antebrazos = "short, thick, soft slimy blue forearms with a few slime drops, the same blue as the body"
 fichas = "dark blue and white poker chips"   # nunca del color del fondo: el chroma key las borraría
 
 opacas = []

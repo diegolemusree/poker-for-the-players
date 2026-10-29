@@ -94,7 +94,7 @@ poker-for-the-players/
   referencia/
     poker-referencia.html
   scripts/
-    generar-personaje.py      # genera cuadros con Gemini editando la base aprobada, una zona por llamada, con revisiones automáticas (arte/generadas/<id>/); aprobar los pasa a arte/personajes/<id>/. `cartas`: las cartas de la mano con el reverso de la baraja y del mismo tamaño en la mesa (ver "Cartas")
+    generar-personaje.py      # genera cuadros con Gemini editando la base aprobada, una zona por llamada, con revisiones automáticas (arte/generadas/<id>/); aprobar los pasa a arte/personajes/<id>/. `cartas`: las cartas de la mano con el reverso de la baraja y del mismo tamaño en la mesa (ver "Cartas"). `brazos`: mis brazos, redibujando las siluetas de relleno (ver "Brazos del jugador")
     prompts-personaje.toml    # plantilla de edición y los cambios de cada cuadro, en inglés, editables
     fichas/<id>.toml          # ficha de cada personaje para los prompts: fondo, cómo parpadea, a dónde mira, sonrisa, manos, fichas, partes opacas
     ocr.swift                 # OCR de macOS para la revisión "sin texto" del generador (se compila solo en .venv-rembg/bin/)
@@ -103,7 +103,8 @@ poker-for-the-players/
     prompts-baraja.toml       # los prompts de la baraja, en inglés, editables
     calcar-mesa.py            # calca la mesa aprobada: la cámara de la computadora (pitch dado, dist) y la orilla del juego (TABLE_EDGE, RAIL_Y, APRON, FELT_R) que la reproducen, y su proyección (arte/mesa/mesa-horizontal.json)
     recortar.py       # quita un fondo GRIS con rembg (solo para arte viejo; el nuevo viene en verde o magenta)
-    optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro; `mesa` exporta la mesa ilustrada y escribe client/stage/mesa.json; `baraja` exporta el arte de la baraja (carta-*.webp) y escribe client/stage/baraja.json
+    optimizar-arte.py # arte/ -> public/assets/arte/*.webp (chroma key verde o magenta, cuadros alineados), GIF de revisión y registro; `mesa` exporta la mesa ilustrada y escribe client/stage/mesa.json; `baraja` exporta el arte de la baraja (carta-*.webp) y escribe client/stage/baraja.json; `brazos` exporta mis brazos y escribe su `brazos` en personajes.json
+    brazos-mesa.mjs   # lo que el juego sabe de mis brazos, en JSON para los scripts de arte: siluetas de relleno, fichas, el doblez de asomarse y dónde caen mis cartas boca abajo en la imagen del brazo
     generar-iconos.mjs # PNG del ícono de la app (32, 180, 192, 512) a partir de icono.svg, con Chrome sin ventana
   arte/               # originales pesados, fuera de git (se quedan en la Mac)
     personajes/<id>/  # cuadros de cada personaje sobre verde o magenta: <id>-<ángulo>-<cuadro>.png
@@ -325,7 +326,7 @@ En la computadora mis brazos, en primera persona, son los del personaje que eleg
 "color": "#8aba72",
 "brazos": {
   "izquierdo": {
-    "size": [820, 1150], "ancla": [0.66, 0.30], "alto": 0.86,
+    "size": [820, 1150], "ancla": [0.66, 0.30], "alto": 0.86, "mano": [0.36, 0.14, 0.88, 0.38],
     "poses": {
       "ver": {
         "archivo": "alien-brazo-izq-ver",
@@ -347,8 +348,8 @@ En la computadora mis brazos, en primera persona, son los del personaje que eleg
 ```
 
 - `color` va en el personaje, no en `brazos`: el de su piel o sus manos. Es obligatorio para los que están en uso y con él se dibuja la silueta de relleno. Los seis se sacaron de sus manos en su arte: alien `#93b975`, blob `#7bbcd4`, nerd `#f4c4a0` (su piel; en las manos salía su camisa), pulpo `#bc60b8`, robot `#a7b2b3` y turista `#e7b693`.
-- Por brazo: `size`, el tamaño de la imagen grande (todas las poses de un brazo en el mismo lienzo y alineadas, como los cuadros de los rivales, para que nada brinque); `ancla`, el punto de la imagen que cae en la mesa (el izquierdo, en el centro de mis dos cartas; el derecho, junto a mi pila); `alto`, lo que mide la imagen en unidades de la mesa (como `height` de los rivales). Con eso se acomoda a cualquier pantalla.
-- `cartas`: el centro, el ancho (fracción del ancho de la imagen) y el giro en grados de cada carta en la mano. `pulgar`: su archivo y la caja que ocupa sobre el brazo (`[0, 0, 1, 1]` si viene en el mismo lienzo). `fichas`: el punto del fieltro donde van las columnitas (su tamaño lo da la mesa). `ocultar` y `vacio` no llevan anclas: las cartas boca abajo van en mi lugar de la mesa, el del `ancla`.
+- Por brazo: `size`, el tamaño de la imagen grande (todas las poses de un brazo en el mismo lienzo y alineadas, como los cuadros de los rivales, para que nada brinque); `ancla`, el punto de la imagen que cae en la mesa (el izquierdo, en el centro de mis dos cartas; el derecho, junto a mi pila); `alto`, lo que mide la imagen en unidades de la mesa (como `height` de los rivales). Con eso se acomoda a cualquier pantalla. `mano` (opcional): lo que ocupa la mano en todas las poses del brazo, sin el antebrazo; las apuestas, el dealer y las pruebas de pantalla la usan. La mide `optimizar-arte.py brazos` del arte (de la punta de los dedos a `MUÑECA` abajo del ancla); sin ella, una caja genérica alrededor del ancla (`MANO_ARTE`), que con manos reales se sale de la pantalla en 4:3.
+- `cartas`: el centro, el ancho (fracción del ancho de la imagen) y el giro en grados de cada carta en la mano. `pulgar`: su archivo y la caja que ocupa sobre el brazo (`optimizar-arte.py brazos` lo recorta a su caja y la anota; `[0, 0, 1, 1]` si viene en el mismo lienzo, pero entonces las apuestas esquivan todo el brazo). `fichas`: el punto del fieltro donde van las columnitas (su tamaño lo da la mesa). `ocultar` y `vacio` no llevan anclas: las cartas boca abajo van en mi lugar de la mesa, el del `ancla`.
 - `archivo` va sin carpeta ni extensión: el juego usa `/<carpeta>/<archivo>.webp` y, en calidad baja, `-chico.webp`.
 - **Todo o nada por personaje**: si a su `brazos` le falta cualquier pieza, o alguna de sus imágenes no carga, se dibujan siluetas de relleno de su `color` (antebrazo y mano de manopla, color plano con contorno de tinta) con las anclas por defecto (`RELLENO` en `arms.js`, con el mismo formato). Mientras carga su arte no se dibujan brazos. Sin `color` se usa uno por omisión: nunca truena. Hoy los seis van con relleno.
 
@@ -364,6 +365,8 @@ En la computadora mis brazos, en primera persona, son los del personaje que eleg
 | `<id>-brazo-der-jugar` | la mano derecha en el gesto de jugar con fichas, sin las fichas |
 
 Todas con el antebrazo entrando por la orilla de abajo de la imagen (cortado derecho: sale de la pantalla), con el estilo de los personajes, sin cartas, fichas ni textos (los pone el código), sobre verde o magenta. Asomarse, el empujón y el all-in no llevan imagen. Los nombres no chocan con los de los cuadros (`<id>-<ángulo>-<cuadro>`): `optimizar-arte.py` solo borra `<id>-frente-*` y `<id>-lado-*`.
+
+**Cómo se hacen** (`scripts/generar-personaje.py brazos <id>`, ver su ayuda): no hay base aprobada que editar, así que el boceto es la silueta de relleno del juego (`RELLENO` y `FIGURAS` de `arms.js`, del `color` del personaje y sobre su fondo) y Gemini la redibuja como su brazo, con su `frente-espera` de referencia; así el arte cae en las anclas del relleno. Cuatro tomas: `izq-ver` (con las dos cartas en blanco donde van las del juego: su papel se vuelve transparente y lo que quedó encima es el pulgar), `izq-mesa` (sirve para ocultar y vacio; con mis dos cartas boca abajo de prueba donde el juego pone las de verdad: la mano va sobre su parte de allá y deja libre la de mi lado, la que se levanta al asomarse, para que el paso de ocultar a asomarse sea continuo), `der-descansar` y `der-jugar` (con dos columnitas de fichas de prueba donde el juego pone las de verdad, para que los dedos lleguen a ellas). Lo de prueba se borra después. La mano derecha nunca tapa mi pila y cabe en la pantalla; solo en 4:3 puede salirse hasta 3 % del ancho por la orilla derecha (`SALE_EN_4_3` en `test/brazos.test.js`, `LUGAR` en el generador), porque una mano que juega con fichas no cabe entre mi pila y esa orilla. Por eso también el brazo derecho del relleno mide 0.67 (el izquierdo 0.69) y sus fichas van en 0.37; `recomponer-brazos` rearma una toma con respuestas ya pagadas. Lo que el juego sabe de los brazos (siluetas, fichas, el doblez de asomarse y dónde caen mis cartas boca abajo en la imagen) lo lee `scripts/brazos-mesa.mjs`. `aprobar-brazos` las pasa a `arte/personajes/<id>/` y `optimizar-arte.py brazos <id>` las exporta y escribe su `brazos`. La ficha del personaje necesita `antebrazos`.
 
 ### Interfaz encima de la escena
 

@@ -10,6 +10,7 @@ USO (desde la carpeta poker-for-the-players/, con el entorno de recortar.py)
     .venv-rembg/bin/python scripts/optimizar-arte.py personajes alien --angulo lado
     .venv-rembg/bin/python scripts/optimizar-arte.py gif alien           # GIF de revisión por ángulo
     .venv-rembg/bin/python scripts/optimizar-arte.py registrar alien --nombre "El Compadre Zorg"
+    .venv-rembg/bin/python scripts/optimizar-arte.py brazos alien        # mis brazos (de generar-personaje.py brazos)
 
 Para un personaje nuevo, los tres pasos en orden: personajes -> gif (revisar) -> registrar.
 La especificación del arte está en docs/ESPEC-PERSONAJES.md.
@@ -40,6 +41,13 @@ QUÉ HACE
     4. los reduce con un solo factor: frente a 1000 px de alto como máximo, lado a 1200 px.
   Así todos los cuadros de un grupo salen del mismo tamaño y al cambiar de pose nada brinca.
 
+- brazos: arte/personajes/<id>/<id>-brazo-*.png (ya sin fondo, de generar-personaje.py brazos y aprobar-brazos) ->
+  public/assets/arte/<id>-brazo-*.webp y -chico.webp, a ALTO_BRAZOS px de alto como máximo y sin recortar (las anclas
+  son fracciones de todo el lienzo), salvo el pulgar, que se recorta a su caja; y escribe su `brazos` en
+  client/stage/personajes.json: la caja del pulgar y lo que ocupa cada mano (`mano`) se miden del arte; las anclas, las
+  cartas y las fichas son las del relleno de client/stage/arms.js (el arte se dibujó sobre sus siluetas), o las que ya
+  estaban.
+
 - gif: arte/revision/<id>-<ángulo>.gif alterna espera con cada uno de los demás cuadros, sobre un fondo
   liso, con el marco de la imagen, la línea de la cintura y la caja de la cara (si ya están registradas).
   Si algo brinca, se ve.
@@ -61,7 +69,7 @@ del contorno el alfa sale de cuánto color de fondo tiene cada píxel, y ese col
 quede halo. Las manchitas sueltas se borran. Al final se cuentan los píxeles visibles que siguen teñidos del
 fondo: si hay, se avisa y se deja arte/revision/<id>-<ángulo>-<cuadro>-restos.png con los restos en rojo.
 """
-import argparse, glob, json, os, re, sys
+import argparse, glob, json, os, re, shutil, subprocess, sys
 from collections import defaultdict
 import numpy as np
 from PIL import Image, ImageDraw
@@ -356,6 +364,8 @@ def entradas(ids=None):
             base, ext = os.path.splitext(os.path.basename(path))
             if ext.lower() not in (".png", ".webp", ".jpg", ".jpeg"):
                 continue
+            if base.startswith(f"{pid}-brazo-"):   # mis brazos: los exporta el comando brazos
+                continue
             m = NOMBRE.match(base)
             if not m or m["id"] != pid:
                 print(f"  (me salto {rel(path)}: el nombre debe ser {pid}-<ángulo>-<cuadro>)")
@@ -428,6 +438,108 @@ def personajes(ids=None, angulo=None):
             grupo(pid, ang, paths)
 
 
+# ---------- mis brazos ----------
+
+# Los archivos del arte de mis brazos (ver "Brazos del jugador" en CLAUDE.md): <id>-brazo-<nombre>.png en
+# arte/personajes/<id>/, ya sin fondo (scripts/generar-personaje.py brazos les quita el fondo y el papel de las cartas).
+ARCHIVOS_BRAZO = ["izq-ver", "izq-ver-pulgar", "izq-ocultar", "izq-vacio", "der-descansar", "der-jugar"]
+ALTO_BRAZOS = 1600   # px de alto como máximo: en una pantalla 5K el brazo se ve de unos 1550 px
+MUÑECA = 0.05        # la mano llega hasta esto abajo del ancla (fracción del alto); más abajo es el antebrazo
+MARGEN_PULGAR = 6    # px alrededor del pulgar al recortarlo
+
+
+def relleno_brazos():
+    """Lo que el juego sabe de mis brazos, leído con node (scripts/brazos-mesa.mjs): las siluetas de relleno de
+    client/stage/arms.js (RELLENO, LIENZO, FIGURAS y FICHAS), el tamaño de las cartas y las fichas, el doblez de
+    asomarse (FOLD) y dónde caen mis cartas boca abajo en la imagen del brazo izquierdo (CARTAS_MESA). El arte de los
+    brazos se dibuja sobre esas siluetas, así que usa su mismo lienzo y sus mismas anclas."""
+    r = subprocess.run(["node", os.path.join("scripts", "brazos-mesa.mjs")], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode:
+        sys.exit(f"No pude leer lo de los brazos del juego con node (scripts/brazos-mesa.mjs):\n{r.stderr[-800:]}")
+    return json.loads(r.stdout)
+
+
+def caja_visible(alfa, hasta=None):
+    """La caja [izquierda, arriba, derecha, abajo] en fracciones de lo visible, solo de la fila `hasta` para arriba."""
+    a = alfa > 127
+    if hasta is not None:
+        a = a[:hasta]
+    ys, xs = np.where(a)
+    h, w = alfa.shape
+    return [xs.min() / w, ys.min() / h, (xs.max() + 1) / w, (ys.max() + 1) / h]
+
+
+def brazos(pid, entrega=None):
+    """arte/personajes/<id>/<id>-brazo-*.png -> public/assets/arte/<id>-brazo-*.webp (grande y -chico) y su `brazos`
+    en personajes.json: el tamaño y los archivos; lo que ocupa cada mano (`mano`, de la punta de los dedos a MUÑECA
+    abajo del ancla, en todas sus poses) y el pulgar, recortado a su caja, se miden del arte; las anclas, las cartas y
+    las fichas son las del relleno (el arte se dibujó sobre sus siluetas) o, si ya estaban, se quedan. Con `entrega`
+    (una carpeta) no toca el juego: deja en <entrega>/<id>/ los PNG, webp/ (grande y -chico) y brazos.json."""
+    src = os.path.join(SRC, "personajes", pid)
+    paths = {n: os.path.join(src, f"{pid}-brazo-{n}.png") for n in ARCHIVOS_BRAZO}
+    faltan = [rel(p) for p in paths.values() if not os.path.exists(p)]
+    if faltan:
+        sys.exit("Faltan imágenes de los brazos (todo o nada):\n  " + "\n  ".join(faltan))
+    imgs = {n: Image.open(p).convert("RGBA") for n, p in paths.items()}
+    if len({i.size for i in imgs.values()}) > 1:
+        sys.exit(f"{pid}: las imágenes de los brazos no miden lo mismo: {sorted({i.size for i in imgs.values()})}")
+    w, h = next(iter(imgs.values())).size
+    k = min(1, ALTO_BRAZOS / h)
+    tam = (round(w * k), round(h * k))
+
+    datos = leer_registro()
+    if pid not in datos:
+        sys.exit(f"{pid} no está en {rel(REGISTRO)}: primero registrar.")
+    R, previo = relleno_brazos()["RELLENO"], datos[pid].get("brazos") or {}
+    izq, der = previo.get("izquierdo") or R["izquierdo"], previo.get("derecho") or R["derecho"]
+
+    # lo que ocupa cada mano, en todas sus poses (para que las apuestas y el dealer no queden debajo)
+    alfas = {n: np.asarray(img)[..., 3] for n, img in imgs.items()}
+    def mano(lado, nombres):
+        cajas = [caja_visible(alfas[n], round((lado["ancla"][1] + MUÑECA) * h)) for n in nombres]
+        return [round(min(c[0] for c in cajas), 3), round(min(c[1] for c in cajas), 3),
+                round(max(c[2] for c in cajas), 3), round(max(c[3] for c in cajas), 3)]
+    mano_izq = mano(izq, ["izq-ver", "izq-ocultar", "izq-vacio"])
+    mano_der = mano(der, ["der-descansar", "der-jugar"])
+    # el pulgar, recortado a su caja (con un margen): el juego lo pone en esa caja sobre el brazo
+    ys, xs = np.where(alfas["izq-ver-pulgar"] > 0)
+    x0, y0 = max(0, xs.min() - MARGEN_PULGAR), max(0, ys.min() - MARGEN_PULGAR)
+    x1, y1 = min(w, xs.max() + 1 + MARGEN_PULGAR), min(h, ys.max() + 1 + MARGEN_PULGAR)
+    imgs["izq-ver-pulgar"] = imgs["izq-ver-pulgar"].crop((x0, y0, x1, y1))
+    caja_pulgar = [x0 / w, y0 / h, x1 / w, y1 / h]
+
+    out = os.path.join(entrega, pid, "webp") if entrega else OUT
+    os.makedirs(out, exist_ok=True)
+    for n, img in imgs.items():
+        t = tuple(max(1, round(v * k)) for v in img.size)
+        guardar(escalar(img, *t), os.path.join(out, f"{pid}-brazo-{n}.webp"), Q_PERSONAJE)
+        guardar(escalar(img, max(1, t[0] // 2), max(1, t[1] // 2)), os.path.join(out, f"{pid}-brazo-{n}-chico.webp"),
+                Q_PERSONAJE)
+
+    archivo = lambda n: f"{pid}-brazo-{n}"
+    bloque = {
+        "izquierdo": {"size": list(tam), "ancla": izq["ancla"], "alto": izq["alto"], "mano": mano_izq, "poses": {
+            "ver": {"archivo": archivo("izq-ver"), "cartas": izq["poses"]["ver"]["cartas"],
+                    "pulgar": {"archivo": archivo("izq-ver-pulgar"), "caja": [round(v, 4) for v in caja_pulgar]}},
+            "ocultar": {"archivo": archivo("izq-ocultar")}, "vacio": {"archivo": archivo("izq-vacio")}}},
+        "derecho": {"size": list(tam), "ancla": der["ancla"], "alto": der["alto"], "mano": mano_der, "poses": {
+            "descansar": {"archivo": archivo("der-descansar")},
+            "jugar": {"archivo": archivo("der-jugar"), "fichas": der["poses"]["jugar"]["fichas"]}}},
+    }
+    if entrega:
+        carpeta = os.path.join(entrega, pid)
+        for p in paths.values():
+            shutil.copy2(p, carpeta)
+        with open(os.path.join(carpeta, "brazos.json"), "w") as f:
+            f.write(a_texto(bloque) + "\n")
+        print(f"Los brazos de {pid}, listos para el juego, en {carpeta}/ (el juego no cambió).")
+        return
+    datos[pid]["brazos"] = bloque
+    escribir_registro(datos)
+    print(f"{'Actualizados' if previo else 'Agregados'} los brazos de {pid} en {rel(REGISTRO)} ({tam[0]}x{tam[1]}). "
+          "Recarga la página: mis brazos ya son su arte.")
+
+
 # ---------- GIF de revisión ----------
 
 def cuadros_publicados(pid, angulo):
@@ -490,12 +602,15 @@ def leer_registro():
         return json.load(f)
 
 
-def escribir_registro(datos):
+def a_texto(datos):
+    """JSON con las listas en una sola línea, para que se lea como el resto del código."""
     texto = json.dumps(datos, indent=2, ensure_ascii=False)
-    # las listas en una sola línea, para que se lea como el resto del código
-    texto = re.sub(r"\[\s+([^\[\]{}]*?)\s+\]", lambda m: "[" + re.sub(r",\s+", ", ", m[1]) + "]", texto)
+    return re.sub(r"\[\s+([^\[\]{}]*?)\s+\]", lambda m: "[" + re.sub(r",\s+", ", ", m[1]) + "]", texto)
+
+
+def escribir_registro(datos):
     with open(REGISTRO, "w") as f:
-        f.write(texto + "\n")
+        f.write(a_texto(datos) + "\n")
 
 
 def registrar(pid, nombre=None):
@@ -550,6 +665,10 @@ def main():
     r = sub.add_parser("registrar", help="agrega o actualiza el personaje en client/stage/personajes.json")
     r.add_argument("id")
     r.add_argument("--nombre", help='nombre del bot que usa este personaje, por ejemplo "El Compadre Zorg"')
+    b = sub.add_parser("brazos", help="mis brazos de un personaje (arte/personajes/<id>/<id>-brazo-*.png) y su "
+                       "`brazos` en client/stage/personajes.json")
+    b.add_argument("id")
+    b.add_argument("--entrega", help="en vez de tocar el juego, dejarlos en esta carpeta (una subcarpeta por personaje)")
     args = ap.parse_args()
 
     os.makedirs(OUT, exist_ok=True)
@@ -565,6 +684,8 @@ def main():
         gif(args.id, args.angulo)
     if args.comando == "registrar":
         registrar(args.id, args.nombre)
+    if args.comando == "brazos":
+        brazos(args.id, args.entrega)
 
 
 if __name__ == "__main__":

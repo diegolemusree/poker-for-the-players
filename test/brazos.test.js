@@ -87,10 +87,12 @@ test('todo o nada: un brazo incompleto, una imagen que falta o un ancla fuera de
   const unaCarta = copia(COMPLETOS); unaCarta.izquierdo.poses.ver.cartas.pop();
   const sinFichas = copia(COMPLETOS); delete sinFichas.derecho.poses.jugar.fichas;
   const sinDerecho = copia(COMPLETOS); delete sinDerecho.derecho;
+  const manoMala = copia(COMPLETOS); manoMala.izquierdo.mano = [0.5, 0.2, 0.4, 0.3];
   for (const [nombre, brazos, existe] of [
     ['sin la pose ocultar', sinPose, si], ['sin pulgar', sinPulgar, si], ['ancla fuera de la imagen', fuera, si],
     ['con una sola carta', unaCarta, si], ['sin el punto de las fichas', sinFichas, si], ['sin brazo derecho', sinDerecho, si],
     ['sin una de sus imágenes', COMPLETOS, a => a !== 'x-brazo-der-jugar'], ['sin brazos', undefined, si],
+    ['con una mano que no es caja', manoMala, si],
   ]) {
     const b = brazosDe({ color: '#123456', brazos }, existe);
     assert.equal(b.arte, false, nombre);
@@ -103,6 +105,14 @@ test('todo o nada: un brazo incompleto, una imagen que falta o un ancla fuera de
   assert.equal(brazosDe({ color: 'verde' }).color, COLOR_POR_OMISION);
   assert.equal(brazosDe(null).arte, false);
   assert.equal(brazosDe(undefined).color, COLOR_POR_OMISION);
+});
+
+test('con arte, lo que ocupa cada mano es su `mano` medida o, si no la trae, una caja alrededor del ancla', () => {
+  const conMano = copia(COMPLETOS); conMano.derecho.mano = [0.1, 0.15, 0.45, 0.35];
+  const [, sinMedir] = brazos({ color: '#123456', brazos: COMPLETOS }).cajas();
+  const b = brazos({ color: '#123456', brazos: conMano }), l = b.lugar('derecho'), [, medida] = b.cajas();
+  assert.ok(Math.abs(medida.x0 - (l.x + 0.1 * l.w)) < 1e-6, 'empieza donde empieza su mano');
+  assert.ok(medida.x1 < sinMedir.x1, 'la medida es más angosta que la genérica');
 });
 
 test('las anclas por defecto del relleno están dentro de su imagen', () => {
@@ -152,6 +162,7 @@ test('el orden de las capas: Ver es brazo, mis dos cartas y el pulgar; lo levant
 
 // Una mesa de 1440 x 900 como la de la escena (index.js) y unos brazos acomodados en ella.
 const CAM = CAMERAS.landscape;
+const SALE_EN_4_3 = 0.03; // lo que la mano derecha puede salirse por la orilla derecha en 4:3, en fracción del ancho
 const HEAD = Math.max(...Object.values(CHARACTERS).map(c => c.angles.frente.height * c.angles.frente.waist[1])) * (CAM.rivals || 1);
 function mesa(W, H) {
   const reserve = Math.min(210, Math.max(130, H * 0.21));
@@ -277,17 +288,23 @@ test('con arte, Ver se dibuja en este orden: el brazo, mis dos cartas y el pulga
 test('en pantallas horizontales de 4:3 a 21:9: los antebrazos salen por abajo y mis manos y mis cartas no tapan nada', () => {
   const tapa = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
   const caja = pts => ({ x0: Math.min(...pts.map(p => p.x)), y0: Math.min(...pts.map(p => p.y)), x1: Math.max(...pts.map(p => p.x)), y1: Math.max(...pts.map(p => p.y)) });
-  for (const [W, H] of [[1024, 768], [1280, 800], [1366, 768], [1440, 900], [1920, 1080], [2560, 1080]]) {
-    const m = mesa(W, H), b = brazos(CHARACTERS.alien, m), donde = `${W}x${H}`;
+  // cada personaje con sus brazos (su arte si lo tiene; si no, el relleno)
+  for (const [id, personaje] of enUso) for (const [W, H] of [[1024, 768], [1280, 800], [1366, 768], [1440, 900], [1920, 1080], [2560, 1080]]) {
+    const m = mesa(W, H), b = brazos(personaje, m), donde = `${id} ${W}x${H}`;
     for (const lado of ['izquierdo', 'derecho']) {
       const l = b.lugar(lado), abajo = l.y + l.h;
       // empujando, el brazo sube y se achica hacia su ancla: aun así su orilla de abajo queda fuera de la pantalla
       const empujado = l.ay + l.hacia.y + EMPUJON.escala * (abajo - l.ay);
       assert.ok(empujado >= H, `${donde} ${lado}: la orilla de abajo del brazo queda en ${empujado.toFixed(0)}, arriba de la pantalla`);
     }
-    // mis manos (con lo que tienen, en todas sus poses) adentro de la pantalla, abajo de la franja de arriba
+    // mis manos (con lo que tienen, en todas sus poses) adentro de la pantalla, abajo de la franja de arriba; en 4:3 la
+    // derecha puede salirse un poco por la orilla derecha (una mano que juega con fichas no cabe entre mi pila y la
+    // orilla), como el antebrazo por abajo
     const manos = b.cajas();
-    for (const c of manos) assert.ok(c.x0 >= 0 && c.x1 <= W && c.y0 >= 80, `${donde}: una mano se sale (${JSON.stringify(c)})`);
+    for (const [i, c] of manos.entries()) {
+      const derecha = i === 1 && W / H < 1.5 ? W * (1 + SALE_EN_4_3) : W;
+      assert.ok(c.x0 >= 0 && c.x1 <= derecha && c.y0 >= 80, `${donde}: una mano se sale (${JSON.stringify(c)})`);
+    }
     // las cartas en la mano, arriba de la barra de acciones
     const l = b.lugar('izquierdo');
     for (const c of RELLENO.izquierdo.poses.ver.cartas) {
