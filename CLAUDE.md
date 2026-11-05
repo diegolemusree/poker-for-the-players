@@ -46,7 +46,8 @@ En el prototipo, el estado completo (incluyendo el mazo y las cartas de todos) s
 ```
 poker-for-the-players/
   CLAUDE.md
-  README.md         # qué es, cómo publicarlo en Render, el código de acceso y el dominio propio (para principiante)
+  README.md         # presentación en inglés para el portafolio (qué es, capturas, arquitectura, cómo correrlo)
+  docs/PUBLICAR.md  # cómo publicarlo en Render, el código de acceso y el dominio propio (para principiante)
   render.yaml       # la configuración de Render (ver "Publicación")
   package.json
   server/
@@ -478,7 +479,7 @@ Notas abiertas:
 
 ## Publicación con dominio propio (cuando funcione en local)
 
-- Se publica en **Render** (decisión del dueño, 2026-10-27): un solo servicio web de Node que sirve la página y el servidor de Socket.IO en el mismo dominio. La configuración está en `render.yaml` (Blueprint: plan gratis, región ohio, rama `main` con publicación automática en cada commit, build `npm ci --include=dev && npm run build` porque Vite está en devDependencies, `npm start`, Node 24 y revisión de salud en `/api/config`). Los pasos para crearlo, cambiar el código y conectar el dominio están en `README.md`, explicados para alguien que lo hace por primera vez.
+- Se publica en **Render** (decisión del dueño, 2026-10-27): un solo servicio web de Node que sirve la página y el servidor de Socket.IO en el mismo dominio. La configuración está en `render.yaml` (Blueprint: plan gratis, región ohio, rama `main` con publicación automática en cada commit, build `npm ci --include=dev && npm run build` porque Vite está en devDependencies, `npm start`, Node 24 y revisión de salud en `/api/config`). Los pasos para crearlo, cambiar el código y conectar el dominio están en `docs/PUBLICAR.md`, explicados para alguien que lo hace por primera vez.
 - **Vercel no sirve** (se probó el 2026-10-27): solo publica la página y funciones cortas, sin un servidor prendido ni conexiones en vivo, así que la página carga pero dice "No hay conexión". Usarlo pediría reescribir el servidor (estado en una base de datos, relojes como fechas límite, polling); se descartó.
 - HTTPS obligatorio (Render lo da gratis, también con el dominio conectado).
 - Configurar `ACCESS_CODE` como variable de entorno en el servicio, nunca dentro del código (`sync: false` en `render.yaml`: Render lo pide al crear el servicio). Render pone `PORT` solo.

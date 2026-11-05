@@ -1,5 +1,5 @@
 # Publicación en Render (https://render.com/docs/blueprint-spec): el juego es un solo servicio web de Node que sirve la
-# página y el servidor de Socket.IO, siempre en el mismo dominio. Los pasos para crearlo están en README.md.
+# página y el servidor de Socket.IO, siempre en el mismo dominio. Los pasos para crearlo están en docs/PUBLICAR.md.
 services:
   - type: web
     name: poker-for-the-players
