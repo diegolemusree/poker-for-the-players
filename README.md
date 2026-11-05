@@ -37,10 +37,10 @@ flowchart LR
     Engine["engine.js + hands.js<br/>rules, side pots, hand evaluator"]
     Bots["bots.js<br/>Monte Carlo decisions"]
   end
-  UI -- "intentions only: fold / check / call / raise(amount)" --> IO
+  UI -->|"intentions only: fold / check / call / raise(amount)"| IO
   IO --> Room --> Engine
   Room --> Bots
-  IO -- "filtered view: only your own cards<br/>(others' cards only at showdown)" --> UI
+  IO -->|"filtered view: only your own cards<br/>(others' cards only at showdown)"| UI
 ```
 
 - Only the server holds the deck and every player's cards.
